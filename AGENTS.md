@@ -210,3 +210,23 @@ The goal: Be helpful without being annoying. Check in a few times a day, do usef
 ## Make It Yours
 
 This is a starting point. Add your own conventions, style, and rules as you figure out what works.
+
+## Vardalux Watch Listing Pipeline
+
+On every startup, load these files in order:
+
+1. ~/.openclaw/workspace/pipelines/vardalux-listing-pipeline.md
+2. ~/.openclaw/workspace/skills/watch-listing-openclaw/watch-listing-openclaw-v2-SKILL.md
+
+Supporting reference files for the skill:
+- ~/.openclaw/workspace/skills/watch-listing-openclaw/references/platform-templates.md
+- ~/.openclaw/workspace/skills/watch-listing-openclaw/references/posting-checklist.md
+- ~/.openclaw/workspace/skills/watch-listing-openclaw/references/character-substitutions.md
+
+Global rules:
+- All Slack API calls use channel ID C0APPJX0FGC only. Never use channel name string.
+- All approvals and selections use Slack Block Kit buttons. Never poll for text replies.
+- Peekaboo browser sessions are always visible Chrome. Never headless.
+- User is already logged into WatchTrack. Never attempt to authenticate.
+- Never edit openclaw.json with TextEdit - use nano only.
+- After any openclaw.json edit: run "openclaw gateway restart" then "openclaw tui".
