@@ -67,10 +67,16 @@ Update `last_scan` timestamp. Wait for button tap.
 When "start:[relative_path]" button tap is received:
 
 1. Parse `internal_ref` from folder name (first segment before the hyphen, e.g. `821QW` from `821QW-WSSA0089`)
-2. Use the **browser tool** to navigate to `https://watchtrack.com/store/inventory`
-3. Search for the SKU in the inventory search bar
-4. Extract all fields: brand, model, reference, serial, condition, included items, retail price, wholesale price, item cost, sub_status, sale_channel, owner, notes
-5. Write extracted data as `watchtrack.json` to the listing folder
+2. Use the **openclaw browser tool** (NOT Claude Code) to look up WatchTrack:
+   - `openclaw browser open https://watchtrack.com/store/inventory`
+   - `openclaw browser fill --fields '[{"ref":"<search_ref>","value":"<SKU>"}]'`
+   - `openclaw browser snapshot` to read results
+   - `openclaw browser click <item_ref>` to open item detail
+   - `openclaw browser snapshot` again to extract all fields
+3. Extract all fields: brand, model, reference, serial, condition, included items, retail price, wholesale price, item cost, sub_status, sale_channel, owner, notes, comps
+4. Write extracted data as `watchtrack.json` to the listing folder
+
+**CRITICAL: OpenClaw (main agent) always does WatchTrack lookups. Never delegate this to Claude Code — Claude Code does not have access to the openclaw browser tool.**
 6. Send Telegram summary with buttons:
 
 ```
