@@ -2,8 +2,8 @@
 name: vardalux-pipeline
 description: >
   Watches the Vardalux Photo Pipeline folder for new listing-ready folders
-  (10+ images). OpenClaw handles WatchTrack lookup directly using the browser
-  tool. Claude Code handles listing content generation only.
+  (10+ images). OpenClaw handles WatchTrack lookup and title research directly.
+  Claude Code handles listing content generation only.
 ---
 
 # Vardalux Listing Pipeline
@@ -13,12 +13,14 @@ description: >
 1. Scan for new folders with 10+ photos
 2. Notify Ranbir on Telegram with Start / Skip buttons
 3. When Start is tapped: OpenClaw (main agent) uses the browser tool to look up WatchTrack, writes watchtrack.json, confirms with Ranbir
-4. When WatchTrack confirmed: spawn Claude Code with watch-listing-content skill for Steps 1–4
-5. Post completed listing to Slack when done
+4. When WatchTrack confirmed: OpenClaw runs title research (Step 1.5) → writes title-research.json
+5. Then spawn Claude Code with watch-listing-content skill for Steps 2–4
+6. Post completed listing to Slack when done
 
 ## What OpenClaw Does NOT Do
 - Generate listing copy, descriptions, pricing calculations, or PDFs
 - Those belong to Claude Code using the watch-listing-content skill
+- Title research (Step 1.5) is run by OpenClaw directly using web tools — not delegated to Claude Code
 
 ---
 
@@ -105,9 +107,27 @@ openclaw message send --channel telegram --target "8712103657" \
 
 ---
 
+## Step 1.5: Title Research (OpenClaw runs this directly)
+
+Immediately after WatchTrack is confirmed ("wt_ok" received), before spawning Claude Code:
+
+1. Read `watchtrack.json` from the listing folder for watch identity fields
+2. Run the `title-research` skill (read `~/.openclaw/workspace/skills/title-research/SKILL.md`)
+3. Write `title-research.json` to the listing folder
+4. Save checkpoint to listing folder:
+   - Success: `{ "step": "1.5", "status": "complete", "file": "title-research.json" }`
+   - Failure: `{ "step": "1.5", "status": "skipped", "reason": "<description>" }`
+5. Continue to Step 4 regardless of success or failure — do NOT block or notify Ranbir unless catastrophic
+
+**No approval gate.** Title research is silent background work. Ranbir reviews resulting titles as part of the Step 3 approval in Claude Code.
+
+**Timing:** Expected 60–90 seconds. Skip any single research step that exceeds 30 seconds.
+
+---
+
 ## Step 4: Listing Generation (spawn Claude Code)
 
-When "wt_ok:[relative_path]" is received, spawn Claude Code:
+When title research is complete (or skipped), spawn Claude Code:
 
 ```
 sessions_spawn({
@@ -121,12 +141,14 @@ Run Steps 1–4 of the Vardalux listing pipeline.
 
 Folder: {full_folder_path}
 WatchTrack data is already in: {full_folder_path}/watchtrack.json
+Title research data is already in: {full_folder_path}/title-research.json (if present — may be absent if Step 1.5 was skipped; fall back to static keyword mapping)
 
 Read and follow:
 - ~/.openclaw/workspace/skills/watch-listing-content/SKILL.md
 - ~/.openclaw/workspace/skills/watch-listing-content/prompt.md
 
 Follow the exact step sequence from prompt.md. Do NOT skip any approval gate.
+When generating titles: check for title-research.json and use recommended_title_keywords if present.
 All user interaction via Telegram: openclaw message send --channel telegram --target "8712103657" --message "..." --buttons '[...]'
 
 After PDF is generated and confirmed:
@@ -154,5 +176,6 @@ After listing is confirmed complete, use the browser tool to:
 ## Error Handling
 
 - If browser tool fails or WatchTrack is not logged in: send error to Telegram, ask Ranbir to paste data manually
+- If Step 1.5 (title research) fails: log to checkpoint file, continue to Step 4 silently
 - If Claude Code errors: post error to Telegram with folder path
 - Never mark a folder processed unless listing is confirmed complete
