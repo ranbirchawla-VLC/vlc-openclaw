@@ -1,0 +1,510 @@
+---
+name: watchtrack
+description: >
+  Interact with the WatchTrack inventory management system via Claude in Chrome
+  browser automation. Two capabilities: (1) Item Details: given a SKU and working
+  folder, navigate to WatchTrack, search for the item, extract all item data, and
+  write a watchtrack.json file to the working folder. (2) Change Substatus: given
+  a SKU and desired sub-status value, navigate to WatchTrack, find the item, open
+  the sub-status edit modal, select the new value, and save. Use this skill whenever
+  the user or an orchestrator (OpenClaw) says "look up item", "get item details",
+  "pull from WatchTrack", "check WatchTrack", "update substatus", "change substatus",
+  "set substatus", "mark as listed", "mark as sold", or references a SKU in the
+  context of WatchTrack data retrieval or status updates. Also trigger when another
+  skill (watch-listing, vardalux-pipeline) needs WatchTrack data as an input step.
+---
+
+# WatchTrack Browser Automation — Vardalux Collections
+
+## Purpose
+
+Provide reliable, repeatable browser automation for WatchTrack inventory lookups
+and status updates. This skill is a standalone data access layer. It does not
+know about listings, pricing, Grailzee, or platform templates. Other skills and
+orchestrators call it when they need WatchTrack data or need to update an item's
+workflow status.
+
+Two capabilities in V1:
+
+1. **Item Details** — Search by SKU, extract all item fields, write `watchtrack.json`
+2. **Change Substatus** — Search by SKU, open the edit modal, set a new sub-status value
+
+---
+
+## Prerequisites
+
+This skill requires **Claude in Chrome** browser automation tools. Before any
+WatchTrack interaction:
+
+1. Call `tabs_context_mcp` to verify Chrome connection exists
+2. If no connection → return: `"Cannot access WatchTrack: No Chrome browser connected. Connect Claude in Chrome and ensure WatchTrack is logged in."`
+3. Do NOT attempt to log in, create accounts, or enter credentials
+
+The skill assumes the connected Chrome browser has an active, authenticated
+WatchTrack session (cookies in place). If navigation lands on a login page
+instead of the dashboard, halt and return the access error.
+
+---
+
+## Configuration
+
+Read `references/watchtrack-config.json` before executing either capability.
+This file contains:
+
+- `inventory_url` — The URL to navigate to for inventory search
+- `substatus_options` — Valid sub-status values for validation
+- `auth_check` — Text indicators for authenticated vs. login states
+
+---
+
+## Capability 1: Item Details
+
+### Inputs
+
+| Input | Source | Required |
+|-------|--------|----------|
+| `sku` | Provided by caller (user or orchestrator) | Yes |
+| `working_folder` | Provided by caller — absolute path where `watchtrack.json` will be written | Yes |
+
+### Execution Steps
+
+#### Step 1: Connect and Navigate
+
+```
+1. Call tabs_context_mcp (createIfEmpty: true)
+2. Navigate to the inventory URL from config
+3. Wait 2 seconds for page load
+4. Take a screenshot
+5. AUTH CHECK: Look for the page title "Inventory" or the search bar.
+   If the page shows a login form or redirect, HALT:
+   → Return: "Cannot access WatchTrack: Browser session is not authenticated.
+     Please log into WatchTrack in Chrome and try again."
+```
+
+#### Step 2: Search for SKU
+
+```
+1. Find the inventory search bar
+   → Use find tool: "search bar on inventory page"
+   → Fallback: look for textbox with placeholder containing
+     "Search by brand, reference number, serial number, stock ID"
+2. Clear any existing text in the search bar (triple-click then type)
+3. Type the SKU value
+4. Press Enter (key: "Return")
+5. Wait 2 seconds for results to filter
+6. Take a screenshot to verify results
+```
+
+#### Step 3: Validate Results
+
+```
+1. Use get_page_text to extract page content
+2. Look for "Viewing X-X of X result" text at the bottom
+3. VALIDATE:
+   - If "0 results" → HALT: Return "No item found for SKU: {sku}"
+   - If more than 1 result → HALT: Return "Ambiguous: {count} items
+     found for SKU: {sku}. Provide a more specific identifier."
+   - If exactly 1 result → proceed
+```
+
+#### Step 4: Open Item Detail Page
+
+```
+1. Find the item card link on the results page
+   → Use find tool: "item card link" or look for the first link
+     with href pattern /store/item/
+2. Click the item card
+3. Wait 2 seconds for the detail page to load
+4. Take a screenshot to confirm we are on the Item details page
+5. Verify the page shows "Item details" header
+```
+
+#### Step 5: Extract Item Data
+
+Extract data from two areas of the item detail page:
+
+**Right panel (item details):**
+
+Use `get_page_text` to extract all text, then parse these fields:
+
+| Field | JSON Key | Notes |
+|-------|----------|-------|
+| Stock ID | `stock_id` | Should match input SKU |
+| Serial Number | `serial` | May be "Serial N/A" |
+| Reference Number | `reference` | Full reference string |
+| Sub-Status | `sub_status` | Current workflow status |
+| List in Elite | `list_in_elite` | Yes/No/N/A |
+| Sale Channel | `sale_channel` | Comma-separated channels |
+| Owner | `owner` | Client/owner name |
+| Condition | `condition` | Pre-owned, New, BNIB, etc. |
+| Included Items | `included` | e.g. "Watch with original box" |
+| Month | `month` | May be N/A |
+| Year | `year` | May be N/A |
+| Dial Color | `dial_color` | |
+| Bracelet Type | `bracelet_type` | May be N/A |
+| Case Diameter | `case_diameter` | e.g. "45mm" |
+
+**Left panel (pricing overview):**
+
+| Field | JSON Key | Notes |
+|-------|----------|-------|
+| Retail Price | `retail_price` | Dollar amount |
+| Wholesale Price | `wholesale_price` | Dollar amount |
+| Consignment Payout / Item Cost | `item_cost` | Dollar amount |
+
+**Item Notes section:**
+
+| Field | JSON Key | Notes |
+|-------|----------|-------|
+| Item Notes | `item_notes` | May be "No item notes" → store as null |
+
+**Parsing approach:**
+
+Use `get_page_text` to extract all visible text from the page. The text
+output contains label-value pairs. Parse them by matching known field
+labels to their adjacent values. For pricing, look for the "Pricing
+overview" section.
+
+Alternatively, use `javascript_tool` to extract structured data:
+
+```javascript
+// Extract item details from the Angular component
+const fields = {};
+const rows = document.querySelectorAll('[class*="item-detail-title-global"]');
+for (const row of rows) {
+  const label = row.textContent.trim();
+  const valueEl = row.parentElement?.querySelector('[class*="item-detail-value"]')
+    || row.parentElement?.nextElementSibling;
+  if (valueEl) {
+    fields[label] = valueEl.textContent.trim();
+  }
+}
+// Get pricing from the left panel
+const priceLabels = document.querySelectorAll('.item-detail-summary-box-text');
+// ... parse pricing section
+JSON.stringify(fields);
+```
+
+If the JavaScript extraction returns incomplete data, fall back to
+`get_page_text` and parse the flat text output.
+
+#### Step 6: Check "Show more details"
+
+```
+1. Look for "Show more details" link on the page
+   → Use find tool: "Show more details"
+2. If found, click it
+3. Wait 1 second
+4. Re-extract any additional fields that appear
+5. If not found, skip (not all items have expanded details)
+```
+
+#### Step 7: Write watchtrack.json
+
+Assemble all extracted data into the following JSON structure and write
+it to `{working_folder}/watchtrack.json`:
+
+```json
+{
+  "sku": "9971Z",
+  "extracted_at": "2026-03-31T14:30:00Z",
+  "source_url": "https://watchtrack.com/store/item/{uuid}",
+  "item": {
+    "stock_id": "9971Z",
+    "serial": "N/A",
+    "reference": "525.NX.0170.LR.1104",
+    "brand": "Hublot",
+    "model": "Classic Fusion",
+    "sub_status": "Ready for listing",
+    "list_in_elite": "N/A",
+    "sale_channel": "Retail Listings, Social Push",
+    "owner": "Todd Erdmann",
+    "condition": "Pre-owned",
+    "included": "Watch with original box",
+    "month": null,
+    "year": null,
+    "dial_color": "Transparent",
+    "bracelet_type": null,
+    "case_diameter": "45mm"
+  },
+  "pricing": {
+    "retail_price": 6750.00,
+    "wholesale_price": 5500.00,
+    "item_cost": 6480.00
+  },
+  "item_notes": null
+}
+```
+
+**Field normalization rules:**
+- "N/A" string values → store as `null`
+- "Serial N/A" → store serial as `null`
+- "No item notes" → store item_notes as `null`
+- Price strings like "$6,750.00" → store as numbers: `6750.00`
+- Brand and model are parsed from the page title (e.g., "Hublot Classic Fusion")
+  → brand is the first word, model is the remainder
+
+#### Step 8: Confirm
+
+Return a summary to the caller:
+
+```
+WatchTrack data extracted for SKU {sku}:
+  Brand: {brand}
+  Model: {model}
+  Reference: {reference}
+  Condition: {condition}
+  Retail: ${retail_price}
+  Wholesale: ${wholesale_price}
+  Sub-Status: {sub_status}
+  File: {working_folder}/watchtrack.json
+```
+
+---
+
+## Capability 2: Change Substatus
+
+### Inputs
+
+| Input | Source | Required |
+|-------|--------|----------|
+| `sku` | Provided by caller | Yes |
+| `new_substatus` | Desired sub-status value | Yes |
+
+### Input Validation
+
+Before navigating, validate `new_substatus` against the allowed values
+in `references/watchtrack-config.json`:
+
+```
+Valid values: Intake, Needs Service, Needs Photos, Needs Video,
+Listing Prep, Ready for listing, On Chrono24, Grailzee First,
+Fully Listed, Sold
+```
+
+If the provided value does not match any option (case-insensitive),
+HALT and return:
+
+```
+Invalid sub-status: "{new_substatus}"
+Valid options: Intake, Needs Service, Needs Photos, Needs Video,
+Listing Prep, Ready for listing, On Chrono24, Grailzee First,
+Fully Listed, Sold
+```
+
+### Execution Steps
+
+#### Steps 1–4: Same as Item Details
+
+Navigate to inventory, search for SKU, validate single result, open
+item detail page. Follow Steps 1–4 from Capability 1 exactly.
+
+#### Step 5: Read Current Substatus
+
+```
+1. Use get_page_text or find tool to locate "Sub-Status" and its
+   current value on the item detail page
+2. If current value already matches new_substatus:
+   → Return: "Sub-status for SKU {sku} is already set to
+     '{new_substatus}'. No change needed."
+   → Do NOT open the edit modal
+```
+
+#### Step 6: Open Sub-Status Edit Modal
+
+The Sub-Status field has a pencil icon (`<img>` element) next to its
+value. This icon is NOT accessible via standard accessibility tools.
+Use JavaScript to locate and click it:
+
+```javascript
+// Find the pencil icon next to Sub-Status value
+const allEls = document.querySelectorAll('*');
+let subStatusValue = null;
+let pencilIcon = null;
+
+for (const el of allEls) {
+  if (el.textContent.trim() === 'Sub-Status' && el.children.length === 0) {
+    // Found the label. The value and pencil are in sibling elements
+    // at the same level in the parent container
+    const parent = el.closest('[class*="ng-tns"]')?.parentElement;
+    if (parent) {
+      const imgs = parent.querySelectorAll('img');
+      for (const img of imgs) {
+        const rect = img.getBoundingClientRect();
+        if (rect.width > 0 && rect.width < 20) {
+          pencilIcon = img;
+          break;
+        }
+      }
+    }
+    break;
+  }
+}
+
+if (pencilIcon) {
+  pencilIcon.click();
+  'clicked';
+} else {
+  'pencil_not_found';
+}
+```
+
+**If pencil_not_found:** Try the alternative approach — find all small
+`<img>` elements near the Sub-Status row coordinates:
+
+```javascript
+const allImgs = document.querySelectorAll('img');
+const subStatusLabel = [...document.querySelectorAll('*')]
+  .find(el => el.textContent.trim() === 'Sub-Status' && el.children.length === 0);
+
+if (subStatusLabel) {
+  const labelRect = subStatusLabel.getBoundingClientRect();
+  for (const img of allImgs) {
+    const imgRect = img.getBoundingClientRect();
+    // Pencil should be on the same row (within 15px vertically)
+    // and to the right of the label
+    if (Math.abs(imgRect.top - labelRect.top) < 15
+        && imgRect.left > labelRect.left + 100
+        && imgRect.width < 20) {
+      img.click();
+      break;
+    }
+  }
+}
+```
+
+After clicking, wait 1 second, then take a screenshot to confirm the
+"Edit custom field" modal has appeared.
+
+**If modal does not appear:** HALT and return:
+```
+"Could not open Sub-Status editor for SKU {sku}. The edit control
+may have changed. Manual update required."
+```
+
+#### Step 7: Select New Value
+
+```
+1. Find the dropdown in the modal
+   → Use find tool: "Sub-Status dropdown in modal"
+   → Or find textbox with placeholder "Select an option"
+2. Click the dropdown to open the options list
+3. Wait 1 second for the list to render
+4. Find the option matching new_substatus
+   → Use find tool: "{new_substatus}" within the dropdown
+   → Or use JavaScript to find and click the matching option:
+```
+
+```javascript
+// Find and click the matching dropdown option
+const options = document.querySelectorAll('[class*="dropdown"] [class*="option"], [class*="dropdown-item"]');
+let clicked = false;
+for (const opt of options) {
+  if (opt.textContent.trim() === '{new_substatus}') {
+    opt.click();
+    clicked = true;
+    break;
+  }
+}
+if (!clicked) {
+  // Fallback: search all visible elements in the dropdown area
+  const allEls = document.querySelectorAll('*');
+  for (const el of allEls) {
+    const rect = el.getBoundingClientRect();
+    if (el.textContent.trim() === '{new_substatus}'
+        && el.children.length === 0
+        && rect.width > 50
+        && rect.top > 800) {
+      el.click();
+      break;
+    }
+  }
+}
+```
+
+#### Step 8: Save Changes
+
+```
+1. Find the "Save changes" button in the modal
+   → Use find tool: "Save changes button"
+2. Click the button
+3. Wait 2 seconds for the save to complete and modal to close
+4. Take a screenshot to verify the modal has closed and the
+   Sub-Status field now shows the new value
+```
+
+#### Step 9: Verify and Confirm
+
+```
+1. Use get_page_text or find tool to read the current Sub-Status
+   value on the item detail page
+2. If the value matches new_substatus:
+   → Return: "Sub-status for SKU {sku} updated: '{old_value}' → '{new_substatus}'"
+3. If the value does NOT match:
+   → Return: "WARNING: Sub-status update may have failed for SKU {sku}.
+     Expected '{new_substatus}', found '{current_value}'.
+     Please verify manually in WatchTrack."
+```
+
+---
+
+## Error Handling
+
+All errors should be returned as clear messages to the caller. Never
+fail silently. Never attempt workarounds that could modify the wrong
+data.
+
+| Error | Response |
+|-------|----------|
+| No Chrome connection | "Cannot access WatchTrack: No Chrome browser connected." |
+| Not authenticated | "Cannot access WatchTrack: Browser session is not authenticated." |
+| SKU not found | "No item found for SKU: {sku}" |
+| Multiple results | "Ambiguous: {count} items found for SKU: {sku}." |
+| Pencil icon not found | "Could not open Sub-Status editor. Manual update required." |
+| Invalid substatus value | List valid options and halt |
+| Modal didn't open | "Could not open Sub-Status editor. Manual update required." |
+| Save failed | "WARNING: Sub-status update may have failed. Verify manually." |
+| Page load timeout | "WatchTrack page did not load. Check network connection." |
+
+---
+
+## Navigation Pattern Summary
+
+```
+INVENTORY SEARCH → RESULT VALIDATION → ITEM DETAIL PAGE → ACTION
+                                                          ├─ Extract data (Capability 1)
+                                                          └─ Edit substatus (Capability 2)
+```
+
+**Key URLs:**
+- Inventory page: `https://watchtrack.com/store/inventory`
+- Item detail: `https://watchtrack.com/store/item/{uuid}` (arrived at via card click)
+
+**Search mechanics:**
+- Inventory page has its own search bar (NOT the global search at top)
+- Placeholder: "Search by brand, reference number, serial number, stock ID, and more"
+- Type SKU → press Enter → results filter in card view
+- Result count shown at bottom: "Viewing X-X of X result(s)"
+
+**DOM notes (as of March 2026):**
+- WatchTrack is an Angular app (ng-tns class prefixes)
+- Sub-Status pencil icon is an `<img>` element, not a `<button>` or `<svg>`
+- Edit modal class: `modal-outer` with trigger `scaleIn`
+- Dropdown in modal: textbox with placeholder "Select an option"
+- Dropdown options appear as a scrollable list below the textbox
+- "Save changes" button has gold/tan styling
+
+---
+
+## What This Skill Does NOT Do
+
+- Does NOT log in or manage authentication
+- Does NOT create, delete, or modify inventory items (only reads data
+  and updates the Sub-Status field)
+- Does NOT know about listings, pricing, Grailzee, or any sales platform
+- Does NOT interact with Transactions, Clients, Payments, or any other
+  WatchTrack section beyond Inventory
+- Does NOT modify any field other than Sub-Status (V1 scope)
+
+Future versions may add: editing other custom fields, reading transaction
+history, extracting associated costs, updating sale channels.

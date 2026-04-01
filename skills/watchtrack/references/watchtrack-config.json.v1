@@ -1,0 +1,21 @@
+{
+  "base_url": "https://watchtrack.com/store/home",
+  "inventory_url": "https://watchtrack.com/store/inventory",
+  "item_detail_url_pattern": "https://watchtrack.com/store/item/{uuid}",
+  "auth_check": {
+    "success_indicator": "Good afternoon",
+    "login_indicator": "Sign in"
+  },
+  "substatus_options": [
+    "Intake",
+    "Needs Service",
+    "Needs Photos",
+    "Needs Video",
+    "Listing Prep",
+    "Ready for listing",
+    "On Chrono24",
+    "Grailzee First",
+    "Fully Listed",
+    "Sold"
+  ]
+}

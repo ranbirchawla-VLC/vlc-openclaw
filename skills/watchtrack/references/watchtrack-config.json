@@ -1,0 +1,48 @@
+{
+  "sku": "9971Z",
+  "extracted_at": "2026-03-31T22:35:00Z",
+  "source_url": "https://watchtrack.com/store/item/98d2a46a-04df-4a35-9383-ef3296c58f10",
+  "item": {
+    "stock_id": "9971Z",
+    "brand": "Hublot",
+    "model": "Classic Fusion",
+    "serial": null,
+    "reference": "525.NX.0170.LR.1104",
+    "sub_status": "Ready for listing",
+    "list_in_elite": null,
+    "sale_channel": "Retail Listings, Social Push",
+    "owner": "Todd Erdmann",
+    "condition": "Pre-owned",
+    "included": "Watch with original box",
+    "month": null,
+    "year": null,
+    "dial_color": "Transparent",
+    "bracelet_type": null,
+    "case_diameter": "45mm"
+  },
+  "pricing": {
+    "retail_price": 6750.00,
+    "wholesale_price": 5500.00,
+    "item_cost": 6480.00
+  },
+  "specs": {
+    "movement": "Automatic",
+    "caliber": null,
+    "base_caliber": null,
+    "frequency": null,
+    "power_reserve": "42",
+    "number_of_jewels": null,
+    "case_material": "Titanium",
+    "bezel_material": "Titanium",
+    "bezel_type": null,
+    "thickness": null,
+    "crystal": null,
+    "water_resistance": "Up to 50m",
+    "dial_numerals": null,
+    "bracelet_material": "Crocodile Skin",
+    "bracelet_color": null,
+    "clasp_type": null,
+    "clasp_material": "Steel"
+  },
+  "item_notes": null
+}

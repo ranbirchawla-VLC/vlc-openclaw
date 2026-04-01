@@ -20,13 +20,18 @@ description: >
 
 Generate complete, copy-paste-ready watch listings across all sales platforms
 following Vardalux brand standards. This is the OpenClaw version of the skill,
-designed for Slack-based interaction using Block Kit buttons for approvals and
+designed for Telegram-based interaction using inline buttons for approvals and
 selections. Output is a PDF generated via ReportLab, saved into the listing
 folder alongside the photos.
 
 A parallel Claude Chat version of this skill exists for use in claude.ai sessions.
 Both versions share identical business logic, pricing formulas, voice standards,
 and platform rules. Only the interaction model, tool layer, and output format differ.
+
+**Approval platform: Telegram (chat ID: 8712103657).** All step approvals,
+button selections, and interactive prompts go to Telegram. Slack (channel
+`C0APPJX0FGC`) is used only for completed listing notifications and status
+posts — never for approvals or mid-pipeline interaction.
 
 ### Identity Anchor
 
@@ -78,7 +83,7 @@ Each listing folder contains:
 - `_draft.json` (state checkpoint, created and updated by this pipeline)
 - `_Listing.pdf` (final output, generated into same folder by `generate_pdf.py`)
 
-### Slack Configuration
+### Slack Configuration (Notifications Only)
 
 | Setting | Value |
 |---------|-------|
@@ -86,35 +91,39 @@ Each listing folder contains:
 | Workspace ID | `T087DH94JL8` (Rnvi LLC) |
 | Slack App ID | `A0APYTD0BDX` |
 
-**All Slack API calls (chat.postMessage, chat.update, block_actions listeners)
-must use channel ID `C0APPJX0FGC`.** Never use a channel name string.
+**Slack is used for completed listing notifications only.** Post to `C0APPJX0FGC`
+when a listing is fully generated (Step 4 complete). Do not post approvals,
+button prompts, or mid-pipeline updates to Slack.
 
-### Slack Interaction Model — Block Kit Buttons
+### Telegram Interaction Model
 
-All approvals and structured selections use Slack Block Kit interactive messages,
-not text replies. The agent listens for `block_actions` payloads, not message text.
+**All approvals and interactive selections go to Telegram (chat ID: 8712103657).**
+
+Use inline buttons for all structured choices. Never poll for free-text replies
+when a button selection is appropriate.
 
 **Button interactions (never free-text):**
-- Condition selection: button group `BNIB` / `Excellent` / `Very Good` / `Good` / `Other`
-- Tier selection: button group `Tier 1` / `Tier 2` / `Tier 3`
-- Grailzee format: button group `No Reserve` / `Reserve` / `Skip`
-- Step approvals: button group `Approve` / `Request Changes`
-- WatchTrack confirmation: button group `Looks Good` / `Correct This`
-- Grailzee gate: button group `Proceed with Current Pricing` / `Adjust Pricing`
+- Condition selection: `BNIB` / `Excellent` / `Very Good` / `Good` / `Other`
+- Tier selection: `Tier 1` / `Tier 2` / `Tier 3`
+- Grailzee format: `No Reserve` / `Reserve` / `Skip`
+- Step approvals: `Approve` / `Request Changes`
+- WatchTrack confirmation: `Looks Good` / `Correct This`
+- Grailzee gate: `Proceed with Current Pricing` / `Adjust Pricing`
+- Pipeline start: `▶️ Start Listing` / `⏭ Skip`
 
-**Free-text inputs (pricing only):**
+**Free-text inputs (pricing only — sent as Telegram messages):**
 - `retail_net`, `wholesale_net`, `wta_price`, `wta_comp`, `reddit_price`, `msrp`
 - `buffer` (if non-default)
 
-When posting a button group, include a brief context message above the buttons
-explaining what is being decided. When a button is clicked, update the original
-message to show the selection and remove the buttons (prevents double-clicks).
+Include a brief context line above each button group explaining what is being
+decided. After a button is tapped, send a confirmation message acknowledging
+the selection before proceeding to the next step.
 
 ### Image Review
 
 To review photos, read the image files from the listing folder using the `read`
 tool. Examine each image and evaluate against the photo review criteria in
-Step 1. Post the review summary to `C0APPJX0FGC`.
+Step 1. Post the review summary to Telegram (chat ID: 8712103657).
 
 ---
 
@@ -214,9 +223,9 @@ This enables re-entrant recovery if the pipeline stalls mid-flow.
 On startup, if a `_draft.json` exists in the target listing folder:
 
 1. Read the checkpoint
-2. Post to `C0APPJX0FGC`: "Found an in-progress listing for [brand] [model].
-   Last completed step: [step name]."
-3. Present buttons: `Resume from Step [N+1]` / `Start Over`
+2. Post to Telegram (chat ID: 8712103657): "Found an in-progress listing for
+   [brand] [model]. Last completed step: [step name]."
+3. Send Telegram inline buttons: `Resume from Step [N+1]` / `Start Over`
 4. If resume, load all saved inputs and approved outputs, continue from next step
 5. If start over, archive the old draft as `_draft.json.bak` and begin fresh
 
@@ -225,8 +234,8 @@ On startup, if a `_draft.json` exists in the target listing folder:
 ## The Pipeline Workflow
 
 ```
-WATCHTRACK ──confirm──▶ PHOTOS ──approve──▶ PRICING ──approve──▶ DESCRIPTIONS ──approve──▶ GRAILZEE GATE ──confirm──▶ GENERATE PDF
-     Step 0                Step 1              Step 2               Step 3                  Step 3.5                   Step 4
+WATCHTRACK ──confirm──▶ PHOTOS ──approve──▶ PRICING ──approve──▶ DESCRIPTIONS ──approve──▶ GRAILZEE GATE ──confirm──▶ GENERATE PDF ──▶ WATCHTRACK STATUS
+     Step 0                Step 1              Step 2               Step 3                  Step 3.5                   Step 4             Step 5
 ```
 
 Hard approval gates at every step. Never skip steps. Never combine steps.
@@ -237,26 +246,27 @@ Runs automatically when a listing folder is detected or the user initiates a
 listing by referencing a folder name.
 
 1. Parse the folder name to extract `internal_ref` and `model_ref`
-2. Use Peekaboo to open a **visible** Chrome browser session (not headless).
+2. Use your native browser tool to navigate to the URL. Do not use Playwright, Puppeteer, or any CLI. Just use the browser tool directly.
    The user is already logged into WatchTrack in that Chrome session. Do not
    attempt to authenticate.
-3. Navigate to WatchTrack and look up the reference number
+3. Navigate to https://watchtrack.com/store/home and look up the reference number
 4. Extract: serial data, cost basis, recent sold comps, condition notes if present.
    Also extract `retail_net` and `wholesale_net` from their dedicated fields.
-   **If those fields are blank or null, check the Notes field** — pricing targets
-   are sometimes recorded there in free text (e.g. "Retail NET $5,411" or
-   "List at $5,850"). Extract any pricing found in Notes and flag it as
-   "(from Notes field)" in the summary so the user knows the source.
+   **Always capture the Notes field verbatim, regardless of whether price fields
+   are populated.** If Notes contains pricing language (e.g. "Retail NET $5,411"
+   or "List at $5,850"), surface it alongside the price fields in the summary
+   and flag it as "(from Notes field)" so the user can decide which value to use.
+   Never silently prefer one source over the other — show both.
 5. Save extracted data into `_draft.json` (step: 0)
-6. Post a summary of findings to `C0APPJX0FGC` with buttons:
+6. Post a summary of findings to Telegram (chat ID: 8712103657) with buttons:
    `Looks Good` / `Correct This`
 
-If the user clicks `Correct This`, prompt for the specific field corrections
-via free-text, update `_draft.json`, and re-confirm.
+If the user taps `Correct This`, prompt for the specific field corrections
+via Telegram message, update `_draft.json`, and re-confirm.
 
-**If WatchTrack lookup fails or returns no data:** Post a warning to
-`C0APPJX0FGC` and continue to Step 1. Do not block the pipeline. The user
-can provide missing data manually.
+**If WatchTrack lookup fails or returns no data:** Post a warning to Telegram
+and continue to Step 1. Do not block the pipeline. The user can provide missing
+data manually.
 
 After confirmation, save checkpoint and proceed to Step 1.
 
@@ -264,33 +274,33 @@ After confirmation, save checkpoint and proceed to Step 1.
 
 Read every image in the listing folder using the `read` tool.
 
-Post to `C0APPJX0FGC` at least one full paragraph of feedback covering:
+Post to Telegram (chat ID: 8712103657) at least one full paragraph of feedback covering:
 - What is working well (composition, lighting, angles covered)
 - What is missing or could be improved
 - Whether the photos are sufficient to list (yes/no with reasoning)
 - Any condition details visible in photos that conflict with WatchTrack data
   or provided condition notes
 
-Then post buttons: `Approve` / `Request Changes`
+Then send Telegram inline buttons: `Approve` / `Request Changes`
 
 If `Request Changes`: address the feedback, re-review if new photos are added,
 and re-present the buttons.
 
-Do NOT proceed until `Approve` is clicked. If the folder is empty, stop entirely.
+Do NOT proceed until `Approve` is tapped. If the folder is empty, stop entirely.
 
-After approval, prompt for any missing inputs needed for Step 2:
-- Post condition button group: `BNIB` / `Excellent` / `Very Good` / `Good` / `Other`
-- Post tier button group: `Tier 1` / `Tier 2` / `Tier 3`
-- Post Grailzee format button group: `No Reserve` / `Reserve` / `Skip`
-- Request free-text: retail_net (and optionally wholesale_net, wta_price/comp,
-  reddit_price, buffer if non-default)
+After approval, prompt for any missing inputs needed for Step 2 via Telegram:
+- Send condition buttons: `BNIB` / `Excellent` / `Very Good` / `Good` / `Other`
+- Send tier buttons: `Tier 1` / `Tier 2` / `Tier 3`
+- Send Grailzee format buttons: `No Reserve` / `Reserve` / `Skip`
+- Request free-text via Telegram message: retail_net (and optionally wholesale_net,
+  wta_price/comp, reddit_price, buffer if non-default)
 
 Save checkpoint (step: 1) after photo approval.
 
 ### Step 2: PRICING
 
 Calculate platform-specific pricing using the formulas below. Post the pricing
-table to `C0APPJX0FGC`.
+table to Telegram (chat ID: 8712103657).
 
 #### eBay Pricing
 
@@ -374,7 +384,7 @@ reference is recognizable, search for it before generating the listing.
 No pricing calculation needed for NR auctions (start at $1).
 For Reserve: reserve_price is provided by user or set at Grailzee median +10-15%.
 
-Post the pricing table to `C0APPJX0FGC`:
+Post the pricing table to Telegram (chat ID: 8712103657):
 
 ```
 PRICING SUMMARY
@@ -390,14 +400,14 @@ PRICING SUMMARY
 | Reddit             | $X,XXX     | MSRP: $X,XXX             |
 ```
 
-Then post buttons: `Approve` / `Request Changes`
+Then send Telegram inline buttons: `Approve` / `Request Changes`
 
 Save checkpoint (step: 2) after pricing approval.
 
 ### Step 3: DESCRIPTIONS
 
 Write listing descriptions based on the tier. Post all descriptions to
-`C0APPJX0FGC` for approval. WTA does not require description approval
+Telegram (chat ID: 8712103657) for approval. WTA does not require description approval
 (structured data only, auto-generated from condition input).
 
 #### Voice and Tone (All Prose, All Platforms)
@@ -495,7 +505,7 @@ Price, About Us, and photo/timestamp links.
 Include MSRP in specs when known. Include "Trades considered" ONLY when user
 explicitly requests it.
 
-Post all descriptions to `C0APPJX0FGC`, then post buttons:
+Post all descriptions to Telegram (chat ID: 8712103657), then send inline buttons:
 `Approve` / `Request Changes`
 
 Save checkpoint (step: 3) after description approval.
@@ -505,24 +515,46 @@ Save checkpoint (step: 3) after description approval.
 After descriptions are approved and before generating the full document, run
 a Grailzee pricing validation.
 
-1. Pull Grailzee pricing recommendation or median data for the reference
-   (via web search or Peekaboo browser lookup)
-2. Post recommendation summary to `C0APPJX0FGC` showing:
-   - Grailzee median for this reference
-   - Suggested reserve or NR recommendation based on the data
-   - How the current pricing compares to the median
-3. Present buttons: `Proceed with Current Pricing` / `Adjust Pricing`
+1. Call the Grailzee deal evaluator via exec:
+
+```bash
+python3 ~/.openclaw/workspace/skills/grailzee-eval/scripts/evaluate_deal.py \
+  "[brand]" "[reference]" [purchase_price]
+```
+
+   Reads from `GrailzeeData/state/analysis_cache.json`. Sub-second response.
+   Returns JSON with fields: `grailzee`, `format`, `reserve_price`, `ad_budget`,
+   `rationale`, `metrics`.
+
+2. Parse the JSON response and post to Telegram (chat ID: 8712103657):
+
+```
+📊 Grailzee Recommendation — [Brand] [Reference]
+
+Decision: [YES — No Reserve / YES — Reserve at $X,XXX / NO]
+Ad budget: [ad_budget]
+[rationale]
+
+Median: $X,XXX | Max buy: $X,XXX | Signal: [signal]
+```
+
+3. Send Telegram inline buttons: `Proceed with Current Pricing` / `Adjust Pricing`
 
 If `Adjust Pricing`: return to Step 2 with Grailzee data pre-loaded as context.
 Re-run pricing calculations and re-approve.
 
 If `Proceed with Current Pricing`: continue to Step 4.
 
-**If Grailzee data is unavailable:** Post a note explaining the data could not
-be retrieved. Present buttons: `Proceed Anyway` / `I'll Check Manually`
+**If the evaluator returns `grailzee: "NO"`:** Make this clear in the Telegram
+post. The listing can still proceed — Grailzee simply won't be included.
+Send buttons: `Proceed Without Grailzee` / `Override — List Anyway`
 
-If `I'll Check Manually`: wait for the user to post updated pricing info or
-click `Proceed Anyway` when ready.
+**If the script errors or cache is missing:** Post a note to Telegram explaining
+the cache may be stale or the analyzer hasn't been run yet. Send buttons:
+`Proceed Anyway` / `I'll Check Manually`
+
+If `I'll Check Manually`: wait for the user to send updated info via Telegram
+or tap `Proceed Anyway` when ready.
 
 Save checkpoint (step: 3.5) after gate resolution.
 
@@ -559,12 +591,35 @@ The document contains these sections in order:
 3. Call `generate_pdf.py` (ReportLab-based script located in the listing folder)
    via `exec` tool
 4. The script generates `_Listing.pdf` in the same listing folder
-5. Post confirmation to `C0APPJX0FGC`:
-   *"Listing PDF generated: [full path to _Listing.pdf]. Ready for the team to execute."*
+5. **Delete `generate_pdf.py` from the listing folder** immediately after PDF
+   is confirmed generated. Do not skip this step. The script must not remain
+   in the listing folder after use.
+6. Post confirmation to Telegram (chat ID: 8712103657):
+   *"✅ Listing PDF generated: [brand] [model] — ready for the team to execute."*
+7. Post notification to Slack (`C0APPJX0FGC`):
+   *"✅ Listing complete: [brand] [model] ([internal_ref]) — PDF ready."*
 
 **If `generate_pdf.py` is not found in the listing folder:** Post an error to
-`C0APPJX0FGC` and save the `_draft.json` so the PDF can be generated manually.
+Telegram and save the `_draft.json` so the PDF can be generated manually.
 Do not fail silently.
+
+### Step 5: WATCHTRACK SUB STATUS UPDATE
+
+Runs automatically after Step 4 is complete (PDF confirmed, generate_pdf.py deleted).
+
+1. Use your native browser tool to navigate to the URL. Do not use Playwright, Puppeteer, or any CLI. Just use the browser tool directly.
+   The user is already logged into WatchTrack. Do not attempt to authenticate.
+2. Navigate to https://watchtrack.com/store/home and look up the item by SKU (`internal_ref`)
+3. Find the **Sub Status** field on the item page
+4. Select **"Ready for Listing"** from the dropdown
+5. Save the record
+6. Post confirmation to Telegram (chat ID: 8712103657):
+   *"✅ WatchTrack updated: [brand] [model] ([internal_ref]) → Sub Status: Ready for Listing"*
+
+**If the Sub Status field is not found or the save fails:** Post an error to
+Telegram with the SKU so the user can update manually. Do not block or fail
+silently. Mark the listing as complete regardless — this is a status update,
+not a gate.
 
 ---
 

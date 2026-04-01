@@ -2,6 +2,13 @@
 
 Skills define _how_ tools work. This file is for _your_ specifics — the stuff that's unique to your setup.
 
+## WatchTrack
+
+- **URL:** https://watchtrack.com/store/home
+- **Browser:** Google Chrome, `openclaw` profile
+- **Status:** Always kept logged in — never attempt to authenticate
+- **Note:** Keep this Chrome window open at all times for the Vardalux listing pipeline
+
 ## What Goes Here
 
 Things like:
