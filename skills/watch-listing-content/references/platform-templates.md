@@ -80,10 +80,18 @@ This is pure desire.]
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-TITLE (80 characters max):
+TITLE (80 characters max — SEO-optimized):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-[Brand] [Model] [Key Feature] | Ref [Reference] | [Size]mm
+[Build from title-research.json keywords in priority order: P1 → P2 → P3]
+[No reference number in title — goes in Item Specifics below]
+[No pipes or separators — plain keyword sequence]
+[Count characters before presenting — must be ≤ 80]
+
+Example: Tudor Black Bay GMT Pepsi 41mm Steel Automatic Men's Watch Black Dial
+
+If title-research.json is absent, use static fallback:
+[Brand] [Collection] [Complication] [Nickname] [Size]mm [Material] [Movement] [Gender] Watch
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PRICING:
@@ -172,7 +180,10 @@ Questions? Message us anytime.
 ```
 
 **eBay rules:**
-- Title max 80 characters
+- Title max 80 characters, SEO-optimized from title-research.json keywords
+- Reference number goes in Item Specifics, NOT in the title
+- No pipes or separators in title — plain keyword sequence
+- Most important keywords first (Cassini reads left-to-right)
 - List price rounds to $49 or $99 ending
 - 🔎 emoji before "Key Details" (eBay only, not Chrono24)
 - No payment method mentions (eBay handles payment)
@@ -184,7 +195,21 @@ Questions? Message us anytime.
 ## CHRONO24
 
 ```
-[Year] [Brand] [Model Name]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TITLE (SEO-optimized — no character limit):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[Build from title-research.json keywords: all P1 + P2 + P3]
+[No reference number in title — goes in Chrono24 Reference field]
+[Do NOT lead with year — lead with brand and keywords]
+
+Example: Tudor Black Bay GMT Pepsi 41mm Stainless Steel Automatic Men's Watch Black Dial Full Set
+
+If title-research.json is absent, use static fallback:
+[Brand] [Collection] [Complication] [Nickname] [Size]mm [Material] [Dial Color] Dial [Movement] [Gender] Watch
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 Reference: [Reference Number]
 
 [Limited Edition Callout, if applicable, bold]
@@ -216,6 +241,10 @@ Crown: [Function status]
 ```
 
 **Chrono24 rules:**
+- Title SEO-optimized from title-research.json keywords, no character limit
+- Reference number goes in Chrono24's dedicated Reference field, NOT the title
+- Do NOT lead with year or reference — lead with brand and buyer-facing keywords
+- Retail buyers on Chrono24 search the same way as eBay buyers; treat identically
 - Clean, professional, no emojis
 - "Scope of Delivery" (not "What's Included")
 - "Condition Notes" section with full component breakdown
@@ -231,7 +260,14 @@ Apply character substitutions from `references/character-substitutions.md` to
 ALL text below.
 
 ```
-[Year] [Brand] [Model Name]
+[SEO-optimized keyword title from title-research.json: P1 + P2 + P3]
+[No year prefix — lead with brand and buyer-facing keywords]
+[Character substitutions applied to title]
+Ref: [Reference Number]
+Offered at: $[Price]
+
+If title-research.json is absent, use static fallback:
+[Brand] [Collection] [Complication] [Nickname] [Size]mm [Material] [Dial Color] [Completeness]
 Ref: [Reference Number]
 Offered at: $[Price]
 
@@ -269,7 +305,8 @@ Ultra-lean. Dealers do not need storytelling. They need specs, price, and
 condition.
 
 ```
-[Year] [Brand] [Model Name]
+[SEO-optimized keyword title — same as Facebook Retail]
+[Character substitutions applied to title]
 Ref: [Reference Number]
 $[Wholesale Price]
 
@@ -328,7 +365,13 @@ Payment: Wire, Zelle, USDT, CC (+4.5% fee)
 ## REDDIT r/watchexchange
 
 ```
-TITLE: [WTS] [Brand] [Model] [Key Feature] – [Size]mm [Material] – Ref [Number]
+TITLE: [WTS] [SEO keywords from title-research.json: P1 + P2] – $[Price] Shipped
+[Reference goes in body text, NOT in the title]
+
+Example: [WTS] Tudor Black Bay GMT Pepsi 41mm Steel Automatic – $3,495 Shipped
+
+If title-research.json is absent, use static fallback:
+[WTS] [Brand] [Collection] [Complication] [Nickname] [Size]mm [Material] – $[Price] Shipped
 
 [Two full paragraphs of rich prose weaving technical detail into story.
 This is the richest description of any platform.
@@ -374,7 +417,7 @@ and across the watch community. Happy to connect via phone or video call.
 ```
 
 **Reddit rules:**
-- Title format: `[WTS] Brand Model Key Feature – Size Material – Ref Number`
+- Title: `[WTS] {SEO keywords} – $Price Shipped` (reference in body, NOT title)
 - Richest prose of any platform: two full paragraphs
 - Specs section uses bullet points (standard and expected on Reddit)
 - Include MSRP in specs when known (search if not provided)
@@ -393,11 +436,19 @@ and across the watch community. Happy to connect via phone or video call.
 ## VALUE YOUR WATCH
 
 ```
-TITLE: [Year] [Brand] [Model Name] Ref [Reference]
+TITLE: [SEO-optimized keyword title from title-research.json: all P1 + P2 + P3]
+[No reference in title — goes in VYW's separate reference field]
+[No year prefix — lead with brand and buyer-facing keywords]
+
+Example: Tudor Black Bay GMT Pepsi 41mm Stainless Steel Automatic Men's Watch Black Dial Full Set
+
+If title-research.json is absent, use static fallback:
+[Brand] [Collection] [Complication] [Nickname] [Size]mm [Material] [Gender] Watch [Completeness]
 
 SHORT CATCHY DESCRIPTION:
 [2-3 sentences. This appears in search results and must hook the buyer.
-Lead with what makes this piece interesting, not specs.]
+Lead with what makes this piece interesting, not specs. Incorporate Priority 1
+and Priority 2 keywords naturally into the prose.]
 
 FULL DESCRIPTION:
 [Tier-appropriate description, same as eBay version]
@@ -425,7 +476,10 @@ Established 2021. Based in Colorado. Fast, insured shipping.
 ```
 
 **Value Your Watch rules:**
-- Short Catchy Description is critical (appears in search results)
+- Title SEO-optimized from title-research.json keywords, no reference in title
+- Reference goes in VYW's separate reference field
+- Short Catchy Description is critical (appears in search results) — weave in
+  Priority 1 and 2 keywords naturally
 - Full specifications section required
 - "Why Vardalux" section (brief)
 - No payment method mentions
@@ -490,5 +544,8 @@ its history."
 
 ---
 
-*Aligned to The Vardalux Way v1.3 | March 2026*
+*Aligned to The Vardalux Way v1.3 | Updated April 1, 2026*
 *CC fee: 4.5% | Location: Colorado | Identity: Dealers who transact with purpose*
+*Title Construction: All platforms use SEO-optimized titles from title-research.json*
+*Reference numbers go in structured fields, never in titles*
+

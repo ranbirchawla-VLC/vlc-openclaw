@@ -1,0 +1,226 @@
+{
+  "spec_version": "1.1",
+  "research_timestamp": "2026-04-01T17:05:00Z",
+  "watch_identity": {
+    "brand": "Tudor",
+    "collection": "Black Bay",
+    "reference": "79830RB",
+    "dial_color": "Black",
+    "case_size_mm": 41,
+    "bezel_colors": "Blue/Red"
+  },
+  "ebay_autocomplete": {
+    "queries_tested": [
+      "Tudor",
+      "Tudor Black Bay",
+      "Tudor GMT",
+      "Tudor Black Bay GMT"
+    ],
+    "suggestions_found": [
+      "tudor watch",
+      "tudor black bay",
+      "tudor black bay 58",
+      "tudor pelagos",
+      "tudor watch mens",
+      "tudor submariner",
+      "tudor ranger",
+      "tudor black bay 54",
+      "tudor black bay chronograph",
+      "tudor black bay 41",
+      "tudor black bay 36",
+      "tudor black bay gmt",
+      "tudor black bay pro",
+      "tudor black bay 58 gmt",
+      "tudor black bay chrono",
+      "tudor gmt pepsi",
+      "tudor gmt watch",
+      "tudor gmt coke",
+      "tudor gmt root beer",
+      "tudor gmt 58",
+      "tudor gmt white dial",
+      "tudor gmt opaline",
+      "tudor gmt pro",
+      "tudor gmt pepsi opaline",
+      "tudor black bay gmt pepsi",
+      "tudor black bay gmt opaline",
+      "tudor black bay gmt coke",
+      "tudor black bay gmt root beer",
+      "tudor black bay gmt 58",
+      "tudor black bay gmt sg",
+      "tudor black bay gmt bracelet",
+      "tudor black bay gmt white dial",
+      "tudor black bay gmt m79833mn-0003"
+    ]
+  },
+  "ebay_sold_comps": {
+    "search_query": "Tudor Black Bay GMT 79830RB",
+    "total_results_scanned": 10,
+    "results_used": 7,
+    "results_excluded": [
+      {
+        "title": "Tudor Black Bay Pro 79470 (2022) +Box & Papers - Near Mint",
+        "sold_price": 2967,
+        "reason": "Off-reference. Different model (Black Bay Pro 79470) included in search results page."
+      },
+      {
+        "title": "Tudor Black Bay GMT 79830RB Opaline Dial Pepsi Steel 41MM Men's Automatic Watch",
+        "sold_price": 1400,
+        "reason": "Anomalous price. $1,400 is 63% below the median of the remaining set (~$3,500). Possible counterfeit, listing error, or incomplete transaction."
+      }
+    ],
+    "titles": [
+      {
+        "title": "Tudor Black Bay GMT 79830RB Black Dial Steel Watch",
+        "sold_price": 4584,
+        "sold_date": "2026-03-30"
+      },
+      {
+        "title": "Tudor Black Bay GMT 79830RB Opaline Dial Pepsi Steel 41MM Men's Automatic Watch",
+        "sold_price": 3745,
+        "sold_date": "2026-03-10"
+      },
+      {
+        "title": "Tudor Black Bay GMT 79830RB Opaline Dial Pepsi Steel 41MM Men's Automatic Watch",
+        "sold_price": 3595,
+        "sold_date": "2026-03-30"
+      },
+      {
+        "title": "Tudor Black Bay GMT 79830RB Pepsi 42mm Steel Black Dial Automatic Men's Watch",
+        "sold_price": 3500,
+        "sold_date": "2026-03-27"
+      },
+      {
+        "title": "Tudor 79830RB Black Bay GMT Pepsi Watch. Brand New UK watch with full stickers!",
+        "sold_price": 3428,
+        "sold_date": "2026-03-26"
+      },
+      {
+        "title": "Tudor Black Bay GMT Pepsi Ref. 79830RB With Box & Papers",
+        "sold_price": 3395,
+        "sold_date": "2026-03-28"
+      },
+      {
+        "title": "Tudor Black Bay GMT 79830RB Pepsi Bezel Automatic 41mm Watch - Full Set - LIVE",
+        "sold_price": 3009,
+        "sold_date": "2026-03-29"
+      }
+    ],
+    "keyword_frequency": {
+      "Tudor": 7,
+      "Black Bay": 6,
+      "GMT": 7,
+      "Pepsi": 6,
+      "Steel": 4,
+      "Watch": 5,
+      "Dial": 4,
+      "41mm": 3,
+      "Automatic": 3,
+      "Men's": 3,
+      "Opaline": 2,
+      "Box": 2,
+      "Papers": 2
+    },
+    "price_correlation": {
+      "highest_price_title": "Tudor Black Bay GMT 79830RB Black Dial Steel Watch",
+      "highest_price": 4584,
+      "highest_price_keywords": ["Tudor", "Black Bay", "GMT", "Black Dial", "Steel", "Watch"],
+      "top_3_avg_price": 3975,
+      "top_3_shared_keywords": ["Tudor", "Black Bay", "GMT", "Steel", "Pepsi", "41mm", "Dial"],
+      "bottom_3_avg_price": 3277,
+      "bottom_3_shared_keywords": ["Tudor", "Black Bay", "GMT", "Pepsi"],
+      "note": "The single highest sale ($4,584) used a sparse title with only 6 keywords — no 'Pepsi', no '41mm', no 'Automatic'. However, this is one data point and may reflect factors unrelated to title (e.g., seller reputation, condition). The mid-range keyword-rich titles ($3,500–$3,745) show consistent clustering. Content skill should optimize for discoverability (keyword-rich) rather than mimicking the single highest sale's sparse format."
+    },
+    "common_keywords_in_top_titles": [
+      "Tudor", "Black Bay", "GMT", "Pepsi", "Steel", "Automatic", "41mm", "Men's", "Watch", "Dial"
+    ],
+    "keywords_in_highest_priced_titles": [
+      "Tudor", "Black Bay", "GMT", "Steel", "Pepsi", "41mm", "Automatic", "Men's", "Dial"
+    ],
+    "keywords_absent_from_most_titles": [
+      "Swiss", "Dive", "Bracelet", "COSC", "Sapphire"
+    ]
+  },
+  "chrono24_search": {
+    "method": "web_search",
+    "query": "Tudor Black Bay GMT 79830RB site:chrono24.com",
+    "top_listing_titles": [
+      "Tudor Black Bay GMT REF. 79830RB",
+      "Tudor Black Bay GMT 79830RB - 2024 - Box and Papers - Stickered",
+      "Tudor Black Bay GMT 79830RB GMT Pepsi Bezel Mens Watch",
+      "'Pepsi' 2019 Full Set 79830RB-0001 Steel 41mm",
+      "2023 M79830RB Blue/Red 'Pepsi' Opaline White 41mm Excellent",
+      "Heritage Black Bay GMT 79830RB with Red/Blue Bezel",
+      "Pre-owned 2025 Black Bay GMT 41mm Black 79830RB-0001",
+      "Tudor Black Bay GMT 'Pepsi' Bezel 41mm Full Set",
+      "Tudor Black Bay GMT Pepsi Full box and papers",
+      "MINT COMPLETE SET Black Bay GMT 'Pepsi' Black Dial Red Blue Bezel Stainless Steel 79830RB"
+    ],
+    "common_keywords": [
+      "Tudor", "Black Bay", "GMT", "Pepsi", "41mm", "Steel", "Full Set"
+    ]
+  },
+  "google_organic": {
+    "method": "web_search",
+    "query": "buy Tudor Black Bay GMT Pepsi watch",
+    "top_result_titles": [
+      "TUDOR Black Bay GMT Watch collection, Swiss Watches",
+      "Black Bay GMT Manufacture Calibre MT5652 41mm steel case Rivet steel bracelet",
+      "Tudor Black Bay GMT Black Dial Red/Blue 'Pepsi' Bezel Steel Brown Leather Strap 41mm 79830RB",
+      "Tudor Black Bay GMT 'Pepsi' Bezel 41mm Full Set",
+      "Tudor Black Bay GMT Pepsi Full box and papers",
+      "Brand New With Stickers Tudor Black Bay GMT (Pepsi)(2025) Stainless Steel Watch 79830RB"
+    ],
+    "common_keywords": [
+      "Tudor", "Black Bay", "GMT", "Pepsi", "41mm", "Steel", "Men's Watch", "Black Dial"
+    ]
+  },
+  "nickname_detection": {
+    "detected": "Pepsi",
+    "source": "bezel_colors Blue/Red",
+    "search_validated": true,
+    "validation_evidence": [
+      "eBay autocomplete: 'tudor gmt pepsi', 'tudor black bay gmt pepsi', 'tudor gmt pepsi opaline'",
+      "eBay sold comps: appears in 6 of 7 used titles",
+      "Chrono24: appears in 6 of 10 titles",
+      "Google organic: appears in 4 of 6 result titles"
+    ],
+    "sources_validated": 4,
+    "promoted_to": "priority_1"
+  },
+  "spec_validation": {
+    "dial_variant_filter": {
+      "input_dial_color": "Black",
+      "keywords_found_in_research": ["Opaline", "White"],
+      "keywords_removed": ["Opaline"],
+      "reason": "Opaline describes a different dial variant (M79830RB-0010/0012) of the same reference. Including it in the title for a black dial watch is factually inaccurate and would mislead buyers. 'White' also filtered as synonym for Opaline in Chrono24 titles."
+    },
+    "case_size_validation": {
+      "input_case_size_mm": 41,
+      "conflicting_values_in_comps": ["42mm"],
+      "conflicting_value_source": "eBay sold comp: 'Tudor Black Bay GMT 79830RB Pepsi 42mm Steel Black Dial Automatic Men's Watch'",
+      "resolution": "Use 41mm from input data. 42mm in that competitor title is incorrect for the 79830RB reference (spec is 41mm). Do not use 42mm in recommended keywords."
+    },
+    "completeness_filter": {
+      "input_box_papers": "Full Set",
+      "keywords_validated": ["Full Set", "Box Papers"],
+      "note": "Input data confirms Full Set. These keywords are valid for Priority 3 inclusion and the content skill may use them."
+    }
+  },
+  "recommended_title_keywords": {
+    "priority_1_must_include": ["Tudor", "Black Bay", "GMT", "Pepsi", "41mm"],
+    "priority_2_high_value": ["Automatic", "Steel", "Men's Watch", "Black Dial"],
+    "priority_3_if_space_allows": ["Full Set", "Box Papers", "Swiss"],
+    "reference_placement": "Item Specifics / structured fields only, not in title"
+  },
+  "competitor_gap": {
+    "note": "Most competitor titles on eBay and Chrono24 lead with the reference number or use minimal descriptor keywords. A retail-keyword-forward title ('Tudor Black Bay GMT Pepsi 41mm Automatic Men's Watch Steel') would surface on non-reference queries — 'tudor pepsi gmt watch', 'tudor automatic 41mm steel', 'tudor black bay gmt mens' — that reference-heavy titles miss entirely. The black dial is also a differentiator worth calling out explicitly since many comps default to Opaline."
+  },
+  "sources_successful": 4,
+  "sources_attempted": 4,
+  "source_status": {
+    "ebay_autocomplete": "success",
+    "ebay_sold_comps": "success",
+    "chrono24": "success (via web_search)",
+    "google_organic": "success (via web_search)"
+  }
+}

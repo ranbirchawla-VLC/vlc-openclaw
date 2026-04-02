@@ -2,17 +2,20 @@
 name: watch-listing-content
 description: >
   Single source of truth for Vardalux Collections watch listing content: voice
-  standards, description rules by tier, pricing formulas for all platforms,
-  platform-specific templates, character substitutions, trust blocks, payment
-  blocks, condition language, and posting checklist logic. This skill contains
-  NO workflow, orchestration, or interaction logic. It is a pure content
-  knowledge base referenced by orchestrators (OpenClaw pipeline, Claude Chat)
-  when generating listings. Trigger this skill whenever generating listing
-  descriptions, calculating platform pricing, applying character substitutions,
+  standards, description rules by tier, SEO-optimized title construction,
+  pricing formulas for all platforms, platform-specific templates, character
+  substitutions, trust blocks, payment blocks, condition language, and posting
+  checklist logic. This skill contains NO workflow, orchestration, or interaction
+  logic. It is a pure content knowledge base referenced by orchestrators (OpenClaw
+  pipeline, Claude Chat) when generating listings. Consumes title-research.json
+  from the standalone title-research skill for evidence-based title keywords.
+  Trigger this skill whenever generating listing descriptions, constructing
+  platform titles, calculating platform pricing, applying character substitutions,
   building posting checklists, or reviewing listing copy against Vardalux
   standards. Also trigger for "what's the eBay pricing formula", "write a
-  Grailzee description", "what platforms does this go to", "check the voice
-  rules", or any question about how listings should read, look, or be priced.
+  Grailzee description", "how should I title this", "what platforms does this
+  go to", "check the voice rules", or any question about how listings should
+  read, look, or be priced.
 ---
 
 # Watch Listing Content — Vardalux Collections
@@ -144,6 +147,166 @@ into story. Paragraph 1: What this reference is and why it matters. Paragraph 2:
 The movement and its characteristics. After the prose, include structured Specs
 section (bullet points standard on Reddit), Condition and Completeness, Price,
 About Us, and photo/timestamp links.
+
+---
+
+## Title Construction by Platform
+
+### Data Source: title-research.json
+
+Before generating titles, check for `title-research.json` in the listing
+working folder. This file is produced by the `title-research` skill (a
+standalone SEO research capability that runs as Step 1.5 of the pipeline,
+or independently for sourcing intelligence and competitor analysis).
+
+**If `title-research.json` EXISTS:** Use its keyword recommendations to
+construct titles per the rules below. This is the preferred path.
+
+**If `title-research.json` DOES NOT EXIST:** Fall back to the Static
+Keyword Mapping Table at the end of this section. This produces functional
+titles but without evidence-based keyword selection.
+
+### Universal Title Rules (All Platforms)
+
+1. **Reference numbers never go in titles.** They belong in platform
+   structured fields (eBay Item Specifics, Chrono24 Reference field, etc.).
+   Reference goes in the body text on Facebook and Reddit.
+
+2. **Most important keywords go first.** eBay Cassini reads left-to-right.
+   Google indexes left-to-right. Buyers scan left-to-right. Priority 1
+   keywords lead every title.
+
+3. **Every keyword must be factually accurate for THIS watch.** Do not
+   include dial variant keywords from a different version of the same
+   reference. The `title-research` skill validates this, but double-check
+   if constructing titles manually.
+
+4. **No promotional language in titles.** No "LOOK!", "WOW!", "MUST SEE!",
+   "RARE!" (unless objectively rare with production data), no exclamation
+   marks. These hurt search ranking and signal amateur selling.
+
+5. **Capitalize naturally.** First letter of each word. Never ALL CAPS
+   except brand-standard abbreviations (GMT, COSC, ETA).
+
+### Research-Based Titles (title-research.json present)
+
+Read `recommended_title_keywords` from the research output:
+
+```json
+{
+  "priority_1_must_include": ["Tudor", "Black Bay", "GMT", "Pepsi", "41mm"],
+  "priority_2_high_value": ["Automatic", "Steel", "Men's Watch", "Black Dial"],
+  "priority_3_if_space_allows": ["Full Set", "Box Papers", "Swiss"],
+  "reference_placement": "Item Specifics / structured fields only"
+}
+```
+
+Assemble keywords in priority order until the character limit is reached:
+Priority 1 → Priority 2 → Priority 3. Use natural phrasing where possible.
+
+#### eBay (80 characters max)
+
+Pack all Priority 1, then Priority 2 until limit. Count characters before
+presenting for approval. If over 80, drop from the end (lowest priority first).
+
+Example: `Tudor Black Bay GMT Pepsi 41mm Steel Automatic Men's Watch Black Dial`
+(71 chars — all P1 + most P2)
+
+Reference → eBay Item Specifics field.
+
+#### Chrono24 (no hard limit)
+
+Include all three priority levels. Do NOT lead with the reference number.
+Leading with the reference surfaces the listing only for reference searches,
+missing all retail keyword queries. Retail buyers are underserved by
+reference-heavy titles on Chrono24, which is exactly the gap Vardalux fills.
+
+Example: `Tudor Black Bay GMT Pepsi 41mm Stainless Steel Automatic Men's Watch Black Dial Full Set`
+
+Reference → Chrono24's dedicated Reference Number field.
+
+#### Facebook (no character limit)
+
+Keyword-rich first line, reference on the second line:
+
+```
+Tudor Black Bay GMT Pepsi 41mm Steel Automatic Black Dial Full Set
+Ref: 79830RB
+Offered at: $X,XXX
+```
+
+#### Value Your Watch (no hard limit)
+
+Same full keyword title as Chrono24. The Short Catchy Description (2-3
+sentences) should also incorporate Priority 1 and 2 keywords naturally,
+since this text appears in VYW search results.
+
+Reference → VYW's separate reference field.
+
+#### Reddit r/watchexchange
+
+Format: `[WTS] {P1 keywords} {P2 keywords} – ${price} Shipped`
+
+Example: `[WTS] Tudor Black Bay GMT Pepsi 41mm Steel Automatic – $3,495 Shipped`
+
+Reference goes in the body text, not the post title.
+
+#### Instagram (not SEO-optimized)
+
+Instagram discovery is visual and hashtag-driven. The caption first line
+is a hook, not a search title. No change from current format:
+
+```
+Tudor Black Bay GMT
+Reference: 79830RB
+```
+
+#### Grailzee
+
+Grailzee auto-populates listing titles from their database fields. No
+title construction needed. The one-paragraph emotional description is the
+content that matters.
+
+### Static Fallback Titles (no title-research.json)
+
+When research data is unavailable, construct titles from watch spec data.
+
+**Keyword mapping table:**
+
+| Spec Field | Title Keyword |
+|------------|---------------|
+| brand | Brand name as-is |
+| collection | Collection name as-is |
+| complication_type | "GMT", "Chronograph", "Date", etc. |
+| case_size_mm | Size + "mm" (e.g., "41mm") |
+| case_material | "Steel", "Rose Gold", "Titanium", etc. |
+| dial_color | Color + "Dial" (e.g., "Black Dial") |
+| movement_type | "Automatic", "Manual Wind", etc. |
+| gender | "Men's Watch" or "Women's Watch" |
+| bezel_colors → nickname | From nickname table below |
+| box_papers | "Full Set" if confirmed complete |
+
+**Assembly order:**
+`{brand} {collection} {complication} {nickname} {size} {material} {movement} {gender} Watch`
+
+**Example:** `Tudor Black Bay GMT Pepsi 41mm Steel Automatic Men's Watch`
+
+### Nickname Quick Reference
+
+| Bezel Colors | Nickname | Applies To |
+|-------------|----------|------------|
+| Blue/Red | Pepsi | Rolex GMT, Tudor GMT |
+| Black/Blue | Batman | Rolex GMT |
+| Black/Brown | Root Beer | Rolex GMT, Tudor GMT |
+| Black/Red | Coke | Rolex GMT, Tudor GMT |
+| Green bezel + black dial | Kermit | Rolex Submariner |
+| Green bezel + green dial | Hulk | Rolex Submariner 116610LV |
+| White dial + black subdials (chrono) | Panda | Rolex Daytona, Tudor Chrono |
+| Black dial + white subdials (chrono) | Reverse Panda | Rolex Daytona, Tudor Chrono |
+
+When using static fallback, validate nicknames before including. If
+unsure whether a nickname drives retail search volume, run the
+`title-research` skill to check.
 
 ---
 
@@ -307,11 +470,14 @@ Wire, Zelle, USDT, CC (+4.5% fee)
 
 ## Platform-Specific Notes
 
-**eBay:** Title max 80 chars. List price rounds to $49/$99 ending. Include Item
-Specifics. Use "Key Details" emoji prefix only on eBay.
+**eBay:** Title per Title Construction rules (80 char max, SEO-optimized,
+no reference in title). List price rounds to $49/$99 ending. Include Item
+Specifics (reference number goes here). Use "Key Details" emoji prefix only on eBay.
 
-**Chrono24:** Clean, professional, no emojis. "Scope of Delivery" not "What's
-Included." Separate "Condition Notes" section. No trust block in body.
+**Chrono24:** Title per Title Construction rules (keyword-rich, no reference
+in title, no character limit). Clean, professional, no emojis. "Scope of
+Delivery" not "What's Included." Separate "Condition Notes" section. No trust
+block in body.
 
 **Facebook Retail:** "Offered at: $[price]" format. Character substitutions
 mandatory. CTA: "DM if you're interested."
@@ -323,10 +489,11 @@ description paragraphs. Character substitutions mandatory.
 character substitutions. Price must be at or below 10% below lowest US C24/eBay
 dealer comp. Cannot be listed for lower anywhere else.
 
-**Reddit r/watchexchange:** Title: `[WTS] Brand Model Feature – Size Material –
-Ref Number`. Richest prose. Specs use bullet points. Include MSRP. "Dealer"
-positioning in About Us. "Trades considered" ONLY when user requests. Timestamp
-photo required. No character substitutions.
+**Reddit r/watchexchange:** Title per Title Construction rules:
+`[WTS] {keywords} – ${price} Shipped` (reference in body, not title).
+Richest prose. Specs use bullet points. Include MSRP. "Dealer" positioning
+in About Us. "Trades considered" ONLY when user requests. Timestamp photo
+required. No character substitutions.
 
 **Value Your Watch:** Short Catchy Description (2-3 sentences, appears in search
 results). Full specs section. "Why Vardalux" section.
@@ -374,6 +541,18 @@ before generating the full listing document:
   table covering all brand names, model names, technical terms, payment terms, and
   document terms
 
+### External Input: title-research.json
+
+The `title-research` skill (a separate standalone skill) produces
+`title-research.json` in the listing working folder. This file contains
+SEO keyword recommendations used by the Title Construction section above.
+
+- If present: use it for title construction (preferred path)
+- If absent: fall back to static keyword mapping table
+- This file is NOT produced by this skill. It is consumed by this skill.
+- The `title-research` skill can also run standalone for sourcing
+  intelligence, competitor analysis, and keyword trend tracking
+
 **Full paths (OpenClaw):**
 ```
 ~/.openclaw/workspace/skills/watch-listing-content/references/platform-templates.md
@@ -408,5 +587,6 @@ and description approval steps.
 
 ---
 
-*Aligned to The Vardalux Way v1.3 | March 2026*
+*Aligned to The Vardalux Way v1.3 | Updated April 1, 2026*
 *CC fee: 4.5% | Location: Colorado | Identity: Dealers who transact with purpose*
+*Title Construction v1.0: Consumes title-research.json from standalone title-research skill*

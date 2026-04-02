@@ -1,0 +1,162 @@
+{
+  "_description": "Configuration for the title-research skill. Edit this file to add nicknames, dial variant keywords, or adjust detection thresholds.",
+  "_version": "1.1",
+  "_last_updated": "2026-04-01",
+
+  "nickname_lookup": [
+    {
+      "bezel_colors": "Blue/Red",
+      "nickname": "Pepsi",
+      "brands": ["Rolex", "Tudor"],
+      "collections": ["GMT-Master", "GMT-Master II", "Black Bay GMT"]
+    },
+    {
+      "bezel_colors": "Black/Blue",
+      "nickname": "Batman",
+      "brands": ["Rolex"],
+      "collections": ["GMT-Master II"]
+    },
+    {
+      "bezel_colors": "Black/Brown",
+      "nickname": "Root Beer",
+      "brands": ["Rolex", "Tudor"],
+      "collections": ["GMT-Master II", "Black Bay GMT"]
+    },
+    {
+      "bezel_colors": "Black/Root Beer",
+      "nickname": "Root Beer",
+      "brands": ["Rolex", "Tudor"],
+      "collections": ["GMT-Master II", "Black Bay GMT"]
+    },
+    {
+      "bezel_colors": "Black/Red",
+      "nickname": "Coke",
+      "brands": ["Rolex", "Tudor"],
+      "collections": ["GMT-Master", "GMT-Master II", "Black Bay GMT"]
+    },
+    {
+      "bezel_colors": "Green",
+      "dial_color": "Black",
+      "nickname": "Kermit",
+      "brands": ["Rolex"],
+      "collections": ["Submariner"],
+      "notes": "Specific to Submariner refs with green bezel + black dial (e.g., 16610LV, 126610LV)"
+    },
+    {
+      "bezel_colors": "Green",
+      "dial_color": "Green",
+      "nickname": "Hulk",
+      "brands": ["Rolex"],
+      "collections": ["Submariner"],
+      "notes": "Specific to 116610LV (green bezel + green dial). Discontinued."
+    },
+    {
+      "bezel_colors": null,
+      "dial_color": "White",
+      "complication_type": "Chronograph",
+      "dial_pattern": "white_dial_black_subdials",
+      "nickname": "Panda",
+      "brands": ["Rolex", "Tudor", "Omega"],
+      "collections": ["Daytona", "Black Bay Chrono", "Speedmaster"],
+      "notes": "White/silver dial with black subdials on a chronograph"
+    },
+    {
+      "bezel_colors": null,
+      "dial_color": "Black",
+      "complication_type": "Chronograph",
+      "dial_pattern": "black_dial_white_subdials",
+      "nickname": "Reverse Panda",
+      "brands": ["Rolex", "Tudor", "Omega"],
+      "collections": ["Daytona", "Black Bay Chrono", "Speedmaster"],
+      "notes": "Black dial with white subdials on a chronograph"
+    }
+  ],
+
+  "dial_variant_keywords": [
+    "Opaline",
+    "Sunburst",
+    "MOP",
+    "Mother of Pearl",
+    "Salmon",
+    "Meteorite",
+    "Ice Blue",
+    "Wimbledon",
+    "Champagne",
+    "Rhodium",
+    "Slate",
+    "Anthracite",
+    "Tiffany",
+    "Turquoise",
+    "Green",
+    "Blue",
+    "White",
+    "Silver",
+    "Grey",
+    "Pink",
+    "Chocolate",
+    "Copper"
+  ],
+
+  "dial_variant_filter_notes": "These keywords describe dial colors/finishes. If the input dial_color does not match, remove the keyword. Special cases: 'White' is often a synonym for 'Opaline' on Tudor GMT refs. 'Blue' may refer to a bezel color rather than a dial color — only filter if the context clearly refers to a dial variant, not the bezel. When in doubt about 'Blue' or 'Green', check whether the word appears alongside 'dial' in the source title.",
+
+  "completeness_keywords": {
+    "requires_box_papers_confirmed": [
+      "Full Set",
+      "Box Papers",
+      "Box & Papers",
+      "B&P",
+      "Complete Set",
+      "Complete"
+    ],
+    "requires_condition_new": [
+      "BNIB",
+      "Brand New",
+      "Unworn",
+      "New",
+      "Stickered",
+      "NOS"
+    ]
+  },
+
+  "anomaly_detection": {
+    "price_threshold_percent": 40,
+    "price_threshold_note": "Exclude any sold comp where the price is more than this percentage below the median of the remaining results. 40% catches obvious outliers (counterfeits, listing errors, incomplete transactions) without filtering legitimate discounted sales."
+  },
+
+  "reference_placement": {
+    "ebay": "Item Specifics → Reference Number field",
+    "chrono24": "Reference Number field (dedicated field in listing form)",
+    "facebook": "Body text, first line after title",
+    "value_your_watch": "Separate reference field in listing form",
+    "reddit": "Body text in post, not in [WTS] title",
+    "grailzee": "Auto-populated from Grailzee database",
+    "instagram": "Not included (no reference numbers on IG)"
+  },
+
+  "platform_title_limits": {
+    "ebay": {
+      "max_characters": 80,
+      "notes": "Cassini reads left-to-right. Most important keywords first."
+    },
+    "chrono24": {
+      "max_characters": null,
+      "notes": "No hard limit on title field, but concise titles perform better in search."
+    },
+    "facebook": {
+      "max_characters": null,
+      "notes": "No character limit. Title is the first line of the post."
+    },
+    "value_your_watch": {
+      "max_characters": null,
+      "notes": "Title + short catchy description both affect search."
+    },
+    "reddit": {
+      "max_characters": 300,
+      "notes": "Format: [WTS] Brand Collection Feature – Size Material. Reference in body."
+    },
+    "grailzee": {
+      "max_characters": null,
+      "notes": "Grailzee auto-generates titles from their database fields."
+    }
+  }
+}
