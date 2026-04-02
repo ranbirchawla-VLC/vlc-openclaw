@@ -605,21 +605,16 @@ Do not fail silently.
 
 ### Step 5: WATCHTRACK SUB STATUS UPDATE
 
-Runs automatically after Step 4 is complete (PDF confirmed, generate_pdf.py deleted).
+⚠️ **This step is handled by the main OpenClaw agent — NOT by Claude Code.**
 
-1. Use your native browser tool to navigate to the URL. Do not use Playwright, Puppeteer, or any CLI. Just use the browser tool directly.
-   The user is already logged into WatchTrack. Do not attempt to authenticate.
-2. Navigate to https://watchtrack.com/store/home and look up the item by SKU (`internal_ref`)
-3. Find the **Sub Status** field on the item page
-4. Select **"Ready for Listing"** from the dropdown
-5. Save the record
-6. Post confirmation to Telegram (chat ID: 8712103657):
-   *"✅ WatchTrack updated: [brand] [model] ([internal_ref]) → Sub Status: Ready for Listing"*
+Claude Code does not have access to the OpenClaw browser tool. When Step 4 is
+complete, post to Telegram (chat ID: 8712103657):
 
-**If the Sub Status field is not found or the save fails:** Post an error to
-Telegram with the SKU so the user can update manually. Do not block or fail
-silently. Mark the listing as complete regardless — this is a status update,
-not a gate.
+*"✅ PDF complete: [brand] [model] ([internal_ref]) — ready for WatchTrack update."*
+
+The main OpenClaw agent will handle the WatchTrack sub-status update using the
+`openclaw browser` CLI and the watchtrack skill. Do not attempt browser
+navigation from this session.
 
 ---
 

@@ -22,6 +22,12 @@ description: >
 - Those belong to Claude Code using the watch-listing-content skill
 - Title research (Step 1.5) is run by OpenClaw directly using web tools — not delegated to Claude Code
 
+## ⚠️ Tool Routing — Non-Negotiable Rules
+- **WatchTrack (Steps 0 and 5) ALWAYS runs in the main OpenClaw session** using `openclaw browser` CLI
+- **Never delegate WatchTrack to Claude Code or any sub-agent** — they have no browser access and will fail
+- **Sub-status Save button** requires JS dispatch on `app-design-loadable-button` — see watchtrack SKILL.md
+- **Sub-status dropdown** requires scroll before "Ready for listing" is visible — see watchtrack SKILL.md
+
 ---
 
 ## Configuration

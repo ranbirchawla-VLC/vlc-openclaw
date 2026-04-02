@@ -1,21 +1,71 @@
 ---
 name: watchtrack
 description: >
-  Interact with the WatchTrack inventory management system via Claude in Chrome
-  browser automation. Two capabilities: (1) Item Details: given a SKU and working
-  folder, navigate to WatchTrack, search for the item, extract all item data
-  (pricing, condition, specs, notes), and write a watchtrack.json file to the
-  working folder. (2) Change Substatus: given a SKU and desired sub-status value,
-  navigate to WatchTrack, find the item, open the sub-status edit modal, select
-  the new value, and save. Use this skill whenever the user or an orchestrator
-  (OpenClaw) says "look up item", "get item details", "pull from WatchTrack",
-  "check WatchTrack", "update substatus", "change substatus", "set substatus",
-  "mark as listed", "mark as sold", or references a SKU in the context of
-  WatchTrack data retrieval or status updates. Also trigger when another skill
-  (watch-listing, vardalux-pipeline) needs WatchTrack data as an input step.
+  Interact with the WatchTrack inventory management system via the OpenClaw
+  native browser tool (openclaw browser CLI). Two capabilities: (1) Item Details:
+  given a SKU and working folder, navigate to WatchTrack, search for the item,
+  extract all item data (pricing, condition, specs, notes), and write a
+  watchtrack.json file to the working folder. (2) Change Substatus: given a SKU
+  and desired sub-status value, navigate to WatchTrack, find the item, open the
+  sub-status edit modal, select the new value, and save. Use this skill whenever
+  the user or an orchestrator (OpenClaw) says "look up item", "get item details",
+  "pull from WatchTrack", "check WatchTrack", "update substatus", "change
+  substatus", "set substatus", "mark as listed", "mark as sold", or references a
+  SKU in the context of WatchTrack data retrieval or status updates. Also trigger
+  when another skill (watch-listing, vardalux-pipeline) needs WatchTrack data as
+  an input step. CRITICAL: This skill must ONLY run in the main OpenClaw session
+  using the openclaw browser CLI. Never delegate WatchTrack interactions to Claude
+  Code, sub-agents, or ACP harness sessions — they do not have browser access.
 ---
 
 # WatchTrack Browser Automation — Vardalux Collections
+
+## ⚠️ CRITICAL: Tool Routing Rule
+
+**WatchTrack interactions MUST run in the main OpenClaw session only.**
+
+Use the `openclaw browser` CLI commands directly. Never delegate WatchTrack
+lookups or sub-status updates to:
+- Claude Code (ACP harness sessions)
+- Sub-agents spawned via `sessions_spawn`
+- Any isolated or background session
+
+These sessions do not have access to the OpenClaw browser tool and will fail
+silently or produce incorrect results. If the listing pipeline spawns Claude Code
+for content generation (Steps 2–4), WatchTrack Step 0 (lookup) and Step 5
+(sub-status update) must always be handled by the main OpenClaw agent before
+and after the Claude Code spawn respectively.
+
+**Save button on Sub-Status modal:** The "Save changes" button is a custom
+Angular component (`app-design-loadable-button`). Standard `button` queries and
+snapshot refs do not expose it reliably. Use this proven JS pattern to save:
+
+```javascript
+const btn = document.querySelector("app-design-loadable-button");
+const inner = btn.querySelector(".submit-btn-global") || btn.querySelector("div");
+["mousedown", "mouseup", "click"].forEach(e =>
+  inner.dispatchEvent(new MouseEvent(e, {bubbles: true, cancelable: true, view: window}))
+);
+```
+
+**Dropdown scroll:** The "Ready for listing" option is below the visible fold.
+After opening the dropdown, scroll the `.suggestion-menu-inner-global` container
+before attempting to click the option:
+
+```javascript
+for (const el of document.querySelectorAll("*")) {
+  if (el.children.length === 0 && el.textContent.trim() === "Listing Prep") {
+    let c = el.parentElement;
+    while (c) {
+      if (c.scrollHeight > c.clientHeight) { c.scrollTop += 120; break; }
+      c = c.parentElement;
+    }
+    break;
+  }
+}
+```
+
+---
 
 ## Purpose
 
