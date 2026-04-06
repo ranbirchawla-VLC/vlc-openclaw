@@ -1,0 +1,106 @@
+{
+  "name": "nutriOS",
+  "version": "2.0.0",
+  "description": "Health and nutrition tracking companion — food logging, macro tracking, mesocycle management via Telegram",
+  "session": {
+    "dmScope": "per-channel-peer"
+  },
+  "tools": [
+    {
+      "name": "nutrios_read",
+      "description": "Read and parse a JSON file from the NutriOS data store. Returns the parsed data or an error if file is missing or malformed.",
+      "command": "NUTRIOS_DATA_ROOT='/Users/ranbirchawla/Library/CloudStorage/GoogleDrive-ranbir.chawla@rnvillc.com/Shared drives/RDC-NC-SharedDrive/data-root' NUTRIOS_TZ='America/Denver' node tools/nutrios_read.js",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "File path relative to NUTRIOS_DATA_ROOT (e.g. 'protocol.json', 'day-patterns/active.json', 'logs/2026-04-04.json')"
+          }
+        },
+        "required": ["path"]
+      }
+    },
+    {
+      "name": "nutrios_write",
+      "description": "Write JSON data to the NutriOS data store. Supports deep merge (objects merged, arrays replaced) or full overwrite. Creates directories automatically. Uses atomic writes with .bak backup.",
+      "command": "NUTRIOS_DATA_ROOT='/Users/ranbirchawla/Library/CloudStorage/GoogleDrive-ranbir.chawla@rnvillc.com/Shared drives/RDC-NC-SharedDrive/data-root' NUTRIOS_TZ='America/Denver' node tools/nutrios_write.js",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "File path relative to NUTRIOS_DATA_ROOT"
+          },
+          "data": {
+            "type": "object",
+            "description": "JSON data to write"
+          },
+          "merge": {
+            "type": "boolean",
+            "description": "true = deep-merge with existing (arrays replaced, not concatenated). false = full overwrite.",
+            "default": true
+          }
+        },
+        "required": ["path", "data"]
+      }
+    },
+    {
+      "name": "nutrios_log",
+      "description": "Log food entries, water, or medication dose for today. Supports add, undo, delete, edit, water, and dose actions. Auto-assigns entry IDs and recalculates running totals.",
+      "command": "NUTRIOS_DATA_ROOT='/Users/ranbirchawla/Library/CloudStorage/GoogleDrive-ranbir.chawla@rnvillc.com/Shared drives/RDC-NC-SharedDrive/data-root' NUTRIOS_TZ='America/Denver' node tools/nutrios_log.js",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["add", "undo", "delete", "edit", "water", "dose"],
+            "description": "Action to perform on today's log"
+          },
+          "entry": {
+            "type": "object",
+            "description": "Food entry (for add/edit). Contains time, description, source, macros.",
+            "properties": {
+              "time": { "type": "string", "description": "Time in HH:MM format" },
+              "description": { "type": "string" },
+              "source": { "type": "string", "enum": ["recipe", "estimated"] },
+              "macros": {
+                "type": "object",
+                "properties": {
+                  "calories": { "type": "number" },
+                  "protein_g": { "type": "number" },
+                  "carbs_g": { "type": "number" },
+                  "fat_g": { "type": "number" }
+                }
+              }
+            }
+          },
+          "entry_id": {
+            "type": "integer",
+            "description": "Entry ID for delete/edit actions"
+          },
+          "targets": {
+            "type": "object",
+            "description": "Today's macro targets (passed on add to initialize/update the log)",
+            "properties": {
+              "calories": { "type": "number" },
+              "protein_g": { "type": "number" },
+              "carbs_g": { "type": "number" },
+              "fat_g": { "type": "number" }
+            }
+          },
+          "day_type": {
+            "type": "string",
+            "description": "Today's day type key (e.g. 'training_day')"
+          }
+        },
+        "required": ["action"]
+      }
+    }
+  ],
+  "env": [
+    "NUTRIOS_DATA_ROOT",
+    "NUTRIOS_USER_ID",
+    "NUTRIOS_TZ"
+  ]
+}
