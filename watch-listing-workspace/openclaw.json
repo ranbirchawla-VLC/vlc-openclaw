@@ -1,0 +1,22 @@
+{
+  "name": "watch-listing",
+  "version": "1.0.0",
+  "description": "Watch listing pipeline tools for Vardalux Collections",
+  "tools": [
+    {
+      "name": "generate_listing_pdf",
+      "description": "Generate a clean formatted PDF from a watch listing markdown file. Call this as the final step of every listing after listing-SKU.md has been written. Pass the absolute path to the listing folder or directly to the .md file.",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/watch-listing-workspace/tools/generate_listing_pdf.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder_or_md_path": {
+            "type": "string",
+            "description": "Absolute path to the listing folder (e.g. /path/to/Tudor/272CV-M79230B-0008/) or directly to the .md file (e.g. /path/to/listing-272CV.md)"
+          }
+        },
+        "required": ["folder_or_md_path"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "step": 0,
+  "timestamp": "2026-04-10T11:16:00Z",
+  "inputs": {
+    "internal_ref": "542G4",
+    "model_ref": "1-36-02-01-02-61",
+    "brand": "Glashütte Original",
+    "model": "Senator Excellence",
+    "reference": "1-36-02-01-02-61",
+    "condition": "Pre-owned",
+    "included": "Watch with original box and papers",
+    "year": "May 2023",
+    "dial_color": "Silver",
+    "case_material": "Steel",
+    "movement": "Automatic"
+  },
+  "watchtrack": {
+    "serial": "121030",
+    "cost_basis": 14500,
+    "retail_price_wt": 20499,
+    "wholesale_price_wt": 17500,
+    "recent_comps": {
+      "source": "Chrono24 3/24/2026",
+      "global_count": 88,
+      "global_range": "$8,925-$20,299",
+      "us_count": 17,
+      "us_range": "$8,900-$20,299",
+      "exact_ref_range": "$12,800-$20,299"
+    },
+    "sub_status": "Listing Prep",
+    "sourced_from": "Purchase #TEYPA1042 (Michael Xylas)",
+    "received": "November 4, 2025",
+    "notes": "Serviced: With Victor (Nov 7, 2025). Checked in Nov 11, 2025."
+  },
+  "inputs_pending": {
+    "retail_net": 19000
+  },
+  "approved": {}
+}
