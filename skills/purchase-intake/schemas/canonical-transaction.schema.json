@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vardalux.com/schemas/canonical-transaction.schema.json",
+  "title": "Vardalux Canonical Transaction",
+  "description": "Shared transaction contract. Purchase Intake emits this schema. WatchTrack Writer consumes it.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": [
+    "source_channel",
+    "event_type",
+    "counterparty",
+    "watch",
+    "financials",
+    "workflow_status",
+    "idempotency_key",
+    "created_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "source_channel": {
+      "type": "string",
+      "enum": ["telegram_manual_intake", "invoice_email", "direct_entry"]
+    },
+    "event_type": {
+      "type": "string",
+      "enum": ["purchase", "correction", "payment_update"]
+    },
+    "counterparty": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "phone": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "company": { "type": "string" },
+        "telegram_handle": { "type": "string" }
+      }
+    },
+    "watch": {
+      "type": "object",
+      "required": ["brand", "model", "reference", "condition", "set_completeness"],
+      "additionalProperties": false,
+      "properties": {
+        "brand": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "reference": { "type": "string", "minLength": 1 },
+        "serial": { "type": "string" },
+        "condition": { "type": "string", "minLength": 1 },
+        "set_completeness": { "type": "string", "minLength": 1 }
+      }
+    },
+    "financials": {
+      "type": "object",
+      "required": ["agreed_price", "currency"],
+      "additionalProperties": false,
+      "properties": {
+        "agreed_price": { "type": "number", "minimum": 0 },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$", "default": "USD" },
+        "payment_method": { "type": "string" }
+      }
+    },
+    "notes": {
+      "type": "string"
+    },
+    "workflow_status": {
+      "type": "string",
+      "enum": [
+        "intake_confirmed"
+      ]
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

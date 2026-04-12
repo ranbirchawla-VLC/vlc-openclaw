@@ -1,0 +1,87 @@
+{
+  "name": "purchase-intake",
+  "version": "1.0.0",
+  "description": "Vardalux purchase intake — Telegram deal messages and Gmail invoice processing",
+  "tools": [
+    {
+      "name": "gmail_check",
+      "description": "Search Gmail inbox for unread invoice emails. Returns list of emails with sender, subject, body snippet, and attachment info.",
+      "command": "node /Users/ranbirchawla/.openclaw/workspace/skills/purchase-intake/gmail/gmail_check.js",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Optional Gmail search query override. Default searches for unread invoice/receipt emails with attachments."
+          }
+        }
+      }
+    },
+    {
+      "name": "gmail_download",
+      "description": "Download an email attachment from Gmail to a local directory.",
+      "command": "node /Users/ranbirchawla/.openclaw/workspace/skills/purchase-intake/gmail/gmail_download.js",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "messageId": { "type": "string", "description": "Gmail message ID" },
+          "attachmentId": { "type": "string", "description": "Attachment ID from gmail_check result" },
+          "filename": { "type": "string", "description": "Filename to save as" },
+          "outputDir": { "type": "string", "description": "Full path to output directory" }
+        },
+        "required": ["messageId", "attachmentId", "filename", "outputDir"]
+      }
+    },
+    {
+      "name": "gmail_mark",
+      "description": "Mark a Gmail message as read and optionally add/remove labels.",
+      "command": "node /Users/ranbirchawla/.openclaw/workspace/skills/purchase-intake/gmail/gmail_mark.js",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "messageId": { "type": "string", "description": "Gmail message ID to mark" },
+          "addLabels": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Label IDs to add (e.g. custom label IDs)"
+          },
+          "removeLabels": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Label IDs to remove. Default: [\"UNREAD\"]"
+          }
+        },
+        "required": ["messageId"]
+      }
+    }
+  ,
+    {
+      "name": "gmail_fetch_invoice",
+      "description": "Fetch and extract full invoice content from a Gmail email. Handles all types: downloads and extracts text from PDF attachments, or fetches hosted invoice pages. Returns invoice_text ready for field extraction, or browser_required:true with a URL if the page needs JavaScript rendering.",
+      "command": "node /Users/ranbirchawla/.openclaw/workspace/skills/purchase-intake/gmail/gmail_fetch_invoice.js",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "email_id": { "type": "string", "description": "Gmail message ID" },
+          "type": { "type": "string", "enum": ["attachment", "hosted_link", "body_only"], "description": "Invoice type from gmail_check output" },
+          "invoice_url": { "type": "string", "description": "Invoice URL (for hosted_link type, from gmail_check output)" },
+          "attachments": { "type": "array", "description": "Attachments array from gmail_check output (for attachment type)" },
+          "body_text": { "type": "string", "description": "Email body text (for body_only type)" }
+        },
+        "required": ["email_id", "type"]
+      }
+    },
+    {
+      "name": "pdf_read",
+      "description": "Extract full text from a PDF file using pdftotext. Returns all text content including headers, line items, totals, and payment instructions.",
+      "command": "node /Users/ranbirchawla/.openclaw/workspace/skills/purchase-intake/gmail/pdf_read.js",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Full local path to the PDF file" }
+        },
+        "required": ["path"]
+      }
+    }
+  ]
+}
