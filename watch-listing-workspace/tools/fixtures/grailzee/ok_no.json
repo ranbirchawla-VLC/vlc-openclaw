@@ -1,0 +1,29 @@
+{
+  "status": "ok",
+  "brand": "Tudor",
+  "model": "Black Bay GMT",
+  "reference": "79830RB",
+  "section": "Tudor",
+  "purchase_price": 3800,
+  "data_source": "cache",
+  "grailzee": "NO",
+  "format": "NR",
+  "reserve_price": null,
+  "ad_budget": "$50\u2013100",
+  "rationale": "Price is $500 over MAX BUY ($3,300). At $3,800 the margin is -1.8%, below the 5% target.",
+  "metrics": {
+    "median": 4000,
+    "max_buy": 3300,
+    "floor": 3200,
+    "margin_dollars": -149,
+    "margin_pct": -3.9,
+    "risk_vg_pct": null,
+    "signal": "Strong",
+    "sell_through": null,
+    "volume": 8,
+    "trend": "Stable",
+    "vs_max_buy": 500
+  },
+  "cache_date": "2026-03-15",
+  "cache_report": "Grailzee_Pro_2026_Q1.xlsx"
+}

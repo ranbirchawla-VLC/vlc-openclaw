@@ -1,0 +1,29 @@
+{
+  "status": "ok",
+  "brand": "Tudor",
+  "model": "Black Bay GMT",
+  "reference": "79830RB",
+  "section": "Tudor",
+  "purchase_price": 3800,
+  "data_source": "cache",
+  "grailzee": "MAYBE",
+  "format": "Reserve",
+  "reserve_price": 3970,
+  "ad_budget": "$50\u2013100",
+  "rationale": "Signal is Reserve (24% VG+ risk). Price works at $3,800 but route to Reserve account, not branded NR.",
+  "metrics": {
+    "median": 4200,
+    "max_buy": 3800,
+    "floor": 3400,
+    "margin_dollars": 201,
+    "margin_pct": 5.3,
+    "risk_vg_pct": 24.0,
+    "signal": "Reserve",
+    "sell_through": null,
+    "volume": 9,
+    "trend": "Stable",
+    "vs_max_buy": 0
+  },
+  "cache_date": "2026-03-15",
+  "cache_report": "Grailzee_Pro_2026_Q1.xlsx"
+}

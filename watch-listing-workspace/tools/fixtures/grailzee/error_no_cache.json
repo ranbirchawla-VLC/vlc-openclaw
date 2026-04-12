@@ -1,0 +1,5 @@
+{
+  "status": "error",
+  "error": "no_cache",
+  "message": "No analysis cache found at /path/to/cache.json. Run the full Grailzee analyzer first to generate the cache."
+}

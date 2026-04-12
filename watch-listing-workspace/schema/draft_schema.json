@@ -1,0 +1,260 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Vardalux _draft.json",
+  "description": "Pipeline state checkpoint. Written progressively across steps 0-4. Each Python tool validates against this schema before reading or writing. Step sequence: 0=WatchTrack, 1=Photos, 2=Pricing, 3=Descriptions, 3.5=Grailzee gate, 4=PDF generated.",
+  "type": "object",
+  "required": ["step", "timestamp"],
+  "additionalProperties": false,
+  "properties": {
+
+    "step": {
+      "description": "Last completed pipeline step. 3.5 = Grailzee gate resolved.",
+      "type": "number",
+      "enum": [0, 1, 2, 3, 3.5, 4]
+    },
+
+    "timestamp": {
+      "description": "ISO 8601 datetime of last write to _draft.json.",
+      "type": "string"
+    },
+
+    "inputs": {
+      "description": "Watch data collected across steps 0-1. All fields optional — populated progressively. additionalProperties: true so watch-specific fields (dial_color, bezel_material, etc.) are allowed without schema changes.",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "internal_ref":    { "type": "string", "description": "First segment of folder name, e.g. '164WU'." },
+        "model_ref":       { "type": "string", "description": "Remaining segments of folder name, e.g. 'IW371446-1'." },
+        "brand":           { "type": "string" },
+        "model":           { "type": "string" },
+        "reference":       { "type": "string" },
+        "retail_net":      { "type": "number", "description": "Target NET after all fees and negotiation." },
+        "wholesale_net":   { "type": ["number", "null"] },
+        "wta_price":       { "type": ["number", "null"] },
+        "wta_comp":        { "type": ["number", "null"], "description": "Lowest US dealer comp from C24 or eBay." },
+        "reddit_price":    { "type": ["number", "null"] },
+        "msrp":            { "type": ["number", "null"] },
+        "tier": {
+          "type": "integer",
+          "enum": [1, 2, 3],
+          "description": "Buyer tier: 1=Entry to Luxury, 2=Functioning Luxury, 3=Exclusivity."
+        },
+        "condition": {
+          "type": "string",
+          "enum": ["BNIB", "Excellent", "Very Good", "Good", "Other"],
+          "description": "Canonical condition. Normalization rule: WatchTrack 'Brand New' maps to BNIB and is written at step 0. All other WatchTrack condition strings require user confirmation via Telegram buttons — the field is left absent from the draft until the user confirms."
+        },
+        "condition_detail": {
+          "type": "string",
+          "description": "Component-level notes (case, bezel, crystal, dial, movement, bracelet, crown). Required when condition is Other or when Chrono24 Condition Notes section is needed."
+        },
+        "grailzee_format": {
+          "type": "string",
+          "enum": ["NR", "Reserve", "skip"],
+          "description": "NR = no-reserve $1 start, Reserve = user-provided reserve price, skip = exclude from listing."
+        },
+        "buffer": {
+          "type": "number",
+          "description": "Negotiation buffer percentage added to retail_net before fee calculation. Default: 5."
+        },
+        "included":        { "type": "string", "description": "What ships with the watch, e.g. 'Box and papers'." },
+        "year":            { "type": "string" },
+        "case_size":       { "type": "string" },
+        "case_material":   { "type": "string" },
+        "movement":        { "type": "string" }
+      }
+    },
+
+    "inputs_pending": {
+      "description": "Staging area for inputs received before step 1 confirmation (e.g., retail_net texted during WatchTrack review). Merged into inputs at the step 1 approval gate and then removed. Nulled out after merge.",
+      "type": ["object", "null"],
+      "additionalProperties": true
+    },
+
+    "watchtrack": {
+      "description": "Data extracted from WatchTrack at step 0. additionalProperties: true — WatchTrack returns extra fields (sub_status, sourced_from, received, retail_price_wt, etc.) that are preserved verbatim.",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "cost_basis":    { "type": "number" },
+        "serial":        { "type": "string" },
+        "notes":         { "type": "string", "description": "Verbatim WatchTrack Notes field. Always captured regardless of whether price fields are populated." },
+        "recent_comps": {
+          "description": "Sold comps. Either a plain array of prices (spec format) or a WatchTrack-native structured object with source, ranges, and counts.",
+          "oneOf": [
+            {
+              "type": "array",
+              "items": { "type": "number" },
+              "description": "Array of comp prices, e.g. [3100, 3250, 2975]."
+            },
+            {
+              "type": "object",
+              "description": "WatchTrack structured comp object with source, global_count, us_range, etc."
+            }
+          ]
+        }
+      }
+    },
+
+    "pricing": {
+      "description": "Platform pricing calculated by run_pricing.py at step 2. Absent until step 2 completes.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ebay": {
+          "type": "object",
+          "required": ["list_price", "auto_accept", "auto_decline"],
+          "additionalProperties": false,
+          "properties": {
+            "list_price":    { "type": "number", "description": "Rounded to nearest $X,X49 or $X,X99." },
+            "auto_accept":   { "type": "number", "description": "list_price x 0.95, rounded to nearest $50." },
+            "auto_decline":  { "type": "number", "description": "list_price x 0.85, rounded to nearest $50." }
+          }
+        },
+        "chrono24": {
+          "type": "object",
+          "required": ["list_price"],
+          "additionalProperties": false,
+          "properties": {
+            "list_price": { "type": "number", "description": "buffered / (1 - 0.075), rounded to nearest $25 or $50." }
+          }
+        },
+        "facebook_retail": {
+          "type": "object",
+          "required": ["list_price"],
+          "additionalProperties": false,
+          "properties": {
+            "list_price": { "type": "number", "description": "buffered, rounded to clean number." }
+          }
+        },
+        "facebook_wholesale": {
+          "description": "Null when wholesale_net was not provided.",
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["list_price"],
+              "additionalProperties": false,
+              "properties": {
+                "list_price": { "type": "number" }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "wta": {
+          "description": "Null when wta_price was not provided.",
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["price", "comp", "max_allowed", "sweet_spot", "status"],
+              "additionalProperties": false,
+              "properties": {
+                "price":       { "type": "number" },
+                "comp":        { "type": "number", "description": "Lowest US dealer comp." },
+                "max_allowed": { "type": "number", "description": "comp x 0.90 — absolute ceiling." },
+                "sweet_spot":  { "type": "number", "description": "comp x 0.80 — recommended range." },
+                "status": {
+                  "type": "string",
+                  "enum": ["OK", "NOTE", "OVER"],
+                  "description": "OK = at or below sweet_spot, NOTE = compliant but above sweet_spot, OVER = exceeds max_allowed."
+                }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "reddit": {
+          "description": "Null when reddit_price was not provided.",
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["list_price"],
+              "additionalProperties": false,
+              "properties": {
+                "list_price": { "type": "number", "description": "Pass-through of reddit_price, no calculation." }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "grailzee": {
+          "description": "Null when grailzee_format is 'skip'.",
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["format"],
+              "additionalProperties": false,
+              "properties": {
+                "format": {
+                  "type": "string",
+                  "enum": ["NR", "Reserve"]
+                },
+                "reserve_price": {
+                  "type": ["number", "null"],
+                  "description": "Required when format is Reserve. Null for NR."
+                }
+              }
+            },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+
+    "canonical": {
+      "description": "Descriptions written by the step3a-canonical skill. Absent until step 3 completes.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description":    { "type": "string", "description": "One paragraph, tier-appropriate. Ogilvy Standard." },
+        "condition_line": { "type": "string", "description": "One sentence: condition rating + completeness." },
+        "grailzee_desc":  { "type": ["string", "null"], "description": "Emotional paragraph, no specs, no condition. Null when grailzee_format is skip." }
+      }
+    },
+
+    "approved": {
+      "description": "Human approval gates. Each sub-object records the outcome of a Telegram approval interaction.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "photos": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "status":    { "type": "string", "enum": ["approved", "changes_requested"] },
+            "notes":     { "type": "string", "description": "Photo review feedback text." },
+            "timestamp": { "type": "string" }
+          }
+        },
+        "pricing": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "status":    { "type": "string", "enum": ["approved", "changes_requested"] },
+            "table":     { "type": "object", "description": "Snapshot of the pricing table at approval time." },
+            "timestamp": { "type": "string" }
+          }
+        },
+        "descriptions": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "status":    { "type": "string", "enum": ["approved", "changes_requested"] },
+            "timestamp": { "type": "string" }
+          }
+        },
+        "grailzee_gate": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "status":         { "type": "string", "enum": ["proceed", "adjust", "skip", "manual_check"] },
+            "median":         { "type": ["number", "null"] },
+            "recommendation": { "type": "string" },
+            "timestamp":      { "type": "string" }
+          }
+        }
+      }
+    }
+
+  }
+}

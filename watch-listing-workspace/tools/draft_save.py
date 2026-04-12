@@ -65,8 +65,9 @@ def main():
             backup_path = draft_path + ".corrupt.bak"
             try:
                 os.rename(draft_path, backup_path)
-            except OSError:
-                pass
+                print(f"WARNING: corrupt _draft.json backed up to {backup_path}", file=sys.stderr)
+            except OSError as backup_err:
+                print(f"WARNING: corrupt _draft.json could not be backed up ({backup_err}); proceeding with empty draft", file=sys.stderr)
             existing = {}
 
     # Merge
