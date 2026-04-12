@@ -90,12 +90,18 @@ Load `skills/step1-photos/SKILL.md`. This skill handles:
 
 ## Step 5: Pricing (Python — run_pricing)
 
-Call the `run_pricing` tool with the `_draft.json` path. Pure math, no LLM.
+Exact exec command:
+```
+python3 /Users/ranbirchawla/.openclaw/workspace/watch-listing-workspace/tools/run_pricing.py "<folder_path>"
+```
 
-Calculates: eBay (X,X49/X,X99 rounding), Chrono24 (÷0.925, nearest 25/50), Facebook retail (clean round), Facebook wholesale, WTA (comp-based validation), Reddit, Grailzee.
+Capture stdout — that is the pricing table. Post it to Telegram.
+If output starts with `{"ok": false`, post the error and stop.
 
 Posts pricing table to Telegram for approval:
-Buttons: `✅ Approve` / `✏️ Adjust`
+Buttons: `✅ Approve Pricing` / `✏️ Adjust`
+
+On Adjust: ask what to change. Update `inputs.*` via `draft_save.py`, re-run `run_pricing.py`, re-post.
 
 ## Step 6: Canonical Description (LLM — step3a-canonical)
 
@@ -112,24 +118,37 @@ Load `skills/step3a-canonical/SKILL.md`. This skill handles:
 
 ## Step 6.5: Grailzee Gate (Python — run_grailzee_gate)
 
-Call the `run_grailzee_gate` tool. Evaluates deal viability against Grailzee median data.
+Exact exec command:
+```
+python3 /Users/ranbirchawla/.openclaw/workspace/watch-listing-workspace/tools/run_grailzee_gate.py "<folder_path>"
+```
 
-If data unavailable: returns "manual check needed" — does NOT block pipeline.
+Capture stdout. Post recommendation to Telegram.
+If data unavailable, tool returns a manual-check message — does NOT block pipeline.
 
-Posts recommendation to Telegram:
 Buttons: `✅ Proceed` / `⏭ Skip Grailzee`
 
 ## Step 7: Assembly + PDF (Python — run_phase_b + generate_listing_pdf)
 
-1. Call `run_phase_b` — assembles canonical → all platform listings → `_Listing.md`
-   - Internally calls `run_char_subs` for Facebook platforms
-   - Internally calls `run_checklist` for posting checklist
-   - Reads `references/platform-templates.md`, `trust-blocks.md`, `payment-blocks.md`
-2. Call `generate_listing_pdf` — produces PDF from `_Listing.md`
-3. Post completion to Telegram
-4. Post notification to Slack `C0APPJX0FGC`
+Exact exec commands (run in sequence):
+```
+python3 /Users/ranbirchawla/.openclaw/workspace/watch-listing-workspace/tools/run_phase_b.py "<folder_path>"
+```
+If output is `{"ok": true, ...}`, then:
+```
+python3 /Users/ranbirchawla/.openclaw/workspace/watch-listing-workspace/tools/generate_listing_pdf.py "<folder_path>/_Listing.md"
+```
 
-**No LLM needed. Templates + substitutions + formatting are all deterministic.**
+If either returns `{"ok": false, ...}`: post the error to Telegram and stop.
+
+On success, post to Telegram:
+> ✅ Listing complete — [Brand] [Model]
+> _Listing.md and PDF ready in [folder_name]
+
+Then post to Slack `C0APPJX0FGC`:
+> ✅ Listing complete: [Brand] [Model] ([internal_ref])
+
+**No LLM needed. All formatting, substitutions, and checklists are handled internally.**
 
 ## Step 8: WatchTrack Sub-Status Update
 
