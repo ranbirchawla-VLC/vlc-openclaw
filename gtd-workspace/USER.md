@@ -1,9 +1,9 @@
 # User
 
-name:
-call_them:
+name: Ranbir Chawla
+call_them: Ranbir
 pronouns:
-timezone:
+timezone: America/Denver
 gtd_maturity:    # beginner / practitioner / advanced
 
 ---
