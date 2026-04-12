@@ -137,16 +137,42 @@ def _get_keywords(title_research: dict) -> tuple[list, list, list]:
 
 # Fallback slot order when title-research.json is absent.
 # Tuple: (inputs_key, suffix_to_append_if_missing_from_value)
+# Fallback title slots — movement excluded (caliber details don't belong in titles)
 _FALLBACK_SLOTS: list[tuple[str, str | None]] = [
-    ("brand",          None),
-    ("model",          None),
-    ("complications",  None),
-    ("nickname",       None),
-    ("case_size",      "mm"),
-    ("case_material",  None),
-    ("movement",       None),
-    ("gender",         None),
+    ("brand",         None),
+    ("model",         None),
+    ("complications", None),
+    ("nickname",      None),
+    ("reference",     None),
+    ("case_size",     "mm"),
+    ("case_material", None),
+    ("dial_color",    None),
+    ("gender",        None),
 ]
+
+# Completeness shorthand for titles
+_COMPLETENESS_MAP = {
+    "box and papers": "Box Papers",
+    "box & papers":   "Box Papers",
+    "b&p":            "Box Papers",
+    "full set":       "Full Set",
+    "watch only":     "",
+}
+
+
+def _completeness_suffix(included: str) -> str:
+    """Return a short completeness tag for fallback titles."""
+    s = included.lower() if included else ""
+    for key, tag in _COMPLETENESS_MAP.items():
+        if key in s:
+            return tag
+    if "paper" in s and "box" in s:
+        return "Box Papers"
+    if "paper" in s:
+        return "Papers"
+    if "box" in s:
+        return "Box"
+    return ""
 
 
 def _make_fallback_base(inputs: dict) -> str:
@@ -159,8 +185,16 @@ def _make_fallback_base(inputs: dict) -> str:
         if suffix and not val.endswith(suffix):
             val = val + suffix
         parts.append(val)
+    comp = _completeness_suffix(inputs.get("included", ""))
+    if comp:
+        parts.append(comp)
     parts.append("Watch")
-    return " ".join(parts)
+    # Trim to 80 chars from the right (drop trailing slots if needed)
+    title = " ".join(parts)
+    while len(title) > 80 and len(parts) > 3:
+        parts.pop(-2)  # remove just before "Watch"
+        title = " ".join(parts)
+    return title[:80]
 
 
 def _ebay_from_research(title_research: dict) -> str:
@@ -258,8 +292,41 @@ def make_key_details(inputs: dict, canonical: dict, emoji: bool = True) -> str:
     Return the Key Details block.
     emoji=True  → 🔎 prefix (eBay, Facebook)
     emoji=False → plain prefix (Chrono24)
+
+    Tries dedicated inputs fields first; falls back to condition_detail dict
+    for bezel, dial, crystal, and power_reserve when the fields are absent.
     """
-    parts = [str(inputs[k]) for k in _KEY_DETAIL_FIELDS if inputs.get(k)]
+    # Pull condition_detail as a dict for fallback lookups
+    cd_raw = inputs.get("condition_detail")
+    cd = cd_raw if isinstance(cd_raw, dict) else {}
+
+    def _get(field: str, cd_key: str | None = None) -> str | None:
+        v = inputs.get(field)
+        if v and not isinstance(v, dict):
+            return str(v)
+        if cd_key and cd.get(cd_key):
+            return str(cd[cd_key])
+        return None
+
+    parts: list[str] = []
+    for field in _KEY_DETAIL_FIELDS:
+        val = inputs.get(field)
+        if val and not isinstance(val, dict):
+            parts.append(str(val))
+
+    # Fill missing bezel / dial from condition_detail dict
+    if not inputs.get("bezel") and cd.get("bezel"):
+        parts.append(f"Bezel: {cd['bezel']}")
+    if not inputs.get("dial") and cd.get("dial"):
+        parts.append(f"Dial: {cd['dial']}")
+    if not inputs.get("power_reserve"):
+        # Try to find it in movement field (e.g. '70-hour power reserve')
+        movement = inputs.get("movement", "")
+        import re
+        m = re.search(r"(\d+)[- ]hour", movement, re.IGNORECASE)
+        if m:
+            parts.append(f"{m.group(1)}-hour power reserve")
+
     condition_line = canonical.get("condition_line", "")
     if condition_line:
         parts.append(condition_line)
@@ -744,6 +811,16 @@ def build_vyw(
         f"Papers: {'Yes' if has_papers else 'No'}",
     ]
 
+    # Short catchy hook: first 2 sentences of grailzee_desc if present
+    # (emotional, no specs) else first 2 sentences of description
+    gz_desc  = canonical.get("grailzee_desc") or ""
+    hook_src = gz_desc if gz_desc else desc
+    import re
+    hook_sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', hook_src) if s.strip()]
+    hook = " ".join(hook_sentences[:2])
+    if hook and not hook.endswith((".", "!", "?")):
+        hook += "."
+
     rows = [
         "## VALUE YOUR WATCH",
         "",
@@ -751,7 +828,7 @@ def build_vyw(
         f"List Price: {_fmt(price)}",
         "",
         "SHORT CATCHY DESCRIPTION:",
-        "[2-3 hook sentences for search results — written by step3a or operator]",
+        hook or "[2-3 hook sentences for search results]",
         "",
         "FULL DESCRIPTION:",
         desc,
@@ -772,12 +849,18 @@ def build_instagram(inputs: dict, canonical: dict) -> str:
     brand = inputs.get("brand", "")
     model = inputs.get("model", "")
     ref   = inputs.get("reference", "")
-    desc  = canonical.get("description", "")
 
-    # Trim to first 2 sentences — operator refines before posting
-    sentences = [s.strip() for s in desc.replace("!", ".").replace("?", ".").split(".") if s.strip()]
-    caption   = ". ".join(sentences[:2])
-    if caption and not caption.endswith("."):
+    # Instagram caption: use grailzee_desc (emotional, no specs) trimmed to
+    # 1 sentence. Falls back to first sentence of description if grailzee absent.
+    gz   = canonical.get("grailzee_desc") or ""
+    desc = canonical.get("description", "")
+    source = gz if gz else desc
+
+    import re
+    # Split on sentence-ending punctuation followed by space or end-of-string
+    sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', source) if s.strip()]
+    caption = sentences[0] if sentences else ""
+    if caption and not caption.endswith((".", "!", "?")):
         caption += "."
 
     rows = [
@@ -786,7 +869,7 @@ def build_instagram(inputs: dict, canonical: dict) -> str:
         f"{brand} {model}",
         ref,
         "",
-        caption or "[1-2 sentence caption — design and significance, no specs]",
+        caption or "[1-sentence caption — story and pull, no specs]",
         "",
         "STATUS: AVAILABLE",
         "",
@@ -804,6 +887,16 @@ def assemble_listing(draft: dict, folder: str) -> str:
     pricing    = draft.get("pricing",    {})
     canonical  = draft.get("canonical",  {})
     watchtrack = draft.get("watchtrack", {})
+
+    # Normalise condition_detail: if it's a dict, flatten to a readable string
+    cd = inputs.get("condition_detail")
+    if isinstance(cd, dict):
+        lines = []
+        for k, v in cd.items():
+            if k != "overall" and v:
+                lines.append(f"{k.capitalize()}: {v}")
+        inputs = dict(inputs)  # shallow copy so we don't mutate the draft
+        inputs["condition_detail"] = "\n".join(lines)
 
     title_research = load_title_research(folder)
     subs           = _get_subs()

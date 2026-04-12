@@ -1,19 +1,91 @@
 {
   "name": "watch-listing",
-  "version": "1.0.0",
-  "description": "Watch listing pipeline tools for Vardalux Collections",
+  "version": "2.0.0",
+  "description": "Modular watch listing pipeline for Vardalux Collections",
   "tools": [
     {
+      "name": "run_pipeline",
+      "description": "Run the watch listing pipeline. Pass a listing folder path to process, or --scan to discover new/incomplete listings. This is the primary entry point — it manages all step sequencing, resume logic, and tool dispatch internally.",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/watch-listing-workspace/pipeline.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "args": {
+            "type": "string",
+            "description": "Absolute path to a listing folder (e.g. /path/to/Tudor/272CV-M79230B-0008), or --scan to discover new listings"
+          }
+        },
+        "required": ["args"]
+      }
+    },
+    {
+      "name": "run_pricing",
+      "description": "Calculate all platform prices from _draft.json. Pure math — eBay, Chrono24, Facebook, WTA, Reddit, Grailzee.",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/watch-listing-workspace/tools/run_pricing.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "draft_path": { "type": "string", "description": "Absolute path to _draft.json" }
+        },
+        "required": ["draft_path"]
+      }
+    },
+    {
+      "name": "run_char_subs",
+      "description": "Apply Facebook character substitutions to listing text. Only needed for facebook_retail and facebook_wholesale.",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/watch-listing-workspace/tools/run_char_subs.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "draft_path": { "type": "string", "description": "Absolute path to _draft.json" }
+        },
+        "required": ["draft_path"]
+      }
+    },
+    {
+      "name": "run_checklist",
+      "description": "Generate posting checklist from completed _draft.json. Price-based and brand-based platform selection.",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/watch-listing-workspace/tools/run_checklist.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "draft_path": { "type": "string", "description": "Absolute path to _draft.json" }
+        },
+        "required": ["draft_path"]
+      }
+    },
+    {
+      "name": "run_phase_b",
+      "description": "Assemble all platform listings from canonical description + pricing. Produces _Listing.md.",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/watch-listing-workspace/tools/run_phase_b.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "draft_path": { "type": "string", "description": "Absolute path to _draft.json" }
+        },
+        "required": ["draft_path"]
+      }
+    },
+    {
+      "name": "run_grailzee_gate",
+      "description": "Evaluate whether listing qualifies for Grailzee. Fetches median data, compares to pricing.",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/watch-listing-workspace/tools/run_grailzee_gate.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "draft_path": { "type": "string", "description": "Absolute path to _draft.json" }
+        },
+        "required": ["draft_path"]
+      }
+    },
+    {
       "name": "generate_listing_pdf",
-      "description": "Generate a clean formatted PDF from a watch listing markdown file. Call this as the final step of every listing after listing-SKU.md has been written. Pass the absolute path to the listing folder or directly to the .md file.",
+      "description": "Generate a clean formatted PDF from a watch listing markdown file.",
       "command": "python3 /Users/ranbirchawla/.openclaw/workspace/watch-listing-workspace/tools/generate_listing_pdf.py",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "folder_or_md_path": {
-            "type": "string",
-            "description": "Absolute path to the listing folder (e.g. /path/to/Tudor/272CV-M79230B-0008/) or directly to the .md file (e.g. /path/to/listing-272CV.md)"
-          }
+          "folder_or_md_path": { "type": "string", "description": "Absolute path to the listing folder or .md file" }
         },
         "required": ["folder_or_md_path"]
       }
