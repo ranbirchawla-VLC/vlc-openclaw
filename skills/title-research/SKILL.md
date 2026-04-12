@@ -224,16 +224,23 @@ A `title-research.json` file written to:
     "priority_3_if_space_allows": ["array"],
     "reference_placement": "Item Specifics / structured fields only, not in title"
   },
+  "msrp": {
+    "value": "number | null",
+    "currency": "USD",
+    "source": "string (e.g. brand website, retailer, search result)",
+    "note": "string | null"
+  },
   "competitor_gap": {
     "note": "string"
   },
   "sources_successful": "number",
-  "sources_attempted": 4,
+  "sources_attempted": 5,
   "source_status": {
     "ebay_autocomplete": "string",
     "ebay_sold_comps": "string",
     "chrono24": "string",
-    "google_organic": "string"
+    "google_organic": "string",
+    "msrp_lookup": "string"
   }
 }
 ```
@@ -379,6 +386,47 @@ Example: `buy Tudor Royal Date watch`
 - If results are dominated by editorial content (reviews, comparisons),
   retry with: `{brand} {collection} {reference} for sale`
 - Ignore non-listing results (forum posts, Wikipedia, etc.)
+
+---
+
+### Research 5: MSRP Lookup
+
+**Method: Web search.** Quick lookup only — 30 seconds max, do not block on failure.
+
+**Query:**
+`{brand} {model} {reference} retail price MSRP`
+
+**Steps:**
+1. Perform one web search
+2. Scan the top 3-5 results for a current retail/MSRP price from:
+   - Brand's official website
+   - Authorized dealer (Jomashop, Watches of Switzerland, etc.)
+   - Trusted retailer listing with clear price display
+3. Record the value in USD. If price is in another currency, convert at
+   approximate current rate and note the original currency.
+
+**Handling:**
+- If MSRP is clearly discontinued or unavailable (pre-owned only market):
+  write `null` with note "Discontinued — no current MSRP"
+- If multiple prices found, use the lowest authorized dealer price
+- Do not use grey market or secondary market prices as MSRP
+- If no result found in 30 seconds: write `null`, set `msrp_lookup: "no_result"`
+
+**Write to `title-research.json`:**
+```json
+"msrp": {
+  "value": 12500,
+  "currency": "USD",
+  "source": "Watches of Switzerland listing",
+  "note": null
+}
+```
+
+Also write `msrp` value to `_draft.json` via `draft_save.py`:
+```
+python3 /Users/ranbirchawla/.openclaw/workspace/watch-listing-workspace/tools/draft_save.py "<folder>" '{"inputs": {"msrp": <value>}}'
+```
+Only write if value is not null. Skip the draft write if MSRP not found.
 
 ---
 

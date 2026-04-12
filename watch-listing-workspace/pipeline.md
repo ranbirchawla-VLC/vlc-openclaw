@@ -103,7 +103,7 @@ Buttons: `✅ Approve Pricing` / `✏️ Adjust`
 
 On Adjust: ask what to change. Update `inputs.*` via `draft_save.py`, re-run `run_pricing.py`, re-post.
 
-## Step 6: Canonical Description (LLM — step3a-canonical)
+## Step 6: Canonical Description (LLM — step3a-canonical, Opus)
 
 Load `skills/step3a-canonical/SKILL.md`. This skill handles:
 

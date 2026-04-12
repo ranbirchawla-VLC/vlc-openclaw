@@ -154,42 +154,46 @@ prompt for NR/Reserve/Skip is shown here.
 
 ---
 
-## Phase C — Free-Text Inputs
+## Phase C — Auto-populate then collect missing
 
-After button inputs are resolved, check which free-text inputs are still missing.
+**Do this BEFORE prompting for anything:**
 
-**Pre-populated from WatchTrack — check these fields before prompting:**
-- `retail_net` ← `watchtrack.retail_price_wt` (if present)
-- `wholesale_net` ← `watchtrack.wholesale_price_wt` (if present)
-- Also check `inputs_pending.*` for values staged during the WatchTrack step
+Read `_draft.json` and apply these defaults automatically — no prompting needed:
 
-**Merge precedence:** Values confirmed in Phase B or typed in Phase C override
-anything in `inputs_pending`. Phase C replies win on conflict.
+| Input field | Auto-populate from | Rule |
+|-------------|-------------------|------|
+| `retail_net` | `watchtrack.retail_price_wt` | Use if present and `inputs.retail_net` absent |
+| `wholesale_net` | `watchtrack.wholesale_price_wt` | Use if present and `inputs.wholesale_net` absent |
+| `reddit_price` | `inputs.retail_net` (after above) | **Always default to retail_net** — never ask |
+| `buffer` | — | Default 5 if absent, never ask |
 
-If ALL required inputs (condition, tier, retail_net) are already known from any
-of the above sources, skip this phase entirely and go straight to Save 2.
+**Reddit price rule: always set `reddit_price = retail_net`. Never ask. Never leave blank.**
 
-Otherwise send one consolidated message. Include only the lines for inputs that
-are genuinely missing:
+After applying auto-populated values, check what is STILL missing.
+Required: `condition`, `tier`, `retail_net`, `included`.
+Optional (only ask if not already set): `wholesale_net`, `wta_price`, `msrp`.
+
+If ALL required inputs are known → skip Phase C entirely, go straight to Save 2.
+
+Otherwise send ONE consolidated message with only the lines that are genuinely missing:
 
 ```
 A few more details:
 
-Retail NET: $___               ← required; omit line if already known
-What's included: ___           ← always ask (box/papers/extra links/hang tags/etc.)
-Wholesale NET (optional): $___
-WTA price + comp (optional): $price / $comp  (your price / lowest dealer comp)
-Reddit price (optional): $___
-MSRP (optional): $___
-Buffer % (default 5): ___      ← only include if user needs to override default
+Retail NET: $___               ← omit if already known
+What's included: ___           ← always ask
+Wholesale NET (optional): $___  ← omit if already from WatchTrack
+WTA price + comp (optional): $price / $comp
 ```
 
-Ranbir may reply with all values in one message or across several. Collect
-progressively. Parse dollar amounts: strip `$` and `,`. When all required
-inputs are present, proceed to Save 2.
+Do NOT include Reddit price, buffer, MSRP, or any field that has a default.
+MSRP is looked up automatically during title research — never ask for it.
 
-If `wta_price` is provided but `wta_comp` is absent: ask before saving:
-> "WTA comp needed — what's the lowest US dealer price on Chrono24 or eBay?"
+Ranbir may reply across several messages. Parse `$` and `,` from dollar amounts.
+When all required inputs are present, proceed to Save 2.
+
+If `wta_price` provided but `wta_comp` absent: ask:
+> "WTA comp needed — lowest US dealer price on Chrono24 or eBay?"
 
 ---
 
@@ -218,11 +222,14 @@ Merge rules for this patch:
     "wholesale_net":    null,
     "wta_price":        null,
     "wta_comp":         null,
-    "reddit_price":     null,
-    "msrp":             null
+    "reddit_price":     null
   },
   "inputs_pending": null
 }
+```
+
+Note: `msrp` is NOT collected here. It is written to `inputs.msrp` by the
+title research step (Research 5). Do not write or null it here.
 ```
 
 Always use `draft_save.py`. Never write `_draft.json` directly:
