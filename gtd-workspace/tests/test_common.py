@@ -99,12 +99,12 @@ def test_isolation_guard_passes() -> None:
 
 
 def test_isolation_guard_raises_on_mismatch() -> None:
-    with pytest.raises(ValueError, match="isolation violation"):
+    with pytest.raises(PermissionError, match="isolation violation"):
         assert_user_match("user1", "user2")
 
 
 def test_isolation_guard_case_sensitive() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(PermissionError):
         assert_user_match("User1", "user1")
 
 

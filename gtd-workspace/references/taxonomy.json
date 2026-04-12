@@ -1,27 +1,29 @@
 {
   "contexts": [
-    "@computer",
     "@phone",
+    "@computer",
     "@errands",
-    "@deep_work",
     "@home",
-    "@waiting"
+    "@watch-desk",
+    "@ai-review",
+    "@team"
   ],
   "areas": [
-    "work",
+    "business",
     "personal",
-    "creative",
+    "family",
     "health",
-    "finance",
-    "learning"
+    "home",
+    "learning",
+    "operations"
   ],
   "idea_domains": [
-    "product",
-    "process",
-    "business",
-    "personal_growth",
-    "technology",
-    "creative",
-    "research"
+    "ai-automation",
+    "watch-business",
+    "business-improvement",
+    "meetings-to-schedule",
+    "home-life",
+    "learning",
+    "content"
   ]
 }

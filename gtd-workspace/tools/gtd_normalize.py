@@ -12,26 +12,19 @@ from __future__ import annotations
 import json
 import re
 import sys
+from pathlib import Path
 
 
 # ---------------------------------------------------------------------------
-# Known taxonomy values (mirrors references/taxonomy.json)
+# Taxonomy — loaded from references/taxonomy.json (read-only at runtime)
 # ---------------------------------------------------------------------------
 
-KNOWN_CONTEXTS: frozenset[str] = frozenset({
-    "@phone", "@computer", "@errands", "@home",
-    "@watch-desk", "@ai-review", "@team",
-})
+_TAXONOMY_PATH = Path(__file__).parent.parent / "references" / "taxonomy.json"
+_taxonomy = json.loads(_TAXONOMY_PATH.read_text(encoding="utf-8"))
 
-KNOWN_DOMAINS: frozenset[str] = frozenset({
-    "ai-automation", "watch-business", "business-improvement",
-    "meetings-to-schedule", "home-life", "learning", "content",
-})
-
-KNOWN_AREAS: frozenset[str] = frozenset({
-    "business", "personal", "family", "health",
-    "home", "learning", "operations",
-})
+KNOWN_CONTEXTS: frozenset[str] = frozenset(_taxonomy["contexts"])
+KNOWN_DOMAINS: frozenset[str] = frozenset(_taxonomy["idea_domains"])
+KNOWN_AREAS: frozenset[str] = frozenset(_taxonomy["areas"])
 
 EXPLICIT_COMMANDS: frozenset[str] = frozenset({
     "/task", "/idea", "/next", "/review", "/waiting",
@@ -39,10 +32,23 @@ EXPLICIT_COMMANDS: frozenset[str] = frozenset({
 })
 
 # ---------------------------------------------------------------------------
+# Scoring constants
+# ---------------------------------------------------------------------------
+
+_STRONG_BASE: float = 0.85
+_WEAK_BASE: float = 0.60
+_SCORE_STEP: float = 0.05
+_STRONG_CAP: float = 0.98
+_WEAK_CAP: float = 0.75
+_CONFIDENCE_THRESHOLD: float = 0.6   # below this → needs_llm = True
+_INTENT_THRESHOLD: float = 0.5       # below this → intent = "unknown"
+
+_MAX_TITLE_LEN: int = 120
+
+# ---------------------------------------------------------------------------
 # Intent classification patterns
 # ---------------------------------------------------------------------------
 
-# Strong task signals: explicit action phrases
 _TASK_PATTERNS_STRONG: list[re.Pattern] = [
     re.compile(r"\bremind me to\b", re.I),
     re.compile(r"\bi need to\b", re.I),
@@ -53,7 +59,7 @@ _TASK_PATTERNS_STRONG: list[re.Pattern] = [
     re.compile(r"\bmust\b", re.I),
 ]
 
-# Weak task signals: imperative verb at sentence start (broad catch)
+# Broad catch: imperative verb at sentence start
 _TASK_PATTERNS_WEAK: list[re.Pattern] = [
     re.compile(
         r"^(fix|call|email|send|update|check|prepare|write|buy|"
@@ -76,7 +82,7 @@ _IDEA_PATTERNS: list[re.Pattern] = [
 ]
 
 _DELEGATION_PATTERNS: list[re.Pattern] = [
-    # Negative lookbehind prevents matching question form "am i waiting on"
+    # Negative lookbehind excludes question form "am i waiting on"
     re.compile(r"(?<![Aa]m [Ii] )\bwaiting (on|for)\b", re.I),
     re.compile(r"\bfollow[\s-]?up with\b", re.I),
     re.compile(r"\bask \w+ (about|for|to)\b", re.I),
@@ -120,11 +126,6 @@ _PRIORITY_MAP: list[tuple[str, re.Pattern]] = [
     ("low",      re.compile(r"\b(low[\s-]priority|whenever|someday maybe)\b", re.I)),
 ]
 
-_PERSON_PATTERN = re.compile(
-    r"(?:waiting (?:on|for)|follow[\s-]?up with|ask|delegate to|chasing)\s+([A-Z][a-z]+)",
-    re.I,
-)
-
 _DOMAIN_KEYWORDS: dict[str, list[str]] = {
     "ai-automation":        ["ai", "agent", "automation", "llm", "claude", "openai", "bot", "script", "automate"],
     "watch-business":       ["watch", "watches", "rolex", "tudor", "omega", "listing", "grailzee", "watchtrack", "auction"],
@@ -135,7 +136,6 @@ _DOMAIN_KEYWORDS: dict[str, list[str]] = {
     "content":              ["write", "post", "publish", "blog", "article", "content", "video", "newsletter"],
 }
 
-# Lead-in phrases to strip when extracting title
 _LEAD_IN_PATTERNS: list[re.Pattern] = [
     re.compile(r"^\s*remind me to\s+", re.I),
     re.compile(r"^\s*i need to\s+", re.I),
@@ -145,7 +145,6 @@ _LEAD_IN_PATTERNS: list[re.Pattern] = [
     re.compile(r"^\s*(urgent|critical|asap)\s*[:\-]\s*", re.I),
 ]
 
-# Filler words common in voice transcriptions
 _FILLER_PATTERN = re.compile(r"\b(uh|um|er|ah|you know|like|so)\b,?\s*", re.I)
 
 
@@ -153,27 +152,26 @@ _FILLER_PATTERN = re.compile(r"\b(uh|um|er|ah|you know|like|so)\b,?\s*", re.I)
 # Scoring
 # ---------------------------------------------------------------------------
 
+def _score_tier(hits: int, base: float, cap: float) -> float:
+    return min(base + (hits - 1) * _SCORE_STEP, cap) if hits else 0.0
+
+
 def _score_strong_weak(
     text: str,
     strong: list[re.Pattern],
     weak: list[re.Pattern],
 ) -> float:
-    """Score patterns with strong (0.85 base) and weak (0.6 base) tiers."""
+    """Score with strong (0.85 base) and weak (0.60 base) pattern tiers."""
     strong_hits = sum(1 for p in strong if p.search(text))
     if strong_hits:
-        return min(0.85 + (strong_hits - 1) * 0.05, 0.98)
+        return _score_tier(strong_hits, _STRONG_BASE, _STRONG_CAP)
     weak_hits = sum(1 for p in weak if p.search(text))
-    if weak_hits:
-        return min(0.60 + (weak_hits - 1) * 0.05, 0.75)
-    return 0.0
+    return _score_tier(weak_hits, _WEAK_BASE, _WEAK_CAP)
 
 
 def _score_patterns(text: str, patterns: list[re.Pattern]) -> float:
-    """Score against a flat pattern list: first match = 0.85, +0.05 each, max 0.98."""
-    hits = sum(1 for p in patterns if p.search(text))
-    if hits == 0:
-        return 0.0
-    return min(0.85 + (hits - 1) * 0.05, 0.98)
+    """Score a flat pattern list; delegates to _score_strong_weak with no weak tier."""
+    return _score_strong_weak(text, patterns, [])
 
 
 # ---------------------------------------------------------------------------
@@ -217,22 +215,19 @@ def _extract_title(text: str) -> str | None:
         if stripped != cleaned.strip():
             cleaned = stripped
             break
+    if not cleaned:
+        return None
     cleaned = _FILLER_PATTERN.sub(" ", cleaned).strip()
     cleaned = _CONTEXT_PATTERN.sub("", cleaned).strip()
     cleaned = cleaned.strip(" .,")
-    return cleaned[:120] if cleaned else None
+    return cleaned[:_MAX_TITLE_LEN] if cleaned else None
 
 
 def _compute_missing(intent: str, title: str | None, context_hint: str | None) -> list[str]:
     """Return required fields that appear to be missing for the given intent."""
     match intent:
         case "task_capture":
-            missing = []
-            if not title:
-                missing.append("title")
-            if not context_hint:
-                missing.append("context")
-            return missing
+            return (["title"] if not title else []) + (["context"] if not context_hint else [])
         case "idea_capture":
             return ["title"] if not title else []
         case _:
@@ -240,69 +235,86 @@ def _compute_missing(intent: str, title: str | None, context_hint: str | None) -
 
 
 # ---------------------------------------------------------------------------
-# Command handlers
+# Result factory
 # ---------------------------------------------------------------------------
 
-def _system_command(intent: str) -> dict:
+def _result(
+    status: str,
+    intent: str,
+    confidence: float,
+    needs_llm: bool,
+    title: str | None,
+    context_hint: str | None,
+    priority_hint: str | None,
+    area_hint: str | None,
+    missing: list[str],
+) -> dict:
     return {
-        "status": "ok",
+        "status": status,
         "intent": intent,
-        "confidence": 1.0,
-        "needs_llm": False,
+        "confidence": confidence,
+        "needs_llm": needs_llm,
         "candidate": {
-            "title": None,
-            "context_hint": None,
-            "priority_hint": None,
-            "area_hint": None,
-            "missing_fields": [],
+            "title": title,
+            "context_hint": context_hint,
+            "priority_hint": priority_hint,
+            "area_hint": area_hint,
+            "missing_fields": missing,
         },
     }
+
+
+def _ok(
+    intent: str,
+    confidence: float,
+    title: str | None,
+    context_hint: str | None,
+    priority_hint: str | None,
+    area_hint: str | None,
+    missing: list[str],
+) -> dict:
+    return _result("ok", intent, confidence, False, title, context_hint, priority_hint, area_hint, missing)
+
+
+def _uncertain(text: str, missing_fields: list[str]) -> dict:
+    title = text[:_MAX_TITLE_LEN].strip() if text else None
+    return _result("uncertain", "unknown", 0.0, True, title, None, None, None, missing_fields)
+
+
+def _system_command(intent: str) -> dict:
+    return _ok(intent, 1.0, None, None, None, None, [])
+
+
+# ---------------------------------------------------------------------------
+# Command handler
+# ---------------------------------------------------------------------------
+
+def _detect_command(text: str) -> str | None:
+    lower = text.lower()
+    return next(
+        (cmd for cmd in EXPLICIT_COMMANDS
+         if lower == cmd or lower.startswith(cmd + " ") or lower.startswith(cmd + "\n")),
+        None,
+    )
 
 
 def _handle_command(command: str, text: str) -> dict:
     """Return a high-confidence result for an explicit command."""
     body = text[len(command):].strip()
-    context_hint = _extract_context(body)
-    priority_hint = _extract_priority(body)
 
     match command:
-        case "/task":
+        case "/task" | "/idea":
+            context_hint = _extract_context(body) if body else None
+            priority_hint = _extract_priority(body) if body else "normal"
             title = _extract_title(body) if body else None
-            missing = (["title"] if not title else []) + (["context"] if not context_hint else [])
-            return {
-                "status": "ok",
-                "intent": "task_capture",
-                "confidence": 1.0,
-                "needs_llm": False,
-                "candidate": {
-                    "title": title,
-                    "context_hint": context_hint,
-                    "priority_hint": priority_hint,
-                    "area_hint": None,
-                    "missing_fields": missing,
-                },
-            }
-        case "/idea":
-            title = _extract_title(body) if body else None
-            domain_hint = _extract_domain(body)
+            if command == "/task":
+                missing = (["title"] if not title else []) + (["context"] if not context_hint else [])
+                return _ok("task_capture", 1.0, title, context_hint, priority_hint, None, missing)
+            domain_hint = _extract_domain(body) if body else None
             missing = (["title"] if not title else []) + (["domain"] if not domain_hint else [])
-            return {
-                "status": "ok",
-                "intent": "idea_capture",
-                "confidence": 1.0,
-                "needs_llm": False,
-                "candidate": {
-                    "title": title,
-                    "context_hint": context_hint,
-                    "priority_hint": priority_hint,
-                    "area_hint": domain_hint,
-                    "missing_fields": missing,
-                },
-            }
+            return _ok("idea_capture", 1.0, title, context_hint, priority_hint, domain_hint, missing)
         case "/capture":
-            if body:
-                return _classify_natural_language(body)
-            return _uncertain(text, ["intent", "title"])
+            return _classify_natural_language(body) if body else _uncertain(text, ["intent", "title"])
         case "/next":
             return _system_command("query_next")
         case "/review":
@@ -328,21 +340,21 @@ def _handle_command(command: str, text: str) -> dict:
 def _classify_natural_language(text: str) -> dict:
     """Score all intent patterns and return the best match."""
     scores: dict[str, float] = {
-        "task_capture":      _score_strong_weak(text, _TASK_PATTERNS_STRONG, _TASK_PATTERNS_WEAK),
-        "idea_capture":      _score_patterns(text, _IDEA_PATTERNS),
+        "task_capture":       _score_strong_weak(text, _TASK_PATTERNS_STRONG, _TASK_PATTERNS_WEAK),
+        "idea_capture":       _score_patterns(text, _IDEA_PATTERNS),
         "delegation_capture": _score_patterns(text, _DELEGATION_PATTERNS),
-        "query_next":        _score_patterns(text, _QUERY_NEXT_PATTERNS),
-        "review_request":    _score_patterns(text, _REVIEW_PATTERNS),
-        "query_waiting":     _score_patterns(text, _QUERY_WAITING_PATTERNS),
+        "query_next":         _score_patterns(text, _QUERY_NEXT_PATTERNS),
+        "review_request":     _score_patterns(text, _REVIEW_PATTERNS),
+        "query_waiting":      _score_patterns(text, _QUERY_WAITING_PATTERNS),
     }
 
     best_intent, confidence = max(scores.items(), key=lambda kv: kv[1])
 
-    if confidence < 0.5:
+    if confidence < _INTENT_THRESHOLD:
         best_intent = "unknown"
-        confidence = max(confidence, 0.0)
+        confidence = 0.0
 
-    needs_llm = confidence < 0.6 or best_intent == "unknown"
+    needs_llm = confidence < _CONFIDENCE_THRESHOLD or best_intent == "unknown"
     status = "uncertain" if needs_llm else "ok"
 
     context_hint = _extract_context(text)
@@ -351,36 +363,7 @@ def _classify_natural_language(text: str) -> dict:
     title = _extract_title(text)
     missing = _compute_missing(best_intent, title, context_hint)
 
-    return {
-        "status": status,
-        "intent": best_intent,
-        "confidence": round(confidence, 2),
-        "needs_llm": needs_llm,
-        "candidate": {
-            "title": title,
-            "context_hint": context_hint,
-            "priority_hint": priority_hint,
-            "area_hint": domain_hint,
-            "missing_fields": missing,
-        },
-    }
-
-
-def _uncertain(text: str, missing_fields: list[str]) -> dict:
-    title = text[:120].strip() if text else None
-    return {
-        "status": "uncertain",
-        "intent": "unknown",
-        "confidence": 0.0,
-        "needs_llm": True,
-        "candidate": {
-            "title": title,
-            "context_hint": None,
-            "priority_hint": None,
-            "area_hint": None,
-            "missing_fields": missing_fields,
-        },
-    }
+    return _result(status, best_intent, round(confidence, 2), needs_llm, title, context_hint, priority_hint, domain_hint, missing)
 
 
 # ---------------------------------------------------------------------------
@@ -403,14 +386,6 @@ def normalize(raw_input: str) -> dict:
         return _handle_command(command, text)
 
     return _classify_natural_language(text)
-
-
-def _detect_command(text: str) -> str | None:
-    lower = text.lower()
-    for cmd in EXPLICIT_COMMANDS:
-        if lower == cmd or lower.startswith(cmd + " ") or lower.startswith(cmd + "\n"):
-            return cmd
-    return None
 
 
 # ---------------------------------------------------------------------------

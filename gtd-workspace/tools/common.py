@@ -107,9 +107,9 @@ def user_path(user_id: str) -> Path:
 # ---------------------------------------------------------------------------
 
 def assert_user_match(record_user_id: str, requesting_user_id: str) -> None:
-    """Raise ValueError if record_user_id does not match requesting_user_id."""
+    """Raise PermissionError if record_user_id does not match requesting_user_id."""
     if record_user_id != requesting_user_id:
-        raise ValueError(
+        raise PermissionError(
             f"User isolation violation: record belongs to '{record_user_id}', "
             f"not '{requesting_user_id}'"
         )
@@ -124,15 +124,16 @@ def read_jsonl(path: Path) -> list[dict]:
 
     Returns an empty list if the file does not exist.
     """
-    if not path.exists():
+    try:
+        fh = path.open("r", encoding="utf-8")
+    except FileNotFoundError:
         return []
-    records = []
-    with path.open("r", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if line:
-                records.append(json.loads(line))
-    return records
+    with fh:
+        return [
+            json.loads(stripped)
+            for line in fh
+            if (stripped := line.strip())
+        ]
 
 
 def append_jsonl(path: Path, record: dict) -> None:
