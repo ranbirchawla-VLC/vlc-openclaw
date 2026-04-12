@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "parking_lot.schema.json",
+  "title": "Parking Lot Record",
+  "description": "A low-friction capture that could not be classified at intake.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id", "record_type", "user_id", "telegram_chat_id",
+    "raw_text", "source", "reason", "status",
+    "created_at", "updated_at"
+  ],
+  "properties": {
+    "id":               { "type": "string", "minLength": 1 },
+    "record_type":      { "type": "string", "const": "parking_lot" },
+    "user_id":          { "type": "string", "minLength": 1 },
+    "telegram_chat_id": { "type": "string", "minLength": 1 },
+    "raw_text":         { "type": "string", "minLength": 1 },
+    "source": {
+      "type": "string",
+      "enum": ["telegram_text", "telegram_voice", "alexa", "manual", "import"]
+    },
+    "reason": {
+      "type": "string",
+      "enum": ["ambiguous_capture", "missing_required_context", "low_confidence_parse"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "waiting", "delegated", "done", "cancelled", "archived"]
+    },
+    "created_at": { "type": "string", "minLength": 1 },
+    "updated_at": { "type": "string", "minLength": 1 }
+  }
+}

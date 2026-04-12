@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "profile.schema.json",
+  "title": "User Profile",
+  "description": "Per-user identity and preference record.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "user_id", "telegram_bot", "telegram_chat_id",
+    "display_name", "status", "alexa_linked",
+    "created_at", "updated_at"
+  ],
+  "properties": {
+    "user_id":          { "type": "string", "minLength": 1 },
+    "telegram_bot":     { "type": "string", "minLength": 1 },
+    "telegram_chat_id": { "type": "string", "minLength": 1 },
+    "display_name":     { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["active", "inactive"]
+    },
+    "alexa_linked": { "type": "boolean" },
+    "created_at":   { "type": "string", "minLength": 1 },
+    "updated_at":   { "type": "string", "minLength": 1 }
+  }
+}

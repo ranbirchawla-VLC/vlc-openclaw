@@ -74,6 +74,11 @@ class ParkingLotReason(str, Enum):
     low_confidence_parse = "low_confidence_parse"
 
 
+class ProfileStatus(str, Enum):
+    active = "active"
+    inactive = "inactive"
+
+
 # ---------------------------------------------------------------------------
 # Storage path resolution
 # ---------------------------------------------------------------------------
