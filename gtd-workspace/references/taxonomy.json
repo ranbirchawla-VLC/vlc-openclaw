@@ -1,0 +1,29 @@
+{
+  "contexts": [
+    "@phone",
+    "@computer",
+    "@errands",
+    "@home",
+    "@watch-desk",
+    "@ai-review",
+    "@team"
+  ],
+  "areas": [
+    "business",
+    "personal",
+    "family",
+    "health",
+    "home",
+    "learning",
+    "operations"
+  ],
+  "idea_domains": [
+    "ai-automation",
+    "watch-business",
+    "business-improvement",
+    "meetings-to-schedule",
+    "home-life",
+    "learning",
+    "content"
+  ]
+}

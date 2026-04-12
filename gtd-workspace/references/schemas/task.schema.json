@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "task.schema.json",
+  "title": "Task Record",
+  "description": "A GTD task owned by a single user.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id", "record_type", "user_id", "telegram_chat_id",
+    "title", "context", "area", "priority", "energy",
+    "status", "source", "created_at", "updated_at"
+  ],
+  "properties": {
+    "id":               { "type": "string", "minLength": 1 },
+    "record_type":      { "type": "string", "const": "task" },
+    "user_id":          { "type": "string", "minLength": 1 },
+    "telegram_chat_id": { "type": "string", "minLength": 1 },
+    "title":            { "type": "string", "minLength": 1 },
+    "context":          { "type": "string" },
+    "area":             { "type": "string" },
+    "priority": {
+      "type": "string",
+      "enum": ["low", "normal", "high", "critical"]
+    },
+    "energy": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "duration_minutes": { "type": ["integer", "null"], "minimum": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["active", "waiting", "delegated", "done", "cancelled", "archived"]
+    },
+    "delegate_to":  { "type": ["string", "null"] },
+    "waiting_for":  { "type": ["string", "null"] },
+    "notes":        { "type": ["string", "null"] },
+    "source": {
+      "type": "string",
+      "enum": ["telegram_text", "telegram_voice", "alexa", "manual", "import"]
+    },
+    "created_at":   { "type": "string", "minLength": 1 },
+    "updated_at":   { "type": "string", "minLength": 1 },
+    "completed_at": { "type": ["string", "null"] }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "idea.schema.json",
+  "title": "Idea Record",
+  "description": "A GTD idea owned by a single user.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id", "record_type", "user_id", "telegram_chat_id",
+    "title", "domain", "context", "review_cadence",
+    "promotion_state", "status", "source", "created_at", "updated_at"
+  ],
+  "properties": {
+    "id":               { "type": "string", "minLength": 1 },
+    "record_type":      { "type": "string", "const": "idea" },
+    "user_id":          { "type": "string", "minLength": 1 },
+    "telegram_chat_id": { "type": "string", "minLength": 1 },
+    "title":            { "type": "string", "minLength": 1 },
+    "domain":           { "type": "string", "minLength": 1 },
+    "context":          { "type": "string", "minLength": 1 },
+    "review_cadence": {
+      "type": "string",
+      "enum": ["weekly", "monthly", "quarterly"]
+    },
+    "promotion_state": {
+      "type": "string",
+      "enum": ["raw", "incubating", "promoted_to_task", "promoted_to_project", "archived"]
+    },
+    "spark_note":       { "type": ["string", "null"] },
+    "status": {
+      "type": "string",
+      "enum": ["active", "on_hold", "archived", "promoted"]
+    },
+    "source": {
+      "type": "string",
+      "enum": ["telegram_text", "telegram_voice", "alexa", "manual", "import"]
+    },
+    "created_at":       { "type": "string", "minLength": 1 },
+    "updated_at":       { "type": "string", "minLength": 1 },
+    "last_reviewed_at": { "type": ["string", "null"] },
+    "promoted_task_id": { "type": ["string", "null"] }
+  }
+}
