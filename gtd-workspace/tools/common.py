@@ -98,10 +98,12 @@ def user_path(user_id: str) -> Path:
     """Return the resolved storage path for a given user_id.
 
     Creates the directory tree if it does not exist.
-    Raises ValueError for empty user_id.
+    Raises ValueError for empty user_id or ids containing path traversal sequences.
     """
     if not user_id or not user_id.strip():
         raise ValueError("user_id must not be empty")
+    if "/" in user_id or "\\" in user_id or ".." in user_id:
+        raise ValueError(f"user_id contains invalid characters: {user_id!r}")
     path = storage_root() / "gtd-agent" / "users" / user_id
     path.mkdir(parents=True, exist_ok=True)
     return path
