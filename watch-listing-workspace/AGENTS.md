@@ -26,7 +26,7 @@ is to call the right tool or load the right micro-skill at the right step.
 | 2          | Load `skills/step3a-canonical/SKILL.md` (LLM: write canonical description) |
 | 3          | `exec: python3 tools/run_grailzee_gate.py <folder>` → post result → buttons |
 | 3.5        | `exec: python3 tools/run_phase_b.py <folder>` then `python3 tools/generate_listing_pdf.py <folder>/_Listing.md` |
-| 4          | Browser: update WatchTrack sub-status → mark complete |
+| 4          | Mark complete, send Telegram reminder to update WatchTrack manually |
 | 5 / COMPLETE | Stop — listing already done |
 
 ## Python Tool Paths (absolute)

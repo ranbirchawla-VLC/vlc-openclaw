@@ -150,20 +150,13 @@ Then post to Slack `C0APPJX0FGC`:
 
 **No LLM needed. All formatting, substitutions, and checklists are handled internally.**
 
-## Step 8: WatchTrack Sub-Status Update
-
-Use the native browser tool to set Sub Status to "Ready for Listing":
-
-1. Navigate to `https://watchtrack.com/store/inventory`
-2. Search for the SKU
-3. Open item, set Sub Status → "Ready for Listing"
-4. Confirm to Ranbir via Telegram
-
-## Step 9: Mark Complete
+## Step 8: Mark Complete
 
 Add folder relative path to `processed` in `.watcher-state.json`. Update `last_scan`.
 
-Reply to Ranbir: "✅ [brand] [model] ([internal_ref]) — listing complete and WatchTrack updated."
+Reply to Ranbir:
+> ✅ [brand] [model] ([internal_ref]) — listing complete.
+> 📋 Remember to update WatchTrack sub-status to "Ready for Listing" manually.
 
 ---
 
@@ -183,7 +176,7 @@ step = 1    → Call run_pricing tool                          (Python)
 step = 2    → Load step3a-canonical skill                    (LLM)
 step = 3    → Call run_grailzee_gate tool                    (Python)
 step = 3.5  → Call run_phase_b tool → generate_listing_pdf   (Python)
-step = 4    → WatchTrack update → mark complete              (Browser)
+step = 4    → Mark complete, remind to update WatchTrack manually
 ```
 
 ## Rules
