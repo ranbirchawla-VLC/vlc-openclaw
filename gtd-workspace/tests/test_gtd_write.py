@@ -6,4 +6,4 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-from gtd_write import write_item
+from gtd_write import write_record

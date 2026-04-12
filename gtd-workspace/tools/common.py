@@ -163,3 +163,8 @@ def new_id() -> str:
 def now_iso() -> str:
     """Return the current UTC time as an ISO 8601 string."""
     return datetime.now(timezone.utc).isoformat()
+
+
+def parse_iso(ts: str) -> datetime:
+    """Parse an ISO 8601 timestamp to a timezone-aware UTC datetime."""
+    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
