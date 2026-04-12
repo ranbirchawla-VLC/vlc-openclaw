@@ -1,0 +1,27 @@
+{
+  "contexts": [
+    "@computer",
+    "@phone",
+    "@errands",
+    "@deep_work",
+    "@home",
+    "@waiting"
+  ],
+  "areas": [
+    "work",
+    "personal",
+    "creative",
+    "health",
+    "finance",
+    "learning"
+  ],
+  "idea_domains": [
+    "product",
+    "process",
+    "business",
+    "personal_growth",
+    "technology",
+    "creative",
+    "research"
+  ]
+}

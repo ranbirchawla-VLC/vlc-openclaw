@@ -1,0 +1,113 @@
+{
+  "name": "gtd",
+  "version": "1.0.0",
+  "description": "GTD agent pipeline tools for Vardalux Collections",
+  "routing": "pipeline.md",
+  "tools": [
+    {
+      "name": "gtd_normalize",
+      "description": "Parse and normalize raw captures into task/idea/parking_lot schema",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/gtd-workspace/tools/gtd_normalize.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "raw_input": {
+            "type": "string",
+            "description": "Raw capture text to normalize"
+          }
+        },
+        "required": ["raw_input"]
+      }
+    },
+    {
+      "name": "gtd_validate",
+      "description": "Validate a JSON object against the appropriate schema (task, idea, parking_lot, profile)",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/gtd-workspace/tools/gtd_validate.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["task", "idea", "parking_lot", "profile"]
+          },
+          "file": {
+            "type": "string",
+            "description": "Absolute path to JSON file to validate"
+          }
+        },
+        "required": ["type", "file"]
+      }
+    },
+    {
+      "name": "gtd_write",
+      "description": "Persist validated items to the task store — never write directly",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/gtd-workspace/tools/gtd_write.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_file": {
+            "type": "string",
+            "description": "Absolute path to validated item JSON file"
+          }
+        },
+        "required": ["item_file"]
+      }
+    },
+    {
+      "name": "gtd_query",
+      "description": "Query stored items by context, area, tag, status, or type",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/gtd-workspace/tools/gtd_query.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "context": { "type": "string" },
+          "area": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["active", "waiting", "someday", "done"]
+          },
+          "type": {
+            "type": "string",
+            "enum": ["task", "idea", "parking_lot"]
+          },
+          "tag": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "gtd_review",
+      "description": "Surface items for daily or weekly review; flag stale next actions",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/gtd-workspace/tools/gtd_review.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["daily", "weekly"],
+            "description": "Review mode"
+          }
+        },
+        "required": ["mode"]
+      }
+    },
+    {
+      "name": "gtd_delegation",
+      "description": "Track delegated tasks, follow-up cadence, and resolution",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/gtd-workspace/tools/gtd_delegation.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["list", "follow_up", "resolve"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "overdue", "resolved"]
+          }
+        },
+        "required": ["action"]
+      }
+    }
+  ]
+}
