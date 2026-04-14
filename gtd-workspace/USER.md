@@ -12,13 +12,15 @@ gtd_maturity:    # beginner / practitioner / advanced
 
 | Name | Relationship | Preferred Channel |
 |------|-------------|------------------|
-|      |             |                  |
+| Marissa | Business partner & daughter | — |
+| PJ Sorbo | Marketing consultant | — |
 
 ---
 
 ## Areas of Focus
 
--
+- Work (primary)
+- Personal
 
 ---
 

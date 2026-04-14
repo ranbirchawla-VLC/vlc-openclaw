@@ -1,0 +1,20 @@
+{
+  "status": "not_found",
+  "brand": "Tudor",
+  "reference": "79830RB",
+  "purchase_price": 3800,
+  "grailzee": "NEEDS_RESEARCH",
+  "rationale": "No Grailzee sales data for Tudor 79830RB. Not in the core program and not found in the raw report. Research Chrono24 and eBay sold comps to establish a median.",
+  "research_needed": {
+    "brand": "Tudor",
+    "reference": "79830RB",
+    "purchase_price": 3800,
+    "search_queries": [
+      "Tudor 79830RB site:chrono24.com",
+      "Tudor 79830RB sold site:ebay.com"
+    ],
+    "instructions": "Find 5+ recent sold prices. Take the median. Apply: MAX BUY NR = (Median - $149) / 1.05."
+  },
+  "cache_date": "2026-03-15",
+  "cache_report": "Grailzee_Pro_2026_Q1.xlsx"
+}
