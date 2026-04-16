@@ -10,11 +10,13 @@ explicitly noted (see RISK_RESERVE_THRESHOLD comment).
 
 from __future__ import annotations
 
+import csv
 import json
 import os
 import re
 import statistics
 import sys
+from dataclasses import dataclass
 from datetime import date
 from typing import Any, Optional
 
@@ -68,6 +70,15 @@ VARDALUX_COLORS = {
 # Plan Section 12.3 showed only 4 items (very good, like new, excellent, unworn);
 # v1 is the source of truth with these 4 items. "unworn" is NOT in v1; "new" IS.
 QUALITY_CONDITIONS = {"very good", "like new", "new", "excellent"}
+
+# ─── Ledger schema ────────────────────────────────────────────────────
+
+LEDGER_COLUMNS = [
+    "date_closed", "cycle_id", "brand", "reference",
+    "account", "buy_price", "sell_price",
+]
+VALID_ACCOUNTS = {"NR", "RES"}
+
 
 # Ad budget brackets (from v1 evaluate_deal.py lines 39-44)
 AD_BUDGETS = [
@@ -276,6 +287,84 @@ def append_name_cache_entry(
         entry["alt_refs"] = alt_refs
     cache[reference] = entry
     save_name_cache(cache, cache_path)
+
+
+# ─── Ledger I/O ──────────────────────────────────────────────────────
+
+
+@dataclass
+class LedgerRow:
+    """One trade in the ledger. Stored fields only; derived fields live
+    in read_ledger.py."""
+    date_closed: date
+    cycle_id: str
+    brand: str
+    reference: str
+    account: str
+    buy_price: float
+    sell_price: float
+
+
+def parse_ledger_csv(ledger_path: Optional[str] = None) -> list[LedgerRow]:
+    """Read trade_ledger.csv and return a list of LedgerRow.
+
+    Returns empty list if file is missing or empty (header-only).
+    Raises ValueError on malformed rows.
+    """
+    path = ledger_path or LEDGER_PATH
+    if not os.path.exists(path):
+        return []
+    rows: list[LedgerRow] = []
+    with open(path, "r", newline="") as f:
+        reader = csv.DictReader(f)
+        for i, raw in enumerate(reader, start=2):
+            try:
+                y, m, d = raw["date_closed"].split("-")
+                rows.append(LedgerRow(
+                    date_closed=date(int(y), int(m), int(d)),
+                    cycle_id=raw["cycle_id"],
+                    brand=raw["brand"],
+                    reference=raw["reference"],
+                    account=raw["account"],
+                    buy_price=float(raw["buy_price"]),
+                    sell_price=float(raw["sell_price"]),
+                ))
+            except (KeyError, ValueError, TypeError) as exc:
+                raise ValueError(
+                    f"Malformed row {i} in {path}: {exc}"
+                ) from exc
+    return rows
+
+
+def ensure_ledger_exists(ledger_path: Optional[str] = None) -> str:
+    """Create trade_ledger.csv with header row if it doesn't exist.
+
+    Idempotent. Returns the path used.
+    """
+    path = ledger_path or LEDGER_PATH
+    if os.path.exists(path):
+        return path
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(LEDGER_COLUMNS)
+    return path
+
+
+def append_ledger_row(row: LedgerRow, ledger_path: Optional[str] = None) -> None:
+    """Append one trade to trade_ledger.csv. Creates file if missing."""
+    path = ensure_ledger_exists(ledger_path)
+    with open(path, "a", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            row.date_closed.isoformat(),
+            row.cycle_id,
+            row.brand,
+            row.reference,
+            row.account,
+            row.buy_price,
+            row.sell_price,
+        ])
 
 
 # ─── Cycle helpers ────────────────────────────────────────────────────

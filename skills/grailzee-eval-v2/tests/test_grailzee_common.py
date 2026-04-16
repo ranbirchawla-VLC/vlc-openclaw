@@ -5,12 +5,16 @@ changes can't silently drift from the extracted logic.
 """
 
 import json
+import os
 from datetime import date
 
 from scripts.grailzee_common import (
+    LEDGER_COLUMNS,
+    LedgerRow,
     NR_FIXED,
     RES_FIXED,
     adjusted_max_buy,
+    append_ledger_row,
     append_name_cache_entry,
     breakeven_nr,
     breakeven_reserve,
@@ -18,6 +22,7 @@ from scripts.grailzee_common import (
     classify_dj_config,
     cycle_date_range,
     cycle_id_from_date,
+    ensure_ledger_exists,
     get_ad_budget,
     is_cycle_focus_current,
     is_quality_sale,
@@ -26,6 +31,7 @@ from scripts.grailzee_common import (
     max_buy_nr,
     max_buy_reserve,
     normalize_ref,
+    parse_ledger_csv,
     prev_cycle,
     save_name_cache,
     strip_ref,
@@ -413,7 +419,88 @@ class TestPresentationPremium:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# 13. Tracer tests
+# 13. Ledger I/O tests
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestLedgerIO:
+    def test_parse_missing_file_returns_empty(self, tmp_path):
+        assert parse_ledger_csv(str(tmp_path / "nope.csv")) == []
+
+    def test_ensure_creates_header_only(self, tmp_path):
+        path = str(tmp_path / "ledger.csv")
+        ensure_ledger_exists(path)
+        assert os.path.exists(path)
+        with open(path) as f:
+            content = f.read()
+        assert content.strip() == ",".join(LEDGER_COLUMNS)
+
+    def test_ensure_is_idempotent(self, tmp_path):
+        path = str(tmp_path / "ledger.csv")
+        ensure_ledger_exists(path)
+        ensure_ledger_exists(path)
+        rows = parse_ledger_csv(path)
+        assert rows == []
+
+    def test_append_and_read_roundtrip(self, tmp_path):
+        path = str(tmp_path / "ledger.csv")
+        row = LedgerRow(
+            date_closed=date(2026, 4, 16),
+            cycle_id="cycle_2026-08",
+            brand="Tudor",
+            reference="79830RB",
+            account="NR",
+            buy_price=2750,
+            sell_price=3200,
+        )
+        append_ledger_row(row, path)
+        loaded = parse_ledger_csv(path)
+        assert len(loaded) == 1
+        assert loaded[0].brand == "Tudor"
+        assert loaded[0].buy_price == 2750
+
+    def test_sequential_writes_preserved(self, tmp_path):
+        path = str(tmp_path / "ledger.csv")
+        for i in range(3):
+            append_ledger_row(LedgerRow(
+                date_closed=date(2026, 1, 5 + i),
+                cycle_id="cycle_2026-01",
+                brand="Tudor",
+                reference="79830RB",
+                account="NR",
+                buy_price=2700 + i * 100,
+                sell_price=3100 + i * 100,
+            ), path)
+        loaded = parse_ledger_csv(path)
+        assert len(loaded) == 3
+        assert loaded[0].buy_price == 2700
+        assert loaded[2].buy_price == 2900
+
+    def test_append_creates_parent_directory(self, tmp_path):
+        path = str(tmp_path / "subdir" / "ledger.csv")
+        append_ledger_row(LedgerRow(
+            date_closed=date(2026, 4, 16),
+            cycle_id="cycle_2026-08",
+            brand="Tudor",
+            reference="79830RB",
+            account="NR",
+            buy_price=2750,
+            sell_price=3200,
+        ), path)
+        assert os.path.exists(path)
+
+    def test_parse_malformed_row_raises(self, tmp_path):
+        path = str(tmp_path / "bad.csv")
+        with open(path, "w") as f:
+            f.write(",".join(LEDGER_COLUMNS) + "\n")
+            f.write("not-a-date,cycle,brand,ref,NR,abc,3200\n")
+        import pytest
+        with pytest.raises(ValueError, match="Malformed row"):
+            parse_ledger_csv(path)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 14. Tracer tests
 # ═══════════════════════════════════════════════════════════════════════
 
 
