@@ -1,0 +1,7 @@
+date_closed,cycle_id,brand,reference,account,buy_price,sell_price
+# Fill in one row per closed Grailzee trade.
+# cycle_id can be left blank — the tool will compute it from date_closed.
+# account must be NR or RES (uppercase).
+# Prices are plain numbers, no dollar signs or commas.
+# Example:
+# 2026-02-14,,Tudor,79830RB,NR,2750,3200
