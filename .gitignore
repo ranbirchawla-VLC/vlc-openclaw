@@ -37,3 +37,6 @@ htmlcov/
 # Environment
 .env
 .env.local
+
+# Agent runtime state (user-specific, not code)
+gtd-workspace/storage/
