@@ -416,6 +416,34 @@ def prev_cycle(cycle_id: str) -> str:
     return cycle_id_from_date(date(year - 1, 12, 31))
 
 
+def cycle_id_from_csv(csv_path: str) -> str:
+    """Extract date from CSV filename (grailzee_YYYY-MM-DD.csv), return cycle_id.
+
+    Falls back to cycle_id_from_date(today) if filename doesn't match pattern.
+    """
+    import re
+    basename = os.path.basename(csv_path)
+    m = re.search(r"(\d{4}-\d{2}-\d{2})", basename)
+    if m:
+        y, mo, d = m.group(1).split("-")
+        return cycle_id_from_date(date(int(y), int(mo), int(d)))
+    return cycle_id_from_date(date.today())
+
+
+def apply_premium_adjustment(all_results: dict, adjustment_pct: float) -> None:
+    """Mutate all_results references: recalculate max_buy with premium.
+
+    Called when ledger has 10+ trades at >= 8% avg presentation premium.
+    Uses adjusted_max_buy() to recompute max_buy_nr and max_buy_res.
+    """
+    for ref, rd in all_results.get("references", {}).items():
+        median = rd.get("median")
+        if median is None:
+            continue
+        rd["max_buy_nr"] = adjusted_max_buy(median, NR_FIXED, adjustment_pct)
+        rd["max_buy_res"] = adjusted_max_buy(median, RES_FIXED, adjustment_pct)
+
+
 def load_cycle_focus(path: Optional[str] = None) -> Optional[dict]:
     """Load cycle_focus.json. Returns None if file missing."""
     path = path or CYCLE_FOCUS_PATH
