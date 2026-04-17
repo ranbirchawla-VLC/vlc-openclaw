@@ -1183,7 +1183,7 @@ def run_analysis(reports_folder=None, output_folder=None):
     changes = analyze_changes.run(csvs[-2:] if len(csvs) >= 2 else csvs)
     breakouts = analyze_breakouts.run(csvs[-2:] if len(csvs) >= 2 else csvs)
     watchlist = analyze_watchlist.run(csvs[-2:] if len(csvs) >= 2 else csvs)
-    brands = analyze_brands.run(all_results)
+    brands = analyze_brands.run(all_results, trends)
     ledger_stats = read_ledger.run()
 
     if ledger_stats.premium.threshold_met:
