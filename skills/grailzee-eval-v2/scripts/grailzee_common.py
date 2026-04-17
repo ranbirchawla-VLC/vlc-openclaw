@@ -57,6 +57,7 @@ TARGET_MARGIN = 0.05        # 5% target margin on every trade
 RISK_RESERVE_THRESHOLD = 0.40
 
 MIN_SALES_FOR_SCORING = 3   # plan Section 7.1: need 3+ sales to score
+CACHE_SCHEMA_VERSION = 2    # plan Section 13: v2 cache schema
 
 ACCOUNT_FEES = {"NR": NR_FIXED, "RES": RES_FIXED}
 
