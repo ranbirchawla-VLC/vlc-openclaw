@@ -34,7 +34,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.write_cache import write_cache, _build_premium_status, CACHE_SCHEMA_VERSION
+from scripts.write_cache import write_cache, _backup_existing, _build_premium_status, CACHE_SCHEMA_VERSION
 
 
 def _ref(brand="Tudor", model="BB GMT", reference="79830RB",
@@ -264,6 +264,37 @@ class TestNullDefaults:
 # ═══════════════════════════════════════════════════════════════════════
 # Backup rotation
 # ═══════════════════════════════════════════════════════════════════════
+
+
+class TestBackupTimestampCollision:
+    """Flag #6: microsecond precision in backup filenames prevents silent
+    overwrite when _backup_existing runs twice within the same second."""
+
+    def test_distinct_filenames_within_same_second(self, tmp_path, monkeypatch):
+        import scripts.write_cache as wc
+
+        cache_path = tmp_path / "cache.json"
+        backup_dir = tmp_path / "backup"
+        cache_path.write_text("original")
+
+        same_second = [
+            datetime(2026, 4, 18, 14, 30, 52, 0),
+            datetime(2026, 4, 18, 14, 30, 52, 500_000),
+        ]
+
+        class _FixedDT(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return same_second.pop(0)
+
+        monkeypatch.setattr(wc, "datetime", _FixedDT)
+
+        _backup_existing(str(cache_path), str(backup_dir))
+        _backup_existing(str(cache_path), str(backup_dir))
+
+        files = [f for f in os.listdir(str(backup_dir))
+                 if f.startswith("analysis_cache_") and f.endswith(".json")]
+        assert len(files) == 2, files
 
 
 class TestBackupRotation:

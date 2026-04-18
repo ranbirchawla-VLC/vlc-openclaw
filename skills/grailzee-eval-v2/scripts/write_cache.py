@@ -44,7 +44,7 @@ def _backup_existing(cache_path: str, backup_dir: str) -> None:
     if not os.path.exists(cache_path):
         return
     os.makedirs(backup_dir, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     backup_name = f"analysis_cache_{ts}.json"
     shutil.copy2(cache_path, os.path.join(backup_dir, backup_name))
 
