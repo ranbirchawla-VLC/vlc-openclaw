@@ -27,10 +27,10 @@ If the operator provided a specific file path, use that instead.
 Convert to CSV:
 
 ```
-python3 scripts/ingest_report.py <report.xlsx>
+python3 scripts/ingest_report.py <report.xlsx> --output-dir reports_csv/
 ```
 
-The script returns JSON: `{"status": "ok", "csv_path": "<path>", "rows": N}` on success or `{"status": "error", ...}` on failure. Capture `csv_path`.
+The script prints JSON on stdout on success: `{"output_csv": "<path>", "rows_written": N, "sheets": {...}, "warnings": [...]}`. On failure it exits non-zero with `{"status": "error", "error": "..."}` on stderr. Capture `output_csv` from the success payload.
 
 ### Step 3: Build the trend window
 

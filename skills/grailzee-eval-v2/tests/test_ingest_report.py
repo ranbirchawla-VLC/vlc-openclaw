@@ -27,6 +27,7 @@ def run_cli(*args: str) -> subprocess.CompletedProcess:
 # ═══════════════════════════════════════════════════════════════════════
 
 from scripts.ingest_report import (
+    _determine_output_name,
     normalize_date,
     normalize_price,
     normalize_reference,
@@ -295,8 +296,9 @@ class TestMalformedWorkbooks:
         r = run_cli(str(xlsx), "--output-dir", out_dir)
         assert r.returncode != 0
 
-    def test_nonexistent_file_fails(self):
-        r = run_cli("/tmp/nonexistent_report.xlsx")
+    def test_nonexistent_file_fails(self, tmp_path):
+        r = run_cli("/tmp/nonexistent_report.xlsx",
+                    "--output-dir", str(tmp_path / "csv_out"))
         assert r.returncode != 0
 
 
@@ -398,3 +400,47 @@ class TestUnicodeAndEdgeCases:
             paper_values = [row["papers"] for row in reader]
         assert "yes" in paper_values
         assert "Yes" in paper_values
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Flag #1/#2: _determine_output_name fallback behavior
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestMtimeFallback:
+    """Flag #1: mtime fallback is no longer silent.
+    Flag #2: no datetime.now() last resort — OSError raises ValueError."""
+
+    def test_mtime_fallback_warns_to_stderr(self, tmp_path, capsys):
+        f = tmp_path / "report.xlsx"
+        f.write_bytes(b"")
+        _determine_output_name([], str(f))
+        captured = capsys.readouterr()
+        assert "WARNING" in captured.err
+        assert "mtime" in captured.err.lower()
+        assert str(f) in captured.err
+
+    def test_mtime_fallback_filename_format(self, tmp_path):
+        f = tmp_path / "report.xlsx"
+        f.write_bytes(b"")
+        name = _determine_output_name([], str(f))
+        assert name.startswith("grailzee_")
+        assert name.endswith(".csv")
+        date_part = name[len("grailzee_"):-len(".csv")]
+        datetime.strptime(date_part, "%Y-%m-%d")
+
+    def test_mtime_unavailable_raises(self, tmp_path):
+        bogus = tmp_path / "does_not_exist.xlsx"
+        with pytest.raises(ValueError, match="Cannot determine report date") as excinfo:
+            _determine_output_name([], str(bogus))
+        assert isinstance(excinfo.value.__cause__, OSError)
+
+
+class TestRequiredOutputDir:
+    """Flag #3: --output-dir is required; argparse rejects invocations without it."""
+
+    def test_missing_output_dir_fails(self, tmp_path):
+        xlsx = build_minimal_report(tmp_path / "report.xlsx")
+        r = run_cli(str(xlsx))
+        assert r.returncode != 0
+        assert "output-dir" in r.stderr.lower()

@@ -5,7 +5,7 @@ from 'Auctions Sold' and sell-through rates from 'Top Selling Watches',
 joins them by reference number, and writes a normalized CSV.
 
 Usage:
-    ingest_report.py <input.xlsx> [--output-dir PATH] [--overwrite]
+    ingest_report.py <input.xlsx> --output-dir PATH [--overwrite]
 
 Output: JSON on stdout with path, row counts, and warnings.
 Exit 0 on success (with or without warnings), non-zero on failure.
@@ -25,7 +25,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 V2_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(V2_ROOT))
 
-from scripts.grailzee_common import CSV_PATH, get_tracer
+from scripts.grailzee_common import get_tracer
 
 try:
     import openpyxl
@@ -259,20 +259,27 @@ def _determine_output_name(sales: list[dict], input_path: str) -> str:
     try:
         mtime = os.path.getmtime(input_path)
         dt = datetime.fromtimestamp(mtime)
-        return f"grailzee_{dt.strftime('%Y-%m-%d')}.csv"
-    except OSError:
-        pass
-    # Last resort
-    return f"grailzee_{datetime.now().strftime('%Y-%m-%d')}.csv"
+        resolved = dt.strftime("%Y-%m-%d")
+        print(
+            f"WARNING: no usable sale dates in workbook {input_path!r}; "
+            f"falling back to file mtime as report date: {resolved}.",
+            file=sys.stderr,
+        )
+        return f"grailzee_{resolved}.csv"
+    except OSError as exc:
+        raise ValueError(
+            f"Cannot determine report date for {input_path!r}: "
+            "no usable sale dates in workbook and file mtime is unavailable. "
+            f"Cause: {exc}"
+        ) from exc
 
 
 def ingest(
     input_path: str,
-    output_dir: str | None = None,
+    output_dir: str,
     overwrite: bool = False,
 ) -> dict:
     """Main ingestion logic. Returns a result dict for JSON output."""
-    output_dir = output_dir or CSV_PATH
     warnings: list[str] = []
 
     # Load workbook
@@ -382,8 +389,8 @@ def ingest(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", help="Path to Grailzee Pro Excel workbook")
-    parser.add_argument("--output-dir", default=None,
-                        help=f"Output directory (default: {CSV_PATH})")
+    parser.add_argument("--output-dir", required=True,
+                        help="Output directory for the normalized CSV")
     parser.add_argument("--overwrite", action="store_true",
                         help="Allow overwriting existing CSV")
     args = parser.parse_args()
