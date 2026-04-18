@@ -31,12 +31,17 @@ htmlcov/
 *.swo
 *~
 
-# Claude Code
-.claude/settings.local.json
+# Claude Code — session artifacts; keep project settings.json tracked
+.claude/*
+!.claude/settings.json
 
 # Environment
 .env
 .env.local
+
+# Secrets / OAuth credentials
+client_secret.json
+client_secret*.json
 
 # Agent runtime state (user-specific, not code)
 gtd-workspace/storage/
