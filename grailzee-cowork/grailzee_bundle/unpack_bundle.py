@@ -516,11 +516,78 @@ def _strategy_output_to_role_bytes(payload: dict[str, Any]) -> dict[str, bytes]:
     return role_to_bytes
 
 
+def _write_strategy_archive(
+    payload: dict[str, Any], briefs_dir: Path
+) -> tuple[list[str], list[dict[str, str]]]:
+    """Best-effort write of the three archive artifacts to ``briefs_dir``.
+
+    Files produced (names prefixed with the payload's ``cycle_id``):
+      - ``<cycle_id>_strategy_output.json`` — indent=2 JSON of the
+        validated payload (re-read later to audit what the strategy
+        session actually handed off).
+      - ``<cycle_id>_strategy_brief.xlsx`` — rendered via
+        ``build_strategy_xlsx``.
+      - ``<cycle_id>_strategy_brief.md`` — raw markdown from
+        ``session_artifacts.cycle_brief_md``.
+
+    Writes are independent. Any single failure is captured in the
+    returned errors list (with the target file's basename) and the
+    remaining writes still proceed. State writes are already committed
+    upstream — the archive is an operator convenience and must never
+    block or roll back the primary apply. Callers surface the error
+    list to the operator so they can retry or fix the filesystem.
+    """
+    from grailzee_bundle.build_strategy_xlsx import build_strategy_xlsx
+
+    cycle_id = payload["cycle_id"]
+    files_written: list[str] = []
+    errors: list[dict[str, str]] = []
+
+    try:
+        briefs_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        # If we can't even create the directory, no write can succeed.
+        # Report a single directory-level failure and bail — three
+        # identical "parent not found" errors would be noise.
+        errors.append({"file": str(briefs_dir), "error": str(exc)})
+        return files_written, errors
+
+    json_path = briefs_dir / f"{cycle_id}_strategy_output.json"
+    try:
+        json_path.write_text(
+            json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+        )
+        files_written.append(json_path.name)
+    except OSError as exc:
+        errors.append({"file": json_path.name, "error": str(exc)})
+
+    xlsx_path = briefs_dir / f"{cycle_id}_strategy_brief.xlsx"
+    try:
+        build_strategy_xlsx(payload, xlsx_path)
+        files_written.append(xlsx_path.name)
+    except Exception as exc:
+        # Best-effort: openpyxl / OS / unexpected all surface the same
+        # way to the operator. State is already committed.
+        errors.append({"file": xlsx_path.name, "error": str(exc)})
+
+    md_path = briefs_dir / f"{cycle_id}_strategy_brief.md"
+    try:
+        md_path.write_text(
+            payload["session_artifacts"]["cycle_brief_md"], encoding="utf-8"
+        )
+        files_written.append(md_path.name)
+    except OSError as exc:
+        errors.append({"file": md_path.name, "error": str(exc)})
+
+    return files_written, errors
+
+
 def apply_strategy_output(
     json_path: Path,
     grailzee_root: Path,
     *,
     strict_cycle_id: bool = True,
+    write_archive: bool = True,
 ) -> dict[str, Any]:
     """Validate and apply a strategy_output.json payload.
 
@@ -532,10 +599,15 @@ def apply_strategy_output(
        becomes one ``state/<name>.json`` write. Empty writes (all decisions
        null) are blocked upstream by the validator.
     5. Atomic two-phase commit via ``_atomic_write_targets``.
+    6. Best-effort archive writes (XLSX + MD + JSON) to
+       ``<grailzee_root>/output/briefs/``. Archive failures do NOT
+       roll back state writes — the archive is an operator-facing
+       convenience; state is the source of truth.
 
     Returns a summary dict: ``{cycle_id, session_mode, roles_written,
-    source, payload}``. ``payload`` is the validated dict, returned so
-    callers (e.g. archive-writing) can avoid re-reading the file.
+    source, archive_files_written, archive_errors, payload}``.
+    ``payload`` is the validated dict, returned so callers (e.g. CLI)
+    can avoid re-reading the file.
 
     Raises
     ------
@@ -553,6 +625,7 @@ def apply_strategy_output(
 
     grailzee_root = Path(grailzee_root)
     state_dir = grailzee_root / "state"
+    briefs_dir = grailzee_root / "output" / "briefs"
     json_path = Path(json_path)
 
     if not json_path.exists():
@@ -583,11 +656,20 @@ def apply_strategy_output(
     role_to_bytes = _strategy_output_to_role_bytes(payload)
     roles_written = _atomic_write_targets(state_dir, role_to_bytes)
 
+    archive_files_written: list[str] = []
+    archive_errors: list[dict[str, str]] = []
+    if write_archive:
+        archive_files_written, archive_errors = _write_strategy_archive(
+            payload, briefs_dir
+        )
+
     return {
         "cycle_id": payload["cycle_id"],
         "session_mode": payload["session_mode"],
         "roles_written": sorted(roles_written),
         "source": payload["produced_by"],
+        "archive_files_written": archive_files_written,
+        "archive_errors": archive_errors,
         "payload": payload,
     }
 
