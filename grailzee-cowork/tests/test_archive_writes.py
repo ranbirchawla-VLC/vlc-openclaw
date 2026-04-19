@@ -112,6 +112,28 @@ def test_single_file_failure_captured_others_proceed(tmp_path: Path) -> None:
     assert errors[0]["error"]  # non-empty error message
 
 
+def test_xlsx_failure_alone_does_not_block_json_or_md(tmp_path: Path) -> None:
+    """The XLSX write has the broadest exception catch of the three
+    (openpyxl + OS + envelope errors). Verify that when only the XLSX
+    target is blocked, the JSON and MD archives still land and the
+    error is captured cleanly."""
+    briefs = tmp_path / "briefs"
+    briefs.mkdir()
+    blocked_xlsx = briefs / f"{FAKE_CYCLE_ID}_strategy_brief.xlsx"
+    blocked_xlsx.mkdir()  # a directory at that path forces openpyxl's save to fail
+
+    payload = make_strategy_output(cycle_id=FAKE_CYCLE_ID)
+    files_written, errors = _write_strategy_archive(payload, briefs)
+
+    assert set(files_written) == {
+        f"{FAKE_CYCLE_ID}_strategy_output.json",
+        f"{FAKE_CYCLE_ID}_strategy_brief.md",
+    }
+    assert len(errors) == 1
+    assert errors[0]["file"] == f"{FAKE_CYCLE_ID}_strategy_brief.xlsx"
+    assert errors[0]["error"]
+
+
 def test_directory_creation_failure_short_circuits(tmp_path: Path) -> None:
     """If briefs_dir cannot be created (e.g. a FILE exists at that path),
     emit one directory-level error rather than three identical

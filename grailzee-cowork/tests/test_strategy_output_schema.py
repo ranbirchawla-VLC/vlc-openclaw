@@ -16,7 +16,6 @@ Coverage matrix:
 
 from __future__ import annotations
 
-import copy
 import json
 from pathlib import Path
 
@@ -94,7 +93,7 @@ def _valid_minimal_payload() -> dict:
     return {
         "strategy_output_version": 1,
         "generated_at": "2026-04-19T10:30:00Z",
-        "cycle_id": "cycle_2026-15",
+        "cycle_id": "cycle_2026-04",
         "session_mode": "cycle_planning",
         "produced_by": "grailzee-strategy/0.1.0",
         "decisions": {
@@ -257,6 +256,15 @@ def test_target_margin_fraction_out_of_range_rejected() -> None:
 def test_target_margin_fraction_zero_rejected() -> None:
     p = _valid_minimal_payload()
     p["decisions"]["cycle_focus"]["target_margin_fraction"] = 0
+    with pytest.raises(StrategyOutputValidationError, match="target_margin_fraction"):
+        validate_strategy_output(p)
+
+
+def test_target_margin_fraction_one_rejected() -> None:
+    """Upper bound is exclusive: a 100% fraction is a data-entry error
+    (probably someone passed a percent the wrong way)."""
+    p = _valid_minimal_payload()
+    p["decisions"]["cycle_focus"]["target_margin_fraction"] = 1.0
     with pytest.raises(StrategyOutputValidationError, match="target_margin_fraction"):
         validate_strategy_output(p)
 

@@ -145,7 +145,7 @@ def _load_current_cycle_id(state_dir: Path) -> str:
         raise BundleValidationError(
             f"Current analysis cache missing at {cache_path}; cannot verify cycle_id"
         )
-    cache = json.loads(cache_path.read_text())
+    cache = json.loads(cache_path.read_text(encoding="utf-8"))
     cycle_id = cache.get("cycle_id") if isinstance(cache, dict) else None
     if not cycle_id:
         raise BundleValidationError(
@@ -465,25 +465,33 @@ def _detect_input_type(path: Path) -> str:
     if not path.exists():
         raise FileNotFoundError(f"Inbound file not found: {path}")
 
-    if suffix == ".zip":
-        head = path.read_bytes()[:4]
-        if not head.startswith(b"PK"):
+    # Read only the bytes needed for the magic probe. A full read_bytes()
+    # would slurp up to MAX_TOTAL_DECOMPRESSED_BYTES for a legitimate zip
+    # just to check the 4-byte PK signature.
+    match suffix:
+        case ".zip":
+            with open(path, "rb") as f:
+                head = f.read(4)
+            if not head.startswith(b"PK"):
+                raise BundleValidationError(
+                    f"{path.name} has .zip extension but content is not a zip archive "
+                    f"(magic bytes {head!r})"
+                )
+            return "zip"
+        case ".json":
+            with open(path, "rb") as f:
+                head = f.read(64).lstrip()
+            if not head or head[:1] not in (b"{", b"["):
+                raise BundleValidationError(
+                    f"{path.name} has .json extension but content does not look like "
+                    f"JSON (first non-whitespace bytes: {head[:16]!r})"
+                )
+            return "json"
+        case _:
             raise BundleValidationError(
-                f"{path.name} has .zip extension but content is not a zip archive "
-                f"(magic bytes {head!r})"
+                f"Unsupported input extension {suffix!r}; expected .zip or .json "
+                f"(path: {path})"
             )
-        return "zip"
-    if suffix == ".json":
-        head = path.read_bytes()[:64].lstrip()
-        if not head or head[:1] not in (b"{", b"["):
-            raise BundleValidationError(
-                f"{path.name} has .json extension but content does not look like "
-                f"JSON (first non-whitespace bytes: {head[:16]!r})"
-            )
-        return "json"
-    raise BundleValidationError(
-        f"Unsupported input extension {suffix!r}; expected .zip or .json (path: {path})"
-    )
 
 
 def _strategy_output_to_role_bytes(payload: dict[str, Any]) -> dict[str, bytes]:
@@ -565,9 +573,11 @@ def _write_strategy_archive(
     try:
         build_strategy_xlsx(payload, xlsx_path)
         files_written.append(xlsx_path.name)
-    except Exception as exc:
-        # Best-effort: openpyxl / OS / unexpected all surface the same
-        # way to the operator. State is already committed.
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        # Best-effort archive: OSError (disk full / permission), plus
+        # ValueError/KeyError/TypeError that openpyxl can surface on
+        # malformed workbook state. State commit already landed
+        # upstream — the operator sees this via archive_errors.
         errors.append({"file": xlsx_path.name, "error": str(exc)})
 
     md_path = briefs_dir / f"{cycle_id}_strategy_brief.md"
@@ -632,7 +642,7 @@ def apply_strategy_output(
         raise FileNotFoundError(f"strategy_output.json not found: {json_path}")
 
     try:
-        payload = json.loads(json_path.read_text())
+        payload = json.loads(json_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise BundleValidationError(
             f"strategy_output.json is not valid JSON: {exc}"
@@ -701,20 +711,27 @@ def main(argv: list[str] | None = None) -> int:
     bundle_path = Path(args.bundle)
     try:
         kind = _detect_input_type(bundle_path)
-        if kind == "zip":
-            result = unpack_inbound_bundle(
-                bundle_path,
-                Path(args.grailzee_root),
-                strict_cycle_id=not args.allow_cycle_mismatch,
-            )
-        else:  # "json"
-            result = apply_strategy_output(
-                bundle_path,
-                Path(args.grailzee_root),
-                strict_cycle_id=not args.allow_cycle_mismatch,
-            )
-            # Don't print the full payload back on the CLI; it's already on disk.
-            result = {k: v for k, v in result.items() if k != "payload"}
+        match kind:
+            case "zip":
+                result = unpack_inbound_bundle(
+                    bundle_path,
+                    Path(args.grailzee_root),
+                    strict_cycle_id=not args.allow_cycle_mismatch,
+                )
+            case "json":
+                result = apply_strategy_output(
+                    bundle_path,
+                    Path(args.grailzee_root),
+                    strict_cycle_id=not args.allow_cycle_mismatch,
+                )
+                # Don't print the full payload back on the CLI; it's already on disk.
+                result = {k: v for k, v in result.items() if k != "payload"}
+            case _:
+                # _detect_input_type only returns "zip" | "json"; this is
+                # a defensive arm that would fire only if that contract drifts.
+                raise BundleValidationError(
+                    f"Internal: unhandled input kind {kind!r}"
+                )
     except (BundleValidationError, FileNotFoundError) as exc:
         print(f"Unpack failed: {exc}", file=sys.stderr)
         return 1
