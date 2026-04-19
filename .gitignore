@@ -45,3 +45,4 @@ client_secret*.json
 
 # Agent runtime state (user-specific, not code)
 gtd-workspace/storage/
+.fastembed_cache/
