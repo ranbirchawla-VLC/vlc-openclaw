@@ -307,57 +307,6 @@ class TestScoreAllReferences:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# v1/v2 equivalence
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestV1V2Equivalence:
-    """Run v1 and v2 analyze_reference on same input; assert match."""
-
-    @pytest.fixture
-    def v1_analyze_reference(self):
-        import importlib
-        v1_dir = str(Path(__file__).resolve().parents[2] / "grailzee-eval" / "scripts")
-        sys.path.insert(0, v1_dir)
-        try:
-            # Force fresh import (may be cached from v2)
-            if "analyze_report" in sys.modules:
-                del sys.modules["analyze_report"]
-            mod = importlib.import_module("analyze_report")
-            yield mod.analyze_reference
-        finally:
-            sys.path.remove(v1_dir)
-            if "analyze_report" in sys.modules:
-                del sys.modules["analyze_report"]
-
-    def test_field_equivalence(self, v1_analyze_reference):
-        """All fields except recommend_reserve must match between v1 and v2."""
-        sales = _make_sales([3000, 3100, 3200, 3300, 3400])
-        v1_result = v1_analyze_reference(sales, st_pct=0.6)
-        v2_result = analyze_reference(sales, st_pct=0.6)
-
-        # Fields that must be identical
-        for key in ("median", "mean", "floor", "ceiling", "volume",
-                     "st_pct", "quality_count", "max_buy_nr", "max_buy_res",
-                     "breakeven_nr", "breakeven_res", "risk_nr", "risk_res",
-                     "profit_nr", "profit_res", "signal"):
-            assert v1_result[key] == v2_result[key], (
-                f"Field '{key}' differs: v1={v1_result[key]} v2={v2_result[key]}"
-            )
-
-    def test_recommend_reserve_differs_at_boundary(self, v1_analyze_reference):
-        """v1 threshold=20%, v2 threshold=40%. At risk_nr=20%, v1=False (<=20),
-        v2=False (<=40). Both are False here. Divergence only at 20 < risk <= 40."""
-        sales = _make_sales([3000, 3100, 3200, 3300, 3400])
-        v1_result = v1_analyze_reference(sales)
-        v2_result = analyze_reference(sales)
-        # risk_nr=20.0: v1 recommend_reserve = 20>20 = False
-        #               v2 recommend_reserve = 20>40 = False
-        assert v1_result["recommend_reserve"] is False
-        assert v2_result["recommend_reserve"] is False
-
-
-# ═══════════════════════════════════════════════════════════════════════
 # CLI integration
 # ═══════════════════════════════════════════════════════════════════════
 

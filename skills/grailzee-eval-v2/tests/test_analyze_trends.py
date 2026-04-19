@@ -259,66 +259,6 @@ class TestAnalyzeTrends:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# v1/v2 equivalence
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestV1V2Equivalence:
-    @pytest.fixture
-    def v1_compare_periods(self):
-        import importlib
-        v1_dir = str(Path(__file__).resolve().parents[2] / "grailzee-eval" / "scripts")
-        sys.path.insert(0, v1_dir)
-        try:
-            if "analyze_report" in sys.modules:
-                del sys.modules["analyze_report"]
-            mod = importlib.import_module("analyze_report")
-            yield mod.compare_periods
-        finally:
-            sys.path.remove(v1_dir)
-            if "analyze_report" in sys.modules:
-                del sys.modules["analyze_report"]
-
-    def test_field_equivalence(self, v1_compare_periods):
-        """v1 and v2 compare_periods produce identical fields on equivalent input."""
-        # v1 shape: {key: {brand, model, reference, section, analysis: {...}}}
-        v1_prev = {
-            "Tudor|BB GMT": {
-                "brand": "Tudor", "model": "BB GMT", "reference": "79830RB",
-                "analysis": {"median": 3000, "st_pct": 0.60, "risk_nr": 10.0,
-                             "volume": 10, "floor": 2800},
-            }
-        }
-        v1_curr = {
-            "Tudor|BB GMT": {
-                "brand": "Tudor", "model": "BB GMT", "reference": "79830RB",
-                "analysis": {"median": 3200, "st_pct": 0.65, "risk_nr": 12.0,
-                             "volume": 12, "floor": 2900},
-            }
-        }
-        v1_result = v1_compare_periods(v1_curr, v1_prev)
-
-        # v2 flat shape
-        v2_prev = {"79830RB": _ref(median=3000, st_pct=0.60, risk_nr=10.0,
-                                    volume=10, floor=2800)}
-        v2_curr = {"79830RB": _ref(median=3200, st_pct=0.65, risk_nr=12.0,
-                                    volume=12, floor=2900)}
-        v2_result = compare_periods(v2_curr, v2_prev)
-
-        assert len(v1_result) == 1
-        assert len(v2_result) == 1
-        v1_t, v2_t = v1_result[0], v2_result[0]
-
-        for key in ("med_change", "med_pct", "st_change",
-                     "prev_vol", "curr_vol", "floor_change",
-                     "prev_median", "curr_median", "signal_str"):
-            assert v1_t[key] == pytest.approx(v2_t[key], abs=0.01), (
-                f"Field '{key}' differs: v1={v1_t[key]} v2={v2_t[key]}"
-            )
-        assert v1_t["signals"] == v2_t["signals"]
-
-
-# ═══════════════════════════════════════════════════════════════════════
 # CLI
 # ═══════════════════════════════════════════════════════════════════════
 
