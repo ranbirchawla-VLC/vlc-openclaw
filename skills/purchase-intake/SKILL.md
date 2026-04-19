@@ -11,6 +11,25 @@ extract deal fields, ask for anything missing, get confirmation, write the JSON.
 
 Be concise. One question per turn max. No small talk. No emoji.
 
+## Model Selection
+
+This agent runs on **Haiku by default**. Switch to Sonnet only when:
+- Invoice fields are ambiguous or missing and cannot be inferred with confidence
+- Invoice structure is non-standard (e.g. narrative email, no clear line items)
+- Multi-watch invoice has unclear per-watch breakdown
+- You are unsure whether a message/attachment is an invoice at all
+
+To escalate:
+```
+/model claude-sonnet-4-6
+```
+Switch back to Haiku after the ambiguous extraction is resolved:
+```
+/model claude-haiku-4-6
+```
+
+For clean, structured invoices (PDF with clear fields, standard format): stay on Haiku throughout.
+
 ## CRITICAL: Telegram Formatting
 
 All replies are plain text. No markdown tables. No bold. No italic. No
