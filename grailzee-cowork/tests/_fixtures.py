@@ -265,3 +265,126 @@ def read_zip_manifest(zip_path: Path) -> dict[str, Any]:
     """Extract and decode manifest.json from a bundle .zip."""
     with zipfile.ZipFile(zip_path, "r") as zf:
         return json.loads(zf.read("manifest.json").decode("utf-8"))
+
+
+# ─── Phase 24b: strategy_output.json fixtures ─────────────────────────
+
+def make_strategy_cycle_focus(
+    *,
+    reference: str = "79830RB",
+    brand: str = "Tudor",
+    model: str = "BB GMT Pepsi",
+) -> dict[str, Any]:
+    """Default schema-valid cycle_focus block for strategy_output payloads."""
+    return {
+        "targets": [
+            {
+                "reference": reference,
+                "brand": brand,
+                "model": model,
+                "cycle_reason": "Core performer with momentum signal",
+                "max_buy_override": None,
+            }
+        ],
+        "capital_target": 15000,
+        "volume_target": 5,
+        "target_margin_fraction": 0.05,
+        "brand_emphasis": [brand],
+        "brand_pullback": [],
+        "notes": "Session default cycle focus.",
+    }
+
+
+def make_strategy_monthly_goals() -> dict[str, Any]:
+    return {
+        "month": "2026-04",
+        "revenue_target": 40000,
+        "volume_target": 12,
+        "platform_mix": {"Grailzee": 60, "eBay": 30, "Chrono24": 10},
+        "focus_notes": "Premium performers on Grailzee.",
+        "review_notes": "March hit volume; missed revenue.",
+    }
+
+
+def make_strategy_quarterly_allocation() -> dict[str, Any]:
+    return {
+        "quarter": "2026-Q2",
+        "capital_allocation": {"Tudor": 25000, "Rolex": 40000},
+        "inventory_mix_target": {"Strong": 70, "Normal": 30},
+        "review_notes": "Rebalancing into Tudor.",
+    }
+
+
+def make_strategy_config_updates(
+    *,
+    include: tuple[str, ...] = ("signal_thresholds",),
+) -> dict[str, Any]:
+    """Return a config_updates block with `include` sub-configs populated.
+
+    Each sub-config carries the D5 metadata envelope plus one dummy field.
+    """
+    template = {
+        "version": 2,
+        "updated_at": "2026-04-19T12:00:00Z",
+        "updated_by": "strategy_session",
+        "notes": "Session retune.",
+        "placeholder_field": 1.5,
+    }
+    block: dict[str, Any] = {
+        "signal_thresholds": None,
+        "scoring_thresholds": None,
+        "momentum_thresholds": None,
+        "window_config": None,
+        "premium_config": None,
+        "margin_config": None,
+        "change_notes": "Test retune.",
+    }
+    for key in include:
+        block[key] = dict(template)
+    return block
+
+
+def make_strategy_output(
+    *,
+    cycle_id: str = FAKE_CYCLE_ID,
+    session_mode: str = "cycle_planning",
+    include_cycle_focus: bool = True,
+    include_monthly: bool = False,
+    include_quarterly: bool = False,
+    include_configs: tuple[str, ...] = (),
+    cycle_brief_md: str = "# Cycle Brief\n\nFocus: Tudor.",
+    produced_by: str = "grailzee-strategy/0.1.0",
+    generated_at: str = "2026-04-19T10:30:00Z",
+) -> dict[str, Any]:
+    """Build a schema-valid strategy_output payload.
+
+    Defaults to a minimal cycle_planning payload with only cycle_focus
+    populated. Flags toggle the other three decision sections on.
+    """
+    decisions: dict[str, Any] = {
+        "cycle_focus": make_strategy_cycle_focus() if include_cycle_focus else None,
+        "monthly_goals": make_strategy_monthly_goals() if include_monthly else None,
+        "quarterly_allocation": (
+            make_strategy_quarterly_allocation() if include_quarterly else None
+        ),
+        "config_updates": (
+            make_strategy_config_updates(include=include_configs)
+            if include_configs
+            else None
+        ),
+    }
+    return {
+        "strategy_output_version": 1,
+        "generated_at": generated_at,
+        "cycle_id": cycle_id,
+        "session_mode": session_mode,
+        "produced_by": produced_by,
+        "decisions": decisions,
+        "session_artifacts": {"cycle_brief_md": cycle_brief_md},
+    }
+
+
+def write_strategy_output(path: Path, payload: dict[str, Any]) -> Path:
+    """Serialize a payload to disk (indent=2 JSON). Returns path."""
+    path.write_text(json.dumps(payload, indent=2))
+    return path

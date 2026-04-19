@@ -1,16 +1,32 @@
 """INBOUND bundle handler.
 
-Validates a ``.zip`` returned from a Chat strategy session and, only after
-every validation passes, atomically writes the contained planning
-artifacts back into ``<grailzee_root>/state/``.
+Accepts EITHER a ``.zip`` bundle (Phase 24a format) OR a
+``strategy_output.json`` payload (Phase 24b format, produced by the
+grailzee-strategy Chat skill). Dispatch is by file extension with a
+magic-byte sanity check.
 
-Roles (whitelist)
------------------
+For ``.zip``: validates the bundle and, only after every validation
+passes, atomically writes the contained planning artifacts back into
+``<grailzee_root>/state/``.
+
+For ``.json``: validates the payload against the strategy_output_v1
+schema, then atomically writes each non-null decision section to
+``state/`` using the same two-phase commit as the .zip path.
+
+Roles
+-----
+``.zip`` whitelist (``ZIP_WHITELIST``, 3 roles — Phase 24a contract):
 - ``cycle_focus``           → state/cycle_focus.json
 - ``monthly_goals``         → state/monthly_goals.json
 - ``quarterly_allocation``  → state/quarterly_allocation.json
 
-Any other role in the manifest triggers rejection.
+``.json`` whitelist (``JSON_WHITELIST``, 9 roles) adds 6 config files:
+signal_thresholds, scoring_thresholds, momentum_thresholds,
+window_config, premium_config, margin_config.
+
+The two whitelists are kept disjoint at the validation layer so a
+hostile ``.zip`` cannot smuggle a config_update-shaped payload through
+the Phase 24a trust boundary.
 
 Validation sequence (all run before any write)
 ---------------------------------------------
@@ -55,11 +71,31 @@ from typing import Any
 MANIFEST_VERSION = 1
 EXPECTED_BUNDLE_KIND = "inbound"
 
-ROLE_TO_TARGET: dict[str, str] = {
+# Phase 24a trust boundary: only these three roles may appear in a ``.zip``
+# inbound bundle. Enforced by ``_validate_manifest``.
+ZIP_WHITELIST: dict[str, str] = {
     "cycle_focus": "cycle_focus.json",
     "monthly_goals": "monthly_goals.json",
     "quarterly_allocation": "quarterly_allocation.json",
 }
+
+# Phase 24b ``.json`` path also accepts the six D5 config files as
+# replacement payloads. Never merged with ZIP_WHITELIST at validation time.
+_CONFIG_SUB_FILES: dict[str, str] = {
+    "signal_thresholds": "signal_thresholds.json",
+    "scoring_thresholds": "scoring_thresholds.json",
+    "momentum_thresholds": "momentum_thresholds.json",
+    "window_config": "window_config.json",
+    "premium_config": "premium_config.json",
+    "margin_config": "margin_config.json",
+}
+JSON_WHITELIST: dict[str, str] = {**ZIP_WHITELIST, **_CONFIG_SUB_FILES}
+
+# Union map; used only by ``_atomic_write_targets`` to look up filenames.
+# Trust enforcement happens before this point (either in _validate_manifest
+# for .zip path, or in validate_strategy_output for .json path), so exposing
+# all nine filename mappings here does not widen the trust boundary.
+ROLE_TO_TARGET: dict[str, str] = JSON_WHITELIST
 
 # Defenses against hostile bundles. Inbound role payloads are small JSON
 # documents; a declared (or uncompressed) size larger than this indicates
@@ -144,10 +180,10 @@ def _validate_manifest(manifest: Any) -> dict[str, Any]:
                 raise BundleValidationError(
                     f"manifest.files entry missing required key {key!r}"
                 )
-        if entry["role"] not in ROLE_TO_TARGET:
+        if entry["role"] not in ZIP_WHITELIST:
             raise BundleValidationError(
                 f"manifest.files entry has non-whitelisted role {entry['role']!r}; "
-                f"allowed: {sorted(ROLE_TO_TARGET)}"
+                f"allowed (.zip path): {sorted(ZIP_WHITELIST)}"
             )
     return manifest
 
@@ -417,13 +453,156 @@ def unpack_inbound_bundle(
     }
 
 
+def _detect_input_type(path: Path) -> str:
+    """Return ``"zip"`` or ``"json"`` based on extension + magic-byte probe.
+
+    Raises ``BundleValidationError`` for unsupported extensions or when the
+    file's first bytes contradict its extension (``.zip`` without a PK
+    signature, ``.json`` without a leading ``{`` or ``[``). Called before
+    any parse/validate work so obviously-wrong inputs fail fast.
+    """
+    suffix = path.suffix.lower()
+    if not path.exists():
+        raise FileNotFoundError(f"Inbound file not found: {path}")
+
+    if suffix == ".zip":
+        head = path.read_bytes()[:4]
+        if not head.startswith(b"PK"):
+            raise BundleValidationError(
+                f"{path.name} has .zip extension but content is not a zip archive "
+                f"(magic bytes {head!r})"
+            )
+        return "zip"
+    if suffix == ".json":
+        head = path.read_bytes()[:64].lstrip()
+        if not head or head[:1] not in (b"{", b"["):
+            raise BundleValidationError(
+                f"{path.name} has .json extension but content does not look like "
+                f"JSON (first non-whitespace bytes: {head[:16]!r})"
+            )
+        return "json"
+    raise BundleValidationError(
+        f"Unsupported input extension {suffix!r}; expected .zip or .json (path: {path})"
+    )
+
+
+def _strategy_output_to_role_bytes(payload: dict[str, Any]) -> dict[str, bytes]:
+    """Turn a validated strategy_output payload into role→bytes for the
+    atomic writer. Skips any decision section that is null.
+
+    Each non-null decision becomes one file entry. ``config_updates``
+    expands: each non-null sub-config becomes its own entry. Every payload
+    is emitted as indent=2 JSON with a trailing newline (matching
+    grailzee-eval's write conventions for state files).
+    """
+    decisions = payload["decisions"]
+    role_to_bytes: dict[str, bytes] = {}
+
+    def _emit(role: str, content: Any) -> None:
+        role_to_bytes[role] = (json.dumps(content, indent=2) + "\n").encode("utf-8")
+
+    if decisions["cycle_focus"] is not None:
+        _emit("cycle_focus", decisions["cycle_focus"])
+    if decisions["monthly_goals"] is not None:
+        _emit("monthly_goals", decisions["monthly_goals"])
+    if decisions["quarterly_allocation"] is not None:
+        _emit("quarterly_allocation", decisions["quarterly_allocation"])
+    if decisions["config_updates"] is not None:
+        for sub_key in _CONFIG_SUB_FILES:
+            sub_payload = decisions["config_updates"][sub_key]
+            if sub_payload is not None:
+                _emit(sub_key, sub_payload)
+
+    return role_to_bytes
+
+
+def apply_strategy_output(
+    json_path: Path,
+    grailzee_root: Path,
+    *,
+    strict_cycle_id: bool = True,
+) -> dict[str, Any]:
+    """Validate and apply a strategy_output.json payload.
+
+    Pipeline:
+    1. Read + parse JSON (fail-loud on syntax error).
+    2. Hand-rolled schema validation.
+    3. cycle_id gate (same rule #4 as .zip path; toggle via ``strict_cycle_id``).
+    4. Build role→bytes from decisions; every non-null decision section
+       becomes one ``state/<name>.json`` write. Empty writes (all decisions
+       null) are blocked upstream by the validator.
+    5. Atomic two-phase commit via ``_atomic_write_targets``.
+
+    Returns a summary dict: ``{cycle_id, session_mode, roles_written,
+    source, payload}``. ``payload`` is the validated dict, returned so
+    callers (e.g. archive-writing) can avoid re-reading the file.
+
+    Raises
+    ------
+    StrategyOutputValidationError
+        Schema failed.
+    BundleValidationError
+        cycle_id mismatch.
+    FileNotFoundError
+        ``json_path`` missing.
+    """
+    from grailzee_bundle.strategy_schema import (
+        StrategyOutputValidationError,
+        validate_strategy_output,
+    )
+
+    grailzee_root = Path(grailzee_root)
+    state_dir = grailzee_root / "state"
+    json_path = Path(json_path)
+
+    if not json_path.exists():
+        raise FileNotFoundError(f"strategy_output.json not found: {json_path}")
+
+    try:
+        payload = json.loads(json_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise BundleValidationError(
+            f"strategy_output.json is not valid JSON: {exc}"
+        ) from exc
+
+    try:
+        validate_strategy_output(payload)
+    except StrategyOutputValidationError as exc:
+        # Normalize to BundleValidationError so callers can catch a single
+        # exception type across .zip and .json paths.
+        raise BundleValidationError(f"strategy_output schema: {exc}") from exc
+
+    if strict_cycle_id:
+        current_cycle_id = _load_current_cycle_id(state_dir)
+        if payload["cycle_id"] != current_cycle_id:
+            raise BundleValidationError(
+                f"Bundle cycle_id {payload['cycle_id']!r} does not match "
+                f"current cache cycle_id {current_cycle_id!r}"
+            )
+
+    role_to_bytes = _strategy_output_to_role_bytes(payload)
+    roles_written = _atomic_write_targets(state_dir, role_to_bytes)
+
+    return {
+        "cycle_id": payload["cycle_id"],
+        "session_mode": payload["session_mode"],
+        "roles_written": sorted(roles_written),
+        "source": payload["produced_by"],
+        "payload": payload,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Unpack an INBOUND Grailzee strategy-session bundle into state/."
+        description=(
+            "Apply an INBOUND Grailzee strategy handoff into state/. "
+            "Accepts either a .zip bundle (Phase 24a) or a "
+            "strategy_output.json payload (Phase 24b)."
+        )
     )
     parser.add_argument(
         "bundle",
-        help="Path to the inbound .zip.",
+        help="Path to the inbound .zip OR strategy_output .json.",
     )
     parser.add_argument(
         "--grailzee-root",
@@ -437,12 +616,23 @@ def main(argv: list[str] | None = None) -> int:
         "agent has not yet rolled to the bundle's cycle).",
     )
     args = parser.parse_args(argv)
+    bundle_path = Path(args.bundle)
     try:
-        result = unpack_inbound_bundle(
-            Path(args.bundle),
-            Path(args.grailzee_root),
-            strict_cycle_id=not args.allow_cycle_mismatch,
-        )
+        kind = _detect_input_type(bundle_path)
+        if kind == "zip":
+            result = unpack_inbound_bundle(
+                bundle_path,
+                Path(args.grailzee_root),
+                strict_cycle_id=not args.allow_cycle_mismatch,
+            )
+        else:  # "json"
+            result = apply_strategy_output(
+                bundle_path,
+                Path(args.grailzee_root),
+                strict_cycle_id=not args.allow_cycle_mismatch,
+            )
+            # Don't print the full payload back on the CLI; it's already on disk.
+            result = {k: v for k, v in result.items() if k != "payload"}
     except (BundleValidationError, FileNotFoundError) as exc:
         print(f"Unpack failed: {exc}", file=sys.stderr)
         return 1
