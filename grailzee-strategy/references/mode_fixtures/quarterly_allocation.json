@@ -1,0 +1,31 @@
+{
+  "strategy_output_version": 1,
+  "generated_at": "2026-07-01T11:00:00Z",
+  "cycle_id": "cycle_2026-07",
+  "session_mode": "quarterly_allocation",
+  "produced_by": "grailzee-strategy/0.1.0",
+  "decisions": {
+    "cycle_focus": null,
+    "monthly_goals": null,
+    "quarterly_allocation": {
+      "quarter": "2026-Q3",
+      "capital_allocation": {
+        "Tudor": 40000,
+        "Omega": 30000,
+        "Rolex": 45000,
+        "Grand_Seiko": 15000,
+        "other": 20000
+      },
+      "inventory_mix_target": {
+        "Strong": 60,
+        "Normal": 30,
+        "Weak": 10
+      },
+      "review_notes": "Q2 recap: Tudor over-performed (+18% on allocation), Rolex under-performed (-12% driven by Submariner premium compression). Rebalancing Q3 toward Tudor and Omega. Grand Seiko added as exploratory allocation — operator booked two in June with strong margin. Strong-signal mix target bumped from 55 to 60 after Q2 data validated the bias."
+    },
+    "config_updates": null
+  },
+  "session_artifacts": {
+    "cycle_brief_md": "# Quarterly Allocation — 2026-Q3\n\n## Q2 Recap\n\n| Brand | Allocation | Realized | Delta |\n|---|---|---|---|\n| Tudor | $35,000 | $41,300 | **+18%** |\n| Omega | $28,000 | $27,400 | -2% |\n| Rolex | $50,000 | $44,000 | **-12%** |\n| other | $17,000 | $16,200 | -5% |\n\n### Drivers\n\n- **Tudor over-performance**: BB GMT steel momentum held all of Q2.\n- **Rolex under-performance**: Submariner premium compressed by\n  roughly 4% vs. Q1 highs; fewer clean flips.\n- **Grand Seiko exploratory**: two booked in June, both closed with\n  >8% net margin. Merits a dedicated allocation.\n\n## Q3 Allocation\n\n| Brand | Q3 Capital |\n|---|---|\n| Tudor | **$40,000** (+$5k from Q2) |\n| Omega | $30,000 |\n| Rolex | $45,000 (-$5k) |\n| Grand Seiko | **$15,000** (new) |\n| other | $20,000 |\n| **Total** | **$150,000** |\n\n## Inventory Mix Target\n\n- Strong signal: **60%** (up from 55%)\n- Normal signal: **30%**\n- Weak signal: **10%** (floor; for one-off opportunistic buys)\n\n## Review notes\n\nQ2 data validated the Strong-signal bias. Bumping the target mix\nfrom 55 to 60 reflects that. If Q3 landing is within +/- 3% of this\nmix we treat it as noise; drift beyond that triggers a re-look.\n"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "strategy_output_version": 1,
+  "generated_at": "2026-04-19T16:45:00Z",
+  "cycle_id": "cycle_2026-04",
+  "session_mode": "config_tuning",
+  "produced_by": "grailzee-strategy/0.1.0",
+  "decisions": {
+    "cycle_focus": null,
+    "monthly_goals": null,
+    "quarterly_allocation": null,
+    "config_updates": {
+      "signal_thresholds": {
+        "version": 3,
+        "updated_at": "2026-04-19T16:45:00Z",
+        "updated_by": "strategy_session",
+        "notes": "Raised Strong-signal floor from 7 to 8 net margin. Q1 data showed Strong tier drifting down toward the floor — tightening keeps the label meaningful.",
+        "strong_min_net_margin_pct": 8,
+        "normal_min_net_margin_pct": 5,
+        "weak_max_net_margin_pct": 3
+      },
+      "scoring_thresholds": null,
+      "momentum_thresholds": null,
+      "window_config": null,
+      "premium_config": null,
+      "margin_config": {
+        "version": 2,
+        "updated_at": "2026-04-19T16:45:00Z",
+        "updated_by": "strategy_session",
+        "notes": "Lowered the deal-kill floor from 2% to 1.5% for Grailzee platform specifically. Grailzee fees dropped in April; what used to be a marginal deal is now viable.",
+        "min_net_margin_pct": 1.5,
+        "warn_band_pct": 3.0,
+        "platform_overrides": {
+          "Grailzee": {"min_net_margin_pct": 1.5},
+          "eBay":     {"min_net_margin_pct": 2.5},
+          "Chrono24": {"min_net_margin_pct": 3.0}
+        }
+      },
+      "change_notes": "Two-field retune driven by Q1 data. Signal thresholds tightened (Strong floor 7 → 8). Margin floor lowered for Grailzee only (2% → 1.5%) reflecting April fee drop. All other configs left untouched."
+    }
+  },
+  "session_artifacts": {
+    "cycle_brief_md": "# Config Tuning Session — cycle_2026-04\n\n## Scope\n\nTwo of the six D5 configs retuned this session:\n\n- `signal_thresholds` (v3)\n- `margin_config` (v2)\n\nThe remaining four (`scoring_thresholds`, `momentum_thresholds`,\n`window_config`, `premium_config`) were reviewed and left unchanged.\n\n## signal_thresholds v3\n\nRaised the Strong-signal floor from **7% → 8% net margin**.\n\n**Rationale:** Q1 data showed the Strong tier clustering near the\nfloor. Tightening the cutoff keeps the label meaningful rather than\nlabel-creep toward averages.\n\n| Tier | Old | **New** |\n|---|---|---|\n| Strong | ≥ 7% | **≥ 8%** |\n| Normal | ≥ 5% | 5% (unchanged) |\n| Weak | ≤ 3% | 3% (unchanged) |\n\n## margin_config v2\n\nLowered the **Grailzee-only** deal-kill floor from **2% → 1.5% net**.\neBay and Chrono24 unchanged.\n\n**Rationale:** Grailzee dropped platform fees in April. A 2% margin\nthere is now structurally cleaner than a 2% margin on eBay was last\nquarter. We want to capture the marginal flips without loosening\nthe standard elsewhere.\n\n| Platform | Old floor | **New floor** |\n|---|---|---|\n| Grailzee | 2.0% | **1.5%** |\n| eBay | 2.5% | 2.5% |\n| Chrono24 | 3.0% | 3.0% |\n\n## Follow-ups\n\n- Revisit in 30 days to confirm the Grailzee floor drop is pulling\n  in clean deals and not just noisy ones.\n- `momentum_thresholds` is next candidate for review; not enough Q1\n  signal yet to justify a change.\n"
+  }
+}

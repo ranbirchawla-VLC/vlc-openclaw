@@ -1,0 +1,46 @@
+{
+  "strategy_output_version": 1,
+  "generated_at": "2026-04-19T14:30:00Z",
+  "cycle_id": "cycle_2026-04",
+  "session_mode": "cycle_planning",
+  "produced_by": "grailzee-strategy/0.1.0",
+  "decisions": {
+    "cycle_focus": {
+      "targets": [
+        {
+          "reference": "79830RB",
+          "brand": "Tudor",
+          "model": "BB GMT Pepsi",
+          "cycle_reason": "Signal strong on Tudor BB GMT Pepsi; April report shows two sells above $3,100 net and momentum unchanged from March. Operator has a confirmed buyer at $3,250.",
+          "max_buy_override": null
+        },
+        {
+          "reference": "210.30.42.20.01.001",
+          "brand": "Omega",
+          "model": "Seamaster Diver 300M",
+          "cycle_reason": "Ceramic dial variant momentum building on Chrono24. Operator sourced two in Q1 and both closed in under 18 days.",
+          "max_buy_override": 4100
+        },
+        {
+          "reference": "126610LN",
+          "brand": "Rolex",
+          "model": "Submariner Date",
+          "cycle_reason": "Evergreen anchor reference. Hold steady on normal signal; trim if we see a premium compression.",
+          "max_buy_override": null
+        }
+      ],
+      "capital_target": 22000,
+      "volume_target": 6,
+      "target_margin_fraction": 0.05,
+      "brand_emphasis": ["Tudor", "Omega"],
+      "brand_pullback": [],
+      "notes": "Lead with Tudor GMT and Omega SMD. Rolex Submariner is defensive inventory, not a push target. Operator has $22k deployable; if we clear two deals in the first 10 days we refresh capital and re-run."
+    },
+    "monthly_goals": null,
+    "quarterly_allocation": null,
+    "config_updates": null
+  },
+  "session_artifacts": {
+    "cycle_brief_md": "# Cycle Brief — cycle_2026-04\n\n## Headline\n\nTudor GMT steel momentum continues; Omega SMD ceramic is the surprise\nof the cycle. Defensive anchor on Rolex Submariner.\n\n## Targets\n\n| Ref | Brand | Model | Rationale |\n|---|---|---|---|\n| 79830RB | Tudor | BB GMT Pepsi | Strong signal, confirmed buyer at $3,250 |\n| 210.30.42.20.01.001 | Omega | SMD 300M Ceramic | Q1 flips averaged 18 days |\n| 126610LN | Rolex | Submariner Date | Evergreen anchor, hold steady |\n\n## Capital\n\n- Cycle target: **$22,000 deployable**\n- Volume target: **6 units**\n- Margin floor: **5% net** (standard)\n\n## Brand Emphasis\n\n- **Lead**: Tudor, Omega\n- **Pullback**: none this cycle\n\n## Follow-ups\n\n- Re-run if we clear two deals in first 10 days and capital refreshes.\n- Watch Chrono24 pricing drift on 210.30 variants — we may lift the override.\n"
+  }
+}

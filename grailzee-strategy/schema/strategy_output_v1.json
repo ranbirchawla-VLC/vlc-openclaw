@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://grailzee-cowork.local/schema/strategy_output_v1.json",
+  "title": "Grailzee Strategy Output v1",
+  "description": "Canonical spec for the strategy_output.json payload produced by the grailzee-strategy Chat skill and consumed by the grailzee-cowork INBOUND mode. The authoritative copy lives at grailzee-cowork/schema/; grailzee-strategy/schema/ carries a byte-identical copy for Chat-side reference. The runtime validator is a hand-rolled Python implementation in grailzee-cowork/grailzee_bundle/strategy_schema.py — not this JSON file — so this file serves as the human-readable specification.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "strategy_output_version",
+    "generated_at",
+    "cycle_id",
+    "session_mode",
+    "produced_by",
+    "decisions",
+    "session_artifacts"
+  ],
+  "properties": {
+    "strategy_output_version": {
+      "const": 1,
+      "description": "Schema version pinned to 1. Bump requires coordinated update in grailzee-strategy."
+    },
+    "generated_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$",
+      "description": "ISO-8601 UTC timestamp with Z suffix (matches Phase 24a manifest convention)."
+    },
+    "cycle_id": {
+      "type": "string",
+      "pattern": "^cycle_[0-9]{4}-[0-9]{2}$",
+      "description": "cycle_YYYY-NN form; must match the current agent cache unless --allow-cycle-mismatch is set."
+    },
+    "session_mode": {
+      "enum": ["cycle_planning", "monthly_review", "quarterly_allocation", "config_tuning"],
+      "description": "Operator intent at session start. Default cycle_planning; config_tuning only on explicit request. Decisions populate based on bundle boundary flags independently of session_mode."
+    },
+    "produced_by": {
+      "type": "string",
+      "pattern": "^grailzee-strategy/",
+      "description": "Producer identity tag; must be prefixed grailzee-strategy/."
+    },
+    "decisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "At least one of the four sub-fields must be non-null. Each non-null field produces a state write (and, for config_updates, one write per non-null sub-config).",
+      "required": ["cycle_focus", "monthly_goals", "quarterly_allocation", "config_updates"],
+      "properties": {
+        "cycle_focus": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "targets",
+                "capital_target",
+                "volume_target",
+                "target_margin_fraction",
+                "brand_emphasis",
+                "brand_pullback",
+                "notes"
+              ],
+              "properties": {
+                "targets": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["reference", "brand", "model", "cycle_reason", "max_buy_override"],
+                    "properties": {
+                      "reference": {"type": "string", "minLength": 1},
+                      "brand": {"type": "string", "minLength": 1},
+                      "model": {"type": "string", "minLength": 1},
+                      "cycle_reason": {"type": "string", "minLength": 1},
+                      "max_buy_override": {"type": ["number", "null"]}
+                    }
+                  }
+                },
+                "capital_target": {"type": "number", "minimum": 0},
+                "volume_target": {"type": "integer", "minimum": 0},
+                "target_margin_fraction": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "exclusiveMaximum": 1,
+                  "description": "Fraction (0.05 = 5%). Matches grailzee_common.TARGET_MARGIN convention. Display layer renders as percentage."
+                },
+                "brand_emphasis": {"type": "array", "items": {"type": "string"}},
+                "brand_pullback": {"type": "array", "items": {"type": "string"}},
+                "notes": {"type": "string"}
+              }
+            }
+          ]
+        },
+        "monthly_goals": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["month", "revenue_target", "volume_target", "platform_mix", "focus_notes", "review_notes"],
+              "properties": {
+                "month": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}$"},
+                "revenue_target": {"type": "number", "minimum": 0},
+                "volume_target": {"type": "integer", "minimum": 0},
+                "platform_mix": {
+                  "type": "object",
+                  "description": "Platform name → percentage share. Empty object is allowed (partial update). When non-empty, values should sum to ~100 (±1 tolerance).",
+                  "additionalProperties": {"type": "number", "minimum": 0, "maximum": 100}
+                },
+                "focus_notes": {"type": "string"},
+                "review_notes": {"type": "string"}
+              }
+            }
+          ]
+        },
+        "quarterly_allocation": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["quarter", "capital_allocation", "inventory_mix_target", "review_notes"],
+              "properties": {
+                "quarter": {"type": "string", "pattern": "^[0-9]{4}-Q[1-4]$"},
+                "capital_allocation": {
+                  "type": "object",
+                  "additionalProperties": {"type": "number", "minimum": 0}
+                },
+                "inventory_mix_target": {
+                  "type": "object",
+                  "additionalProperties": {"type": "number", "minimum": 0, "maximum": 100}
+                },
+                "review_notes": {"type": "string"}
+              }
+            }
+          ]
+        },
+        "config_updates": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "At least one of the six sub-configs must be non-null. Each non-null sub-config is a FULL REPLACE of the corresponding state/<name>.json file and must carry the D5 metadata envelope.",
+              "required": [
+                "signal_thresholds",
+                "scoring_thresholds",
+                "momentum_thresholds",
+                "window_config",
+                "premium_config",
+                "margin_config",
+                "change_notes"
+              ],
+              "properties": {
+                "signal_thresholds":   {"$ref": "#/$defs/configSubBlock"},
+                "scoring_thresholds":  {"$ref": "#/$defs/configSubBlock"},
+                "momentum_thresholds": {"$ref": "#/$defs/configSubBlock"},
+                "window_config":       {"$ref": "#/$defs/configSubBlock"},
+                "premium_config":      {"$ref": "#/$defs/configSubBlock"},
+                "margin_config":       {"$ref": "#/$defs/configSubBlock"},
+                "change_notes":        {"type": "string", "minLength": 1}
+              }
+            }
+          ]
+        }
+      }
+    },
+    "session_artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cycle_brief_md"],
+      "properties": {
+        "cycle_brief_md": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Full markdown brief for the session. Apply-time decodes newlines as-is. Archived to output/briefs/cycle_<id>_strategy_brief.md."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "configSubBlock": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "description": "Full replacement contents for GrailzeeData/state/<name>.json. Must carry the D5 metadata envelope (version, updated_at, updated_by, notes) plus config-specific fields. The validator only checks the envelope; config-specific fields are D5's domain.",
+          "required": ["version", "updated_at", "updated_by", "notes"],
+          "properties": {
+            "version":    {"type": "integer", "minimum": 1},
+            "updated_at": {"type": "string", "minLength": 1},
+            "updated_by": {"type": "string", "minLength": 1},
+            "notes":      {"type": "string"}
+          }
+        }
+      ]
+    }
+  }
+}
