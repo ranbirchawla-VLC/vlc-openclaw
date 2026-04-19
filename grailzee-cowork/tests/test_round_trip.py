@@ -16,9 +16,16 @@ from pathlib import Path
 
 import pytest
 
+from openpyxl import load_workbook
+
 from grailzee_bundle.build_bundle import build_outbound_bundle
-from grailzee_bundle.unpack_bundle import unpack_inbound_bundle
-from _fixtures import FAKE_CYCLE_ID, build_fake_grailzee_tree
+from grailzee_bundle.unpack_bundle import apply_strategy_output, unpack_inbound_bundle
+from _fixtures import (
+    FAKE_CYCLE_ID,
+    build_fake_grailzee_tree,
+    make_strategy_output,
+    write_strategy_output,
+)
 
 
 def _sha256(data: bytes) -> str:
@@ -181,3 +188,123 @@ def test_outbound_generates_valid_hashes_for_downstream_consumers(tmp_path):
                 f"role={entry['role']} hash check failed on outbound manifest"
             )
             assert len(data) == entry["size_bytes"]
+
+
+# ─── Phase 24b: strategy_output.json round trip ───────────────────────
+
+
+def test_strategy_output_full_round_trip(tmp_path):
+    """Simulate a full Chat strategy session handoff:
+
+    1. Agent has a working tree with a cycle cache, prior state files,
+       and a sourcing brief (the fixture).
+    2. Chat strategy skill produces a strategy_output.json populating
+       all four decision sections (cycle_focus + monthly + quarterly +
+       one config update).
+    3. Operator hands the .json to the plugin.
+    4. Plugin validates, atomically writes state/, and archives the
+       three operator-facing artifacts to output/briefs/.
+
+    Verifies end to end:
+    - All populated decisions land in state/ with the right filenames
+    - Non-selected config files are NOT written
+    - Archive JSON re-reads byte-equal to the original payload
+    - Archive MD matches session_artifacts.cycle_brief_md
+    - Archive XLSX carries the Cycle Summary + Config Updates sheets
+    - Unrelated state (analysis_cache, trade_ledger, sourcing_brief) is
+      untouched
+    """
+    paths = build_fake_grailzee_tree(tmp_path)
+    cache_before = paths["cache"].read_bytes()
+    ledger_before = paths["ledger"].read_bytes()
+    brief_before = paths["brief"].read_bytes()
+
+    payload = make_strategy_output(
+        cycle_id=FAKE_CYCLE_ID,
+        session_mode="cycle_planning",
+        include_monthly=True,
+        include_quarterly=True,
+        include_configs=("signal_thresholds",),
+        cycle_brief_md="# Cycle Brief\n\nTudor GMT + Omega SMD focus.\n",
+    )
+    json_path = tmp_path / "strategy_output.json"
+    write_strategy_output(json_path, payload)
+
+    result = apply_strategy_output(json_path, paths["root"])
+
+    # State writes: all four populated sections landed.
+    assert set(result["roles_written"]) == {
+        "cycle_focus",
+        "monthly_goals",
+        "quarterly_allocation",
+        "signal_thresholds",
+    }
+    assert json.loads(paths["cycle_focus"].read_text()) == payload["decisions"]["cycle_focus"]
+    assert json.loads(paths["monthly_goals"].read_text()) == payload["decisions"]["monthly_goals"]
+    assert (
+        json.loads(paths["quarterly_allocation"].read_text())
+        == payload["decisions"]["quarterly_allocation"]
+    )
+    signal_path = paths["state"] / "signal_thresholds.json"
+    assert json.loads(signal_path.read_text()) == (
+        payload["decisions"]["config_updates"]["signal_thresholds"]
+    )
+    # Non-selected configs NOT written.
+    for name in (
+        "scoring_thresholds",
+        "momentum_thresholds",
+        "window_config",
+        "premium_config",
+        "margin_config",
+    ):
+        assert not (paths["state"] / f"{name}.json").exists()
+
+    # Archive: all three files landed, no errors.
+    assert result["archive_errors"] == []
+    assert set(result["archive_files_written"]) == {
+        f"{FAKE_CYCLE_ID}_strategy_output.json",
+        f"{FAKE_CYCLE_ID}_strategy_brief.xlsx",
+        f"{FAKE_CYCLE_ID}_strategy_brief.md",
+    }
+    archived_json = json.loads(
+        (paths["briefs"] / f"{FAKE_CYCLE_ID}_strategy_output.json").read_text()
+    )
+    assert archived_json == payload
+    archived_md = (paths["briefs"] / f"{FAKE_CYCLE_ID}_strategy_brief.md").read_text()
+    assert archived_md == payload["session_artifacts"]["cycle_brief_md"]
+    wb = load_workbook(paths["briefs"] / f"{FAKE_CYCLE_ID}_strategy_brief.xlsx")
+    assert "Cycle Summary" in wb.sheetnames
+    assert "Config Updates" in wb.sheetnames
+
+    # Unrelated state untouched.
+    assert paths["cache"].read_bytes() == cache_before
+    assert paths["ledger"].read_bytes() == ledger_before
+    assert paths["brief"].read_bytes() == brief_before
+
+
+def test_strategy_output_partial_update_round_trip(tmp_path):
+    """Operator uses a monthly_review session that only updates
+    monthly_goals. Other state files (cycle_focus, quarterly) must
+    remain untouched at their pre-session contents."""
+    paths = build_fake_grailzee_tree(tmp_path)
+    cycle_focus_before = paths["cycle_focus"].read_bytes()
+    quarterly_before = paths["quarterly_allocation"].read_bytes()
+
+    payload = make_strategy_output(
+        cycle_id=FAKE_CYCLE_ID,
+        session_mode="monthly_review",
+        include_cycle_focus=False,
+        include_monthly=True,
+    )
+    json_path = tmp_path / "strategy_output.json"
+    write_strategy_output(json_path, payload)
+
+    result = apply_strategy_output(json_path, paths["root"])
+
+    assert result["roles_written"] == ["monthly_goals"]
+    assert result["session_mode"] == "monthly_review"
+    assert paths["cycle_focus"].read_bytes() == cycle_focus_before
+    assert paths["quarterly_allocation"].read_bytes() == quarterly_before
+    assert json.loads(paths["monthly_goals"].read_text()) == (
+        payload["decisions"]["monthly_goals"]
+    )
