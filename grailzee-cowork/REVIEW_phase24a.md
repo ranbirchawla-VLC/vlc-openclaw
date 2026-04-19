@@ -6,9 +6,8 @@ INBOUND), 70 tests, full suite 612/612 passing. Staff-engineer review
 returned 5 blocking + 6 advisory items; all 5 blocking resolved
 in-scope, advisory items with real user impact also landed.
 
-Branch ahead of `origin/feature/grailzee-eval-v2`: 20 commits (was 15;
-+5 this phase — one per checkpoint plus the hardening-pass remediation
-folded into Checkpoint 4).
+Branch ahead of `origin/feature/grailzee-eval-v2`: 19 commits (was 15;
++4 this phase, one per checkpoint).
 
 ## Checkpoint log
 

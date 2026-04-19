@@ -7,15 +7,15 @@
 ## Status at a glance
 
 - **Branch:** `feature/grailzee-eval-v2`
-- **Head:** `ae755de [phase21] pre-deletion audit — clean post-remediation`
-- **Ahead of `main`:** 13 commits (sessions 3–4) / many more (earlier sessions)
-- **Tests:** 542 passing (`python3 -m pytest tests/ -q` from the skill root)
-- **Phase complete:** Phase 21 (pre-deletion audit)
-- **Phase next:** Phase 22 (migration — rename v2 → v1 slot, delete old)
+- **Head:** `b971151 [phase24a] grailzee-cowork — round-trip test, SKILL.md, review pass`
+- **Ahead of `origin/feature/grailzee-eval-v2`:** 19 commits
+- **Tests:** 612 passing from repo root (`python3 -m pytest` at `/Users/ranbirchawla/ai-code/vlc-openclaw`). Skill-only: 542 passing (`python3 -m pytest tests/ -q` from this dir).
+- **Phase complete:** Phase 24a (cowork plugin — outbound + inbound bundle handoff)
+- **Phase next:** Phase 24b (Chat strategy skill against the bundle format)
 
 ---
 
-## Shipped (phases 1–21)
+## Shipped (phases 1–24a)
 
 | Phase | What | Key artifact |
 |---|---|---|
@@ -36,24 +36,26 @@
 | 15 | Orchestrator | `scripts/run_analysis.py` |
 | 16 | Deal evaluator v2 | `scripts/evaluate_deal.py` |
 | 17 | Targets v2 (later rewritten in Phase 19) | *replaced in Phase 19* |
-| 18 | MNEMO seeding | MNEMO state |
+| 18 | MNEMO seeding | *deferred* |
 | 19 | Capability files + `query_targets.py` rewrite | `capabilities/*.md`, `scripts/query_targets.py` |
 | 19.5 | Pipeline wrapper | `scripts/report_pipeline.py` |
 | 20 | Top-level dispatcher | `SKILL.md` |
 | 21 | Pre-deletion audit — 3 tests deleted (v1/v2 equivalence harness) | `REVIEW_phase21.md` |
+| 22/23 | Migration — v2 renamed into production slot; v1 deleted | commit `1bb8119` |
+| 24a | Cowork plugin — OUTBOUND + INBOUND bundle handoff (sibling dir; does not import from this skill at runtime) | `grailzee-cowork/` |
 
 Batch B1 hygiene session and OTel retrofit shipped between Phase 17 and Phase 19 (see `REVIEW_batchB1.md`, `REVIEW_otel_retrofit.md`).
 
 ---
 
-## Remaining (phases 22–25)
+## Remaining (phases 24b, 25)
 
-Per §14 of `Grailzee_Eval_v2_Implementation.md`:
+Per §14 of `Grailzee_Eval_v2_Implementation.md` (plus the cowork-split that came out of Session 4):
 
-- **Phase 22** — Migration. Rename `skills/grailzee-eval-v2/` → `skills/grailzee-eval/`, delete old contents. Follow §15 migration protocol. One tracked v1 `.pyc` (`skills/grailzee-eval/scripts/__pycache__/write_cache.cpython-311.pyc`) gets swept by the `rm -rf skills/grailzee-eval-old` step.
-- **Phase 23** — Integration test on clean final tree. Full cycle: new report → strategy → targets → deal → trade log → next cycle.
-- **Phase 24** — Strategy skill install (outside main repo).
-- **Phase 25** — Commit and push.
+- **Phase 24b** — Chat strategy skill. Built against the bundle format shipped in 24a. Produces inbound bundles that `grailzee-cowork/grailzee_bundle/unpack_bundle.py` accepts. Lives outside this repo or in a separate plugin dir; does not touch `skills/grailzee-eval/`.
+- **Phase 25** — Commit and push. 19 accumulated commits go to `origin/feature/grailzee-eval-v2` at phase close.
+
+Integration test on the clean final tree (originally labelled Phase 23) folded into the Phase 22/23 migration commit.
 
 ---
 
@@ -76,7 +78,7 @@ From `DECISIONS_session3_kickoff.md`, binding on Phases 19+:
 - `AGENTS.md`, `SOUL.md`, `USER.md`, `IDENTITY.md`, `TOOLS.md`, `HEARTBEAT.md` (scaffolding)
 - `Grailzee_Eval_v2_Implementation.md` (THE SPEC — §14 has the phase table)
 - `DECISIONS_session3_kickoff.md` (D1–D5)
-- REVIEW_phase{1–21}.md + REVIEW_batchB1.md + REVIEW_otel_retrofit.md
+- REVIEW_phase{1–21}.md + REVIEW_batchB1.md + REVIEW_otel_retrofit.md (Phase 22/23 folded into commit message; Phase 24a review lives at `grailzee-cowork/REVIEW_phase24a.md`)
 
 **`capabilities/` (4 files, all aligned with D1–D4):**
 - `ledger.md` — trade logging + performance queries (untouched in P19 by design)
@@ -91,7 +93,10 @@ All in list form — see `ls scripts/`. Entry points relevant to SKILL.md:
 - `query_targets.py` — targets capability
 - `ledger_manager.py`, `read_ledger.py` — ledger capability
 
-**`tests/` (22 test files):** 542 passing. `test_query_targets.py` is the Phase 19 replacement; no stale Phase 17 suite remains. Phase 21 removed the v1/v2 equivalence harness (`TestV1V2Equivalence` classes in `test_analyze_references.py` and `test_analyze_trends.py`) — impossible to run post-migration since v1 disappears.
+**`tests/` (21 test files):** 542 passing. `test_query_targets.py` is the Phase 19 replacement; no stale Phase 17 suite remains. Phase 21 removed the v1/v2 equivalence harness (`TestV1V2Equivalence` classes in `test_analyze_references.py` and `test_analyze_trends.py`) — impossible to run post-migration since v1 disappears.
+
+**Sibling plugin (not part of this skill):**
+- `grailzee-cowork/` — self-contained Claude Code plugin with one skill (`grailzee-bundle`), two modes. 70 tests (`test_build_bundle.py` 28 + `test_unpack_bundle.py` 39 + `test_round_trip.py` 3). Does not import from `skills/grailzee-eval/` at runtime; runs alongside via the repo-root `pytest.ini`.
 
 ---
 
@@ -106,20 +111,25 @@ From `DECISIONS_session3_kickoff.md`:
 
 - **D5 (config-driven thresholds)** — deferred. Analyzer thresholds are still hardcoded.
 
+From Phase 22/23:
+
+- **analysis_cache_sample.json fixture key-shape hygiene** — deferred; noted during migration, not blocking.
+
 ---
 
 ## How to restart
 
-1. `cd /Users/ranbirchawla/ai-code/vlc-openclaw/skills/grailzee-eval-v2`
+1. `cd /Users/ranbirchawla/ai-code/vlc-openclaw/skills/grailzee-eval`
 2. `git status` — confirm clean
-3. `git log --oneline -5` — confirm head is `ae755de`
-4. `python3 -m pytest tests/ -q` — confirm 542 passing
-5. Read these in order:
+3. `git log --oneline -5` — confirm head is `b971151`
+4. `python3 -m pytest tests/ -q` — confirm 542 passing (skill-only)
+5. From repo root `/Users/ranbirchawla/ai-code/vlc-openclaw`: `python3 -m pytest` — confirm 612 passing (skill + cowork)
+6. Read these in order:
    - `progress.md` (this file)
    - `DECISIONS_session3_kickoff.md` (D1–D5)
-   - `REVIEW_phase21.md` (most recent phase)
-   - `Grailzee_Eval_v2_Implementation.md` §14–15 (remaining phase roadmap + migration protocol)
-6. Ready for Phase 22 (migration).
+   - `../../grailzee-cowork/REVIEW_phase24a.md` (most recent phase)
+   - `Grailzee_Eval_v2_Implementation.md` §14–15 (remaining phase roadmap)
+7. Ready for Phase 24b (Chat strategy skill against the cowork bundle format) or Phase 25 (commit+push).
 
 ---
 
@@ -129,4 +139,4 @@ From `DECISIONS_session3_kickoff.md`:
 - Hard stop at phase boundaries. No drifting into the next phase without a new prompt.
 - Opening moves → state summary → **STOP** → plan → **STOP** → execute.
 - Every completed module gets a code-review pass before commit.
-- One phase = one (or at most two) commits, with a `REVIEW_phase{N}.md` capturing the work.
+- One phase = one (or at most two) commits, with a `REVIEW_phase{N}.md` capturing the work (exception: cowork's review lives at `grailzee-cowork/REVIEW_phase24a.md` since the plugin is a sibling dir).
