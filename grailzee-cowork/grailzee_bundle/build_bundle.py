@@ -100,7 +100,14 @@ def _detect_boundaries(current_cycle_id: str, run_history_path: Path) -> dict[st
         return {"month_boundary": False, "quarter_boundary": False}
     try:
         history = json.loads(run_history_path.read_text())
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        # Don't block the bundle on a corrupt history file, but surface the
+        # problem so the operator can notice and repair it.
+        print(
+            f"WARNING: run_history at {run_history_path} unparseable ({exc}); "
+            f"boundary flags default to False.",
+            file=sys.stderr,
+        )
         return {"month_boundary": False, "quarter_boundary": False}
     runs = history.get("runs", []) if isinstance(history, dict) else []
     prior_cycle_id: str | None = None
@@ -295,7 +302,7 @@ def build_outbound_bundle(
     )
     bundle_path = bundles_dir / bundle_name
 
-    tmp_path = bundle_path.with_suffix(".zip.tmp")
+    tmp_path = bundle_path.parent / (bundle_path.name + ".tmp")
     try:
         with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("manifest.json", json.dumps(manifest, indent=2))

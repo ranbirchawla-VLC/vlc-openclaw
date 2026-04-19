@@ -378,3 +378,126 @@ def test_bundle_not_found_raises(tmp_path):
     build_fake_grailzee_tree(tmp_path)
     with pytest.raises(FileNotFoundError, match="not found"):
         unpack_inbound_bundle(tmp_path / "missing.zip", tmp_path)
+
+
+# ─── hardening regressions (post-code-review) ─────────────────────
+
+
+@pytest.mark.filterwarnings("ignore:Duplicate name:UserWarning")
+def test_duplicate_arcname_rejected(tmp_path):
+    """Zip permits duplicate member names. An attacker pairs a
+    manifest-matching member with a hostile same-named twin; zf.read()
+    would resolve to the last entry, bypassing sha256 validation."""
+    build_fake_grailzee_tree(tmp_path)
+    bundle_path = tmp_path / "dup.zip"
+    # Build a legit bundle, then append a duplicate-named member.
+    build_inbound_bundle_zip(bundle_path)
+    with zipfile.ZipFile(bundle_path, "a") as zf:
+        zf.writestr("cycle_focus.json", b'{"evil": true}')
+    with pytest.raises(BundleValidationError, match="[Dd]uplicate"):
+        unpack_inbound_bundle(bundle_path, tmp_path)
+
+
+def test_per_member_size_ceiling_enforced(tmp_path):
+    """A zip member declaring uncompressed size above the per-member cap
+    is rejected without decompression."""
+    build_fake_grailzee_tree(tmp_path)
+    bundle_path = tmp_path / "bomb.zip"
+    big_payload = b"A" * (5 * 1024 * 1024)  # 5 MB > 4 MB cap
+    with zipfile.ZipFile(bundle_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", json.dumps({
+            "manifest_version": 1, "bundle_kind": "inbound",
+            "cycle_id": FAKE_CYCLE_ID, "files": [],
+        }))
+        zf.writestr("cycle_focus.json", big_payload)
+    with pytest.raises(BundleValidationError, match="[Mm]ember"):
+        unpack_inbound_bundle(bundle_path, tmp_path)
+
+
+def test_manifest_size_ceiling_enforced(tmp_path):
+    """An oversized manifest.json (as declared by zip header) is rejected
+    before the decompressed read."""
+    build_fake_grailzee_tree(tmp_path)
+    bundle_path = tmp_path / "fat_manifest.zip"
+    # 2 MB manifest > 1 MB cap
+    big_manifest = b" " * (2 * 1024 * 1024)
+    with zipfile.ZipFile(bundle_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", big_manifest)
+    with pytest.raises(BundleValidationError, match="manifest.json declares size"):
+        unpack_inbound_bundle(bundle_path, tmp_path)
+
+
+def test_manifest_path_with_traversal_rejected(tmp_path):
+    """Manifest entry whose `path` escapes the archive is rejected even if
+    the same-named ZipInfo entry happens to look safe."""
+    build_fake_grailzee_tree(tmp_path)
+    bundle_path = tmp_path / "manifest_traversal.zip"
+    manifest = {
+        "manifest_version": 1,
+        "bundle_kind": "inbound",
+        "cycle_id": FAKE_CYCLE_ID,
+        "files": [
+            {
+                "path": "../escape.json",
+                "role": "cycle_focus",
+                "sha256": "0" * 64,
+                "size_bytes": 2,
+            }
+        ],
+    }
+    with zipfile.ZipFile(bundle_path, "w") as zf:
+        zf.writestr("manifest.json", json.dumps(manifest))
+        # Can't actually writestr with "../escape.json" — zipfile normalizes
+        # or rejects. The arcname-level Rule 7 scan catches that branch; here
+        # we skip adding the member and rely on the manifest-path check.
+    with pytest.raises(BundleValidationError, match="[Uu]nsafe path in manifest"):
+        unpack_inbound_bundle(bundle_path, tmp_path)
+
+
+def test_manifest_files_length_cap(tmp_path):
+    """Manifest declaring more than MAX_MANIFEST_FILES entries is rejected."""
+    build_fake_grailzee_tree(tmp_path)
+    bundle_path = tmp_path / "too_many.zip"
+    files_entries = [
+        {
+            "path": f"cycle_focus_{i}.json",
+            "role": "cycle_focus",
+            "sha256": "0" * 64,
+            "size_bytes": 0,
+        }
+        for i in range(32)
+    ]
+    manifest = {
+        "manifest_version": 1,
+        "bundle_kind": "inbound",
+        "cycle_id": FAKE_CYCLE_ID,
+        "files": files_entries,
+    }
+    with zipfile.ZipFile(bundle_path, "w") as zf:
+        zf.writestr("manifest.json", json.dumps(manifest))
+    with pytest.raises(BundleValidationError, match="[Ff]iles has"):
+        unpack_inbound_bundle(bundle_path, tmp_path)
+
+
+def test_nul_byte_in_arcname_flagged_by_validator():
+    """Direct unit test for the NUL-byte branch of `_is_unsafe_arcname`.
+
+    The standard zipfile API truncates names at NUL when writing, so
+    exercising this rule through a constructed archive isn't possible
+    without hand-crafted raw zip bytes. The check remains in place as
+    defense-in-depth against non-stdlib zip producers.
+    """
+    assert _is_unsafe_arcname("cycle\x00_focus.json") is True
+
+
+def test_leftover_pid_tagged_sibling_refuses_to_run(tmp_path):
+    """If a prior crashed run left .tmp.<pid> or .prior.<pid> in state_dir,
+    refuse to proceed rather than clobber it."""
+    paths = build_fake_grailzee_tree(tmp_path)
+    stale = paths["cycle_focus"].with_suffix(".json.tmp." + str(os.getpid()))
+    stale.write_bytes(b"leftover")
+    bundle = build_inbound_bundle_zip(tmp_path / "bundle.zip")
+    with pytest.raises(BundleValidationError, match="[Ll]eftover pid-tagged"):
+        unpack_inbound_bundle(bundle, tmp_path)
+    # Stale sibling untouched.
+    assert stale.read_bytes() == b"leftover"

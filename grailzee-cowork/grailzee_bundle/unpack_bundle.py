@@ -14,17 +14,20 @@ Any other role in the manifest triggers rejection.
 
 Validation sequence (all run before any write)
 ---------------------------------------------
-1. ``manifest.json`` present.
+1. ``manifest.json`` present and under ``MAX_MANIFEST_BYTES``.
 2. Manifest parses as JSON and has ``manifest_version == 1``.
 3. ``bundle_kind == "inbound"``.
 4. ``cycle_id`` matches the current cache's cycle_id.
-5. Every ``manifest.files`` entry has a role in the whitelist.
+5. Every ``manifest.files`` entry has a role in the whitelist, and the
+   file count is under ``MAX_MANIFEST_FILES``.
 6. Zip contains no symlinks (checked via ``ZipInfo.external_attr`` S_IFLNK bits).
-7. No arcname escapes the archive: no absolute paths, no ``..`` components,
-   no backslashes or drive prefixes.
+7. No arcname escapes the archive (absolute paths, ``..``, backslashes,
+   drive prefixes, NUL bytes), for both ``ZipInfo.filename`` and the
+   ``path`` field of every manifest entry.
 8. Each manifest file's declared ``sha256`` + ``size_bytes`` matches the
-   actual archive member bytes; no archive member exists outside the
-   manifest (excluding ``manifest.json`` itself).
+   actual archive member bytes; per-member and total uncompressed sizes
+   are capped (zip-bomb defense); no duplicate arcnames; no archive
+   member exists outside the manifest (excluding ``manifest.json``).
 
 Atomic two-phase commit
 -----------------------
@@ -58,6 +61,15 @@ ROLE_TO_TARGET: dict[str, str] = {
     "quarterly_allocation": "quarterly_allocation.json",
 }
 
+# Defenses against hostile bundles. Inbound role payloads are small JSON
+# documents; a declared (or uncompressed) size larger than this indicates
+# tampering or a zip-bomb. Ceilings are intentionally generous relative to
+# realistic planning artifacts.
+MAX_MANIFEST_BYTES = 1 * 1024 * 1024         # 1 MB
+MAX_MEMBER_BYTES = 4 * 1024 * 1024           # 4 MB per member
+MAX_TOTAL_DECOMPRESSED_BYTES = 16 * 1024 * 1024  # 16 MB aggregate
+MAX_MANIFEST_FILES = 16                      # whitelist only has 3 roles
+
 
 class BundleValidationError(ValueError):
     """Raised when an inbound bundle fails any validation rule."""
@@ -74,9 +86,11 @@ def _is_symlink_entry(info: zipfile.ZipInfo) -> bool:
 
 
 def _is_unsafe_arcname(name: str) -> bool:
-    """Reject absolute paths, drive prefixes, backslashes, and `..`
-    components. Arcnames must be plain relative POSIX-style paths."""
+    """Reject absolute paths, drive prefixes, backslashes, NUL bytes, and
+    `..` components. Arcnames must be plain relative POSIX-style paths."""
     if not name:
+        return True
+    if "\x00" in name:
         return True
     if name.startswith("/") or name.startswith("\\"):
         return True
@@ -141,30 +155,66 @@ def _validate_manifest(manifest: Any) -> dict[str, Any]:
 def _validate_bundle(
     zip_path: Path, *, current_cycle_id: str | None
 ) -> tuple[dict[str, Any], dict[str, bytes]]:
-    """Run all 8 validation rules. Return (manifest, role_to_bytes)."""
+    """Run all 8 validation rules. Return (manifest, role_to_bytes).
+
+    All size-ceiling checks run against ``ZipInfo.file_size`` BEFORE any
+    ``zf.read()`` decompression, so a zip-bomb is rejected without loading
+    the payload into memory.
+    """
     if not zip_path.exists():
         raise FileNotFoundError(f"Inbound bundle not found: {zip_path}")
 
     with zipfile.ZipFile(zip_path, "r") as zf:
-        # Rule 6: symlink rejection — first pass over infolist
-        for info in zf.infolist():
+        infolist = zf.infolist()
+
+        # Duplicate arcname rejection. Zip format allows duplicates; an
+        # attacker can pair a manifest-matching member with a hostile
+        # same-named twin, where zf.read() resolves to the last entry.
+        name_counts: dict[str, int] = {}
+        for info in infolist:
+            name_counts[info.filename] = name_counts.get(info.filename, 0) + 1
+        duplicates = [n for n, c in name_counts.items() if c > 1]
+        if duplicates:
+            raise BundleValidationError(
+                f"Duplicate zip entries rejected: {sorted(duplicates)!r}"
+            )
+
+        # Rules 6 + 7 + per-member size ceiling, pre-read.
+        total_declared = 0
+        for info in infolist:
             if _is_symlink_entry(info):
                 raise BundleValidationError(
                     f"Symlink zip entry rejected: {info.filename!r}"
                 )
-            # Rule 7: arcname safety
             if _is_unsafe_arcname(info.filename):
                 raise BundleValidationError(
                     f"Unsafe arcname rejected: {info.filename!r}"
                 )
+            if info.file_size > MAX_MEMBER_BYTES:
+                raise BundleValidationError(
+                    f"Zip entry {info.filename!r} declares uncompressed size "
+                    f"{info.file_size} exceeding per-member cap {MAX_MEMBER_BYTES}"
+                )
+            total_declared += info.file_size
+        if total_declared > MAX_TOTAL_DECOMPRESSED_BYTES:
+            raise BundleValidationError(
+                f"Aggregate uncompressed size {total_declared} exceeds cap "
+                f"{MAX_TOTAL_DECOMPRESSED_BYTES}"
+            )
 
-        # Rule 1: manifest present
+        # Rule 1: manifest present (and not over its own cap, before read).
         try:
-            manifest_bytes = zf.read("manifest.json")
+            manifest_info = zf.getinfo("manifest.json")
         except KeyError as exc:
             raise BundleValidationError("manifest.json missing from bundle") from exc
+        if manifest_info.file_size > MAX_MANIFEST_BYTES:
+            raise BundleValidationError(
+                f"manifest.json declares size {manifest_info.file_size} exceeding "
+                f"cap {MAX_MANIFEST_BYTES}"
+            )
+        manifest_bytes = zf.read("manifest.json")
 
-        # Rule 2: manifest parses as JSON
+        # Rule 2: manifest parses as JSON.
         try:
             manifest = json.loads(manifest_bytes.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
@@ -172,10 +222,21 @@ def _validate_bundle(
                 f"manifest.json is not valid JSON: {exc}"
             ) from exc
 
-        # Rule 2/3/5: manifest shape + version + bundle_kind + roles
+        # Rules 2/3/5: manifest shape + version + bundle_kind + roles.
         _validate_manifest(manifest)
+        if len(manifest["files"]) > MAX_MANIFEST_FILES:
+            raise BundleValidationError(
+                f"manifest.files has {len(manifest['files'])} entries, "
+                f"exceeding cap {MAX_MANIFEST_FILES}"
+            )
+        # Rule 7, continued: validate manifest-declared paths too.
+        for entry in manifest["files"]:
+            if _is_unsafe_arcname(entry["path"]):
+                raise BundleValidationError(
+                    f"Unsafe path in manifest.files: {entry['path']!r}"
+                )
 
-        # Rule 4: cycle_id alignment
+        # Rule 4: cycle_id alignment.
         if current_cycle_id is not None:
             if manifest.get("cycle_id") != current_cycle_id:
                 raise BundleValidationError(
@@ -183,9 +244,9 @@ def _validate_bundle(
                     f"current cache cycle_id {current_cycle_id!r}"
                 )
 
-        # Rule 8: each manifest file present + hash + size match; no extraneous members
+        # Rule 8: each manifest file present + hash + size match; no extraneous members.
         manifest_paths = {entry["path"] for entry in manifest["files"]}
-        archive_paths = {info.filename for info in zf.infolist()} - {"manifest.json"}
+        archive_paths = {info.filename for info in infolist} - {"manifest.json"}
         extraneous = archive_paths - manifest_paths
         if extraneous:
             raise BundleValidationError(
@@ -199,10 +260,18 @@ def _validate_bundle(
 
         role_to_bytes: dict[str, bytes] = {}
         for entry in manifest["files"]:
-            data = zf.read(entry["path"])
-            if len(data) != entry["size_bytes"]:
+            # Read by ZipInfo (not name) so a same-named decoy added after
+            # dedup cannot be substituted mid-read.
+            info = zf.getinfo(entry["path"])
+            if info.file_size != entry["size_bytes"]:
                 raise BundleValidationError(
                     f"Size mismatch for {entry['path']!r}: declared "
+                    f"{entry['size_bytes']}, zip header {info.file_size}"
+                )
+            data = zf.read(info)
+            if len(data) != entry["size_bytes"]:
+                raise BundleValidationError(
+                    f"Decompressed size mismatch for {entry['path']!r}: declared "
                     f"{entry['size_bytes']}, actual {len(data)}"
                 )
             if _sha256(data) != entry["sha256"]:
@@ -218,7 +287,20 @@ def _atomic_write_targets(
     state_dir: Path, role_to_bytes: dict[str, bytes]
 ) -> list[str]:
     """Two-phase atomic commit of role payloads into state_dir. Returns the
-    list of role names successfully written (all-or-nothing on exception).
+    list of role names written.
+
+    Contract: exception-atomic. On any exception during Phase 3 (replace),
+    all successfully replaced targets are restored from snapshot. Not
+    crash-atomic — a process kill between phases can leave .tmp / .prior
+    siblings on disk. To defend against pid reuse from a prior crashed
+    run, this function refuses to start if ``.tmp.<pid>`` or
+    ``.prior.<pid>`` siblings already exist for any target.
+
+    Snapshots use ``os.link()`` (hardlink) rather than a bytes copy: it is
+    instant, atomic, and fails loudly if the snapshot path already
+    exists. Subsequent ``os.replace()`` on the live target replaces the
+    directory entry's inode — the hardlink still references the prior
+    inode until we unlink it on success.
     """
     pid_tag = f".{os.getpid()}"
     targets: list[tuple[str, Path, Path, Path, bytes]] = []
@@ -237,16 +319,28 @@ def _atomic_write_targets(
         )
 
     state_dir.mkdir(parents=True, exist_ok=True)
-    # Phase 1: write tmps
+
+    # Pre-check: refuse to run if any pid-tagged sibling already exists.
+    # Protects against a crashed prior invocation whose process used the
+    # same pid (pid reuse is uncommon but possible on long-lived hosts).
+    for _role, _target, tmp, prior, _data in targets:
+        if tmp.exists() or prior.exists():
+            raise BundleValidationError(
+                f"Refusing to start: leftover pid-tagged sibling {tmp if tmp.exists() else prior}. "
+                f"Inspect state_dir for crashed-run artifacts and remove them manually."
+            )
+
+    # Phase 1: write tmps.
     for _role, _target, tmp, _prior, data in targets:
         tmp.write_bytes(data)
 
-    # Phase 2: snapshot existing targets
+    # Phase 2: snapshot existing targets via hardlink (atomic; fails if
+    # prior already exists).
     for _role, target, _tmp, prior, _data in targets:
         if target.exists():
-            prior.write_bytes(target.read_bytes())
+            os.link(target, prior)
 
-    # Phase 3: atomic replace, with rollback on any failure
+    # Phase 3: atomic replace, with rollback on any failure.
     committed: list[tuple[Path, Path]] = []  # (target, prior)
     try:
         for _role, target, tmp, prior, _data in targets:
@@ -266,7 +360,7 @@ def _atomic_write_targets(
                 prior.unlink()
         raise
 
-    # Cleanup: remove snapshots on success
+    # Success cleanup.
     for _role, _target, _tmp, prior, _data in targets:
         if prior.exists():
             prior.unlink()
