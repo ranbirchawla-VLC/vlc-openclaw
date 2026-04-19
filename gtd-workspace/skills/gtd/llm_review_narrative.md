@@ -1,5 +1,10 @@
 # llm_review_narrative
 
+**This skill runs on Sonnet. Switch model before proceeding:**
+```
+/model claude-sonnet-4-6
+```
+
 Convert structured review output into a brief conversational summary. Return plain text only.
 
 Write 3–5 sentences. Lead with the most urgent or actionable finding. Be direct and dry — not chatty. Skip sections with count 0.
