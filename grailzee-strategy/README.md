@@ -64,7 +64,7 @@ version on one side without the other breaks the contract.
 
 ## The four session modes
 
-| Mode | Trigger | Populates |
+| Mode | Trigger | Primary decision section |
 |---|---|---|
 | `cycle_planning` (default) | New cycle starting | `cycle_focus` |
 | `monthly_review` | `scope.month_boundary: true` in bundle | `monthly_goals` |
@@ -73,11 +73,15 @@ version on one side without the other breaks the contract.
 
 `session_mode` captures operator intent as a single string. Which
 decision sections actually get populated is driven by the scope flags
-in the outbound bundle's `manifest.json`, not by the mode name — see
-`references/strategy-framework.md` for the full rule.
+in the outbound bundle's `manifest.json`, NOT by the mode name. The
+"primary decision section" column above is the usual single-section
+outcome; when scope flags compound, a session populates multiple
+sections. For example, a `cycle_planning` session on a month boundary
+populates both `cycle_focus` and `monthly_goals`. `config_updates` is
+the one exception — it is populated only on `session_mode:
+config_tuning`, never inferred from flags.
 
-A session can populate multiple decision sections when scope flags
-compound (e.g. a cycle that spans a month boundary).
+See `references/strategy-framework.md` for the full rule.
 
 ## The output contract
 

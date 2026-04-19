@@ -32,7 +32,10 @@ bundle in this order:
    `quarter_boundary` flags tell you whether this session spans a
    rollover. If `month_boundary: true`, the operator expects
    `monthly_goals` populated. If `quarter_boundary: true`, same for
-   `quarterly_allocation`. Both flags false → cycle_focus session.
+   `quarterly_allocation`. Both flags false and `session_mode:
+   cycle_planning` → `cycle_focus` only. (Both flags false and
+   `session_mode: config_tuning` → `config_updates` only, since
+   config_tuning never reads the flags.)
 
 2. **`sourcing_brief.json`** — the agent's current read. This is the
    richest signal of what the operator has already seen. If this
@@ -66,8 +69,12 @@ bundle in this order:
 
 `session_mode` is a single string — the operator's stated intent at
 session start. It does NOT determine which decision sections you
-populate; the scope flags in `manifest.json` do that. Populate only
-the sections the session actually produced.
+populate; the scope flags in `manifest.json` do that. Scope flags can
+compound: a `cycle_planning` session on a month boundary populates BOTH
+`cycle_focus` AND `monthly_goals`. The one exception is `config_updates`,
+which is populated ONLY when `session_mode: config_tuning` — never
+inferred from scope flags. Populate only the sections the session
+actually produced.
 
 ### `cycle_planning` (default)
 
@@ -183,7 +190,7 @@ Required on every session. The plugin archives it to
 `output/briefs/<cycle_id>_strategy_brief.md` where the operator
 re-reads it days later out of context.
 
-**Brief structure** (session-mode independent):
+**Brief structure** (adapt headings to the session's subject):
 
 1. **Headline** — one or two sentences. What's the state of play.
 2. **Decisions** — the populated decision sections, rendered as
@@ -222,10 +229,13 @@ with nothing to commit is not a session worth archiving.
 - **Capital**: dollar figures. No euros, no fractional dollars below
   the cent. Store as numbers (JSON number), not strings.
 - **Brands**: prefer canonical names — `Tudor`, `Rolex`, `Omega`,
-  `Grand Seiko`, `Patek Philippe`. Lowercase platform names —
-  `Grailzee`, `eBay`, `Chrono24` — per how the agent writes them.
+  `Cartier`, `Patek Philippe`. Use the same string in JSON keys and
+  in prose (no underscore/space drift). Platform names as the agent
+  writes them — `Grailzee`, `eBay`, `Chrono24`.
 - **Cycle IDs**: `cycle_YYYY-NN` form. `NN` is an incrementing cycle
-  counter, not a month or week number.
+  counter (01–99), not a month or week number. The schema regex
+  enforces format only; semantic range validation is the agent's
+  responsibility at cycle creation.
 
 ## Guardrails (things to NEVER do)
 

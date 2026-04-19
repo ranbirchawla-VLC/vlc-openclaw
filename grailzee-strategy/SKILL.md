@@ -51,9 +51,20 @@ for shape.
 | "quarterly rebalance", "Q3 allocation", "brand capital shift" | `quarterly_allocation` |
 | "retune thresholds", "change the signal floor", "fix the margin config" | `config_tuning` |
 
-`session_mode` captures operator intent. Which decision sections you
-actually populate is driven by the bundle's scope flags — see
-`references/strategy-framework.md` for the full table.
+`session_mode` captures operator intent only. Which decision sections
+you actually populate is driven by the bundle's scope flags:
+
+- `cycle_focus` populates when the operator wants one (default for
+  `cycle_planning`; optional for other modes if the operator asks for
+  a mid-cycle refresh).
+- `monthly_goals` populates when `scope.month_boundary: true`.
+- `quarterly_allocation` populates when `scope.quarter_boundary: true`.
+- `config_updates` populates ONLY when `session_mode: config_tuning`
+  — never inferred from flags.
+
+Scopes can compound. A `cycle_planning` session on a month boundary
+populates BOTH `cycle_focus` AND `monthly_goals`. See
+`references/strategy-framework.md` for the decision framework.
 
 ## Output contract
 
@@ -88,7 +99,7 @@ example payloads in `references/mode_fixtures/` for shape.
 Hand the operator:
 
 1. The full `strategy_output.json` as a code block they can
-   download or paste into a file.
+   copy into a file.
 2. A one-paragraph summary of what's in it (which decisions
    populated, what the headline move is).
 3. Instructions to run:
@@ -119,23 +130,80 @@ Hand the operator:
 - Do NOT guess the current config version. Read it from the
   corresponding file in the outbound bundle if present; otherwise
   ask the operator.
-- Do NOT add fields outside the schema. `additionalProperties:
-  false` is set across the whole document.
+- Do NOT add fields outside the schema. Every object is closed
+  (`additionalProperties: false`) **except** the six config sub-blocks
+  inside `config_updates`, which accept config-specific fields beyond
+  the required envelope (e.g. `strong_min_net_margin_pct`,
+  `platform_overrides`). Everywhere else, stray keys are rejected.
 
 ## Self-check before delivering
 
-Before you hand the JSON to the operator, verify:
+The cowork validator is strict and you won't see its error messages
+before the operator runs it. Before you hand the JSON over, walk the
+full checklist. Every item here corresponds to a rule the validator
+rejects on.
 
-- [ ] `strategy_output_version` is `1`
-- [ ] `cycle_id` matches the bundle's manifest
-- [ ] At least one decision section is non-null
-- [ ] `target_margin_fraction` is a fraction, not a percentage
-- [ ] `session_mode` is one of the four enum values
-- [ ] `produced_by` starts with `grailzee-strategy/`
+**Top-level shape**
+
+- [ ] `strategy_output_version` is `1` (integer, not string)
+- [ ] `generated_at` matches `YYYY-MM-DDTHH:MM:SSZ` exactly — ISO-8601
+      UTC with literal `Z` suffix. Not `+00:00`, not a space separator,
+      no fractional seconds.
+- [ ] `cycle_id` matches `^cycle_[0-9]{4}-[0-9]{2}$` AND equals the
+      `cycle_id` in the bundle's `manifest.json`. The `NN` segment is a
+      cycle counter (01–99), not a month number.
+- [ ] `session_mode` is one of `cycle_planning`, `monthly_review`,
+      `quarterly_allocation`, `config_tuning`
+- [ ] `produced_by` starts with `grailzee-strategy/` (use
+      `grailzee-strategy/0.1.0`)
+
+**Decisions block**
+
+- [ ] `decisions` contains ALL FOUR keys (`cycle_focus`,
+      `monthly_goals`, `quarterly_allocation`, `config_updates`). Unused
+      sections are explicitly `null`, not omitted.
+- [ ] At least one of the four is non-null
+- [ ] The sections populated match the scope flags (see "Mode dispatch"
+      above) — you haven't populated `monthly_goals` without a month
+      boundary, or `config_updates` outside `config_tuning`
+
+**cycle_focus (if non-null)**
+
+- [ ] `targets` has at least 1 entry
+- [ ] `target_margin_fraction` is a fraction in `(0, 1)` exclusive —
+      `0.05` = 5%, never `5` or `1.0`
+- [ ] Every `target.target_ref` resolves to a ref in `analysis_cache.json`
+      (or is flagged in `notes` as operator-requested without prior
+      coverage)
+
+**monthly_goals (if non-null)**
+
+- [ ] `month` matches `^[0-9]{4}-[0-9]{2}$` and is the NEW month (not
+      the one just closed)
+- [ ] `platform_mix` values are each in `[0, 100]`; sum is approximately
+      100 if non-empty (empty object is allowed as a partial signal)
+
+**quarterly_allocation (if non-null)**
+
+- [ ] `quarter` matches `^[0-9]{4}-Q[1-4]$`
+- [ ] `inventory_mix_target` values sum to approximately 100
+
+**config_updates (if non-null)**
+
+- [ ] At least one of the six sub-configs (`signal_thresholds`,
+      `scoring_thresholds`, `momentum_thresholds`, `window_config`,
+      `premium_config`, `margin_config`) is non-null
+- [ ] Every non-null sub carries the envelope: `version` (incremented
+      from prior), `updated_at` (= `generated_at`), `updated_by` =
+      `"strategy_session"`, `notes` (non-empty)
+- [ ] `change_notes` is present and non-empty
+- [ ] Untouched sub-configs are `null`, not carried forward from state
+- [ ] No more than two sub-configs changed in this session
+
+**Artifacts and closure**
+
 - [ ] `session_artifacts.cycle_brief_md` is present and non-empty
-- [ ] If `config_updates` is non-null: every non-null sub carries
-      the envelope; at least one sub is non-null; `change_notes` is
-      present and non-empty
-- [ ] No fields outside the schema
+- [ ] No fields outside the schema anywhere (`additionalProperties:
+      false` holds everywhere except the six config sub-blocks)
 
 If any check fails, fix and re-verify before delivery.

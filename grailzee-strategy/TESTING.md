@@ -18,13 +18,22 @@ release.
 Confirm the Chat skill's schema is byte-identical to cowork's:
 
 ```
+python grailzee-strategy/tools/check_schema_mirror.py
+```
+
+Expected: exits 0 with `OK: strategy_output_v1.json byte-identical
+across both plugins.` Non-zero exit means drift — fix before anything
+else; both copies must move in lockstep. Wire this into CI when CI
+exists; run it manually before every commit that touches either
+schema file in the meantime.
+
+For manual inspection of the diff:
+
+```
 diff \
   grailzee-strategy/schema/strategy_output_v1.json \
   grailzee-cowork/schema/strategy_output_v1.json
 ```
-
-Expected: no output (files identical). If they drift, fix before
-anything else — both copies must move in lockstep.
 
 ## Test 2 — fixtures validate
 
@@ -99,7 +108,9 @@ raises `StrategyOutputValidationError` on failure).
    - `session_mode: "quarterly_allocation"`
    - `decisions.quarterly_allocation` populated with
      `quarter: "2026-QN"` in that format
-   - `capital_allocation` has an `other` bucket
+   - `capital_allocation` has an `other` bucket (framework convention
+     — not a validator rule, but flag missing `other` as a judgment
+     miss)
    - `inventory_mix_target` sums to ~100
    - `review_notes` anchors each brand delta to a quantified Q-over-Q
      number
