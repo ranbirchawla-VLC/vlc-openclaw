@@ -7,15 +7,15 @@
 ## Status at a glance
 
 - **Branch:** `feature/grailzee-eval-v2`
-- **Head:** `b971151 [phase24a] grailzee-cowork — round-trip test, SKILL.md, review pass`
-- **Ahead of `origin/feature/grailzee-eval-v2`:** 19 commits
-- **Tests:** 612 passing from repo root (`python3 -m pytest` at `/Users/ranbirchawla/ai-code/vlc-openclaw`). Skill-only: 542 passing (`python3 -m pytest tests/ -q` from this dir).
-- **Phase complete:** Phase 24a (cowork plugin — outbound + inbound bundle handoff)
-- **Phase next:** Phase 24b (Chat strategy skill against the bundle format)
+- **Head:** `9ad9333 [phase24b] grailzee-strategy — review pass, self-check + mirror guard`
+- **Ahead of `origin/feature/grailzee-eval-v2`:** 0 commits (pushed at Session 4 close — Phase 25 transport only, not completion)
+- **Tests:** 698 passing from repo root (`python3 -m pytest` at `/Users/ranbirchawla/ai-code/vlc-openclaw`). Skill-only: 542 passing (`python3 -m pytest tests/ -q` from this dir). Cowork: 156 passing (`python3 -m pytest tests/ -q` from `grailzee-cowork/`).
+- **Phase complete:** Phase 24b (cowork INBOUND dual-input + grailzee-strategy Chat skill)
+- **Phase next:** Phase 25 proper — end-to-end dry-run on Mac Studio, then merge `feature/grailzee-eval-v2` → `main`
 
 ---
 
-## Shipped (phases 1–24a)
+## Shipped (phases 1–24b)
 
 | Phase | What | Key artifact |
 |---|---|---|
@@ -43,19 +43,20 @@
 | 21 | Pre-deletion audit — 3 tests deleted (v1/v2 equivalence harness) | `REVIEW_phase21.md` |
 | 22/23 | Migration — v2 renamed into production slot; v1 deleted | commit `1bb8119` |
 | 24a | Cowork plugin — OUTBOUND + INBOUND bundle handoff (sibling dir; does not import from this skill at runtime) | `grailzee-cowork/` |
+| 24b A | Cowork INBOUND extended to accept `strategy_output.json` alongside `.zip`. Hand-rolled validator, 5-sheet XLSX builder, best-effort archive to `output/briefs/`, atomic state commit preserved | `grailzee-cowork/grailzee_bundle/strategy_schema.py`, `build_strategy_xlsx.py`, extended `unpack_bundle.py`; `REVIEW_phase24b_cowork.md` |
+| 24b B | Chat strategy skill — four session modes (`cycle_planning`, `monthly_review`, `quarterly_allocation`, `config_tuning`) producing validated `strategy_output.json`. Byte-identical schema mirror with cowork, enforced by guard script | `grailzee-strategy/` (sibling dir); `REVIEW_phase24b_strategy.md` |
 
 Batch B1 hygiene session and OTel retrofit shipped between Phase 17 and Phase 19 (see `REVIEW_batchB1.md`, `REVIEW_otel_retrofit.md`).
 
 ---
 
-## Remaining (phases 24b, 25)
+## Remaining (Phase 25)
 
 Per §14 of `Grailzee_Eval_v2_Implementation.md` (plus the cowork-split that came out of Session 4):
 
-- **Phase 24b** — Chat strategy skill. Built against the bundle format shipped in 24a. Produces inbound bundles that `grailzee-cowork/grailzee_bundle/unpack_bundle.py` accepts. Lives outside this repo or in a separate plugin dir; does not touch `skills/grailzee-eval/`.
-- **Phase 25** — Commit and push. 19 accumulated commits go to `origin/feature/grailzee-eval-v2` at phase close.
+- **Phase 25 proper** — End-to-end dry-run on the Mac Studio against a real `GrailzeeData/` tree, then merge `feature/grailzee-eval-v2` → `main` once the operator loop validates. The push at Session 4 close was transport only; it made the branch available on the Mac Studio. Merge does not happen until a live cycle_planning session produces a valid `strategy_output.json` and cowork's `unpack_bundle.py` applies it cleanly against real state.
 
-Integration test on the clean final tree (originally labelled Phase 23) folded into the Phase 22/23 migration commit.
+Integration test on the clean final tree (originally labelled Phase 23) folded into the Phase 22/23 migration commit. Phase 24b's round-trip integration test (`grailzee-cowork/tests/test_round_trip.py::test_strategy_output_full_round_trip`) covers the JSON leg of the dual-input contract — the Mac Studio dry-run exercises the same path against non-fixture data.
 
 ---
 
@@ -78,7 +79,7 @@ From `DECISIONS_session3_kickoff.md`, binding on Phases 19+:
 - `AGENTS.md`, `SOUL.md`, `USER.md`, `IDENTITY.md`, `TOOLS.md`, `HEARTBEAT.md` (scaffolding)
 - `Grailzee_Eval_v2_Implementation.md` (THE SPEC — §14 has the phase table)
 - `DECISIONS_session3_kickoff.md` (D1–D5)
-- REVIEW_phase{1–21}.md + REVIEW_batchB1.md + REVIEW_otel_retrofit.md (Phase 22/23 folded into commit message; Phase 24a review lives at `grailzee-cowork/REVIEW_phase24a.md`)
+- REVIEW_phase{1–21}.md + REVIEW_batchB1.md + REVIEW_otel_retrofit.md (Phase 22/23 folded into commit message; Phase 24a review at `grailzee-cowork/REVIEW_phase24a.md`; Phase 24b reviews at `grailzee-cowork/REVIEW_phase24b_cowork.md` and `grailzee-strategy/REVIEW_phase24b_strategy.md`)
 
 **`capabilities/` (4 files, all aligned with D1–D4):**
 - `ledger.md` — trade logging + performance queries (untouched in P19 by design)
@@ -96,7 +97,8 @@ All in list form — see `ls scripts/`. Entry points relevant to SKILL.md:
 **`tests/` (21 test files):** 542 passing. `test_query_targets.py` is the Phase 19 replacement; no stale Phase 17 suite remains. Phase 21 removed the v1/v2 equivalence harness (`TestV1V2Equivalence` classes in `test_analyze_references.py` and `test_analyze_trends.py`) — impossible to run post-migration since v1 disappears.
 
 **Sibling plugin (not part of this skill):**
-- `grailzee-cowork/` — self-contained Claude Code plugin with one skill (`grailzee-bundle`), two modes. 70 tests (`test_build_bundle.py` 28 + `test_unpack_bundle.py` 39 + `test_round_trip.py` 3). Does not import from `skills/grailzee-eval/` at runtime; runs alongside via the repo-root `pytest.ini`.
+- `grailzee-cowork/` — self-contained Claude Code plugin. OUTBOUND builds a `.zip` bundle from local state; INBOUND now accepts either a `.zip` OR a `strategy_output.json` (dual-input dispatch added in Phase 24b). 156 tests after Phase 24b (was 70 after 24a). Does not import from `skills/grailzee-eval/` at runtime; runs alongside via the repo-root `pytest.ini`.
+- `grailzee-strategy/` — Chat-side skill (sibling of cowork, not a Claude Code plugin). Four session modes, one output contract (`strategy_output.json` v1). Schema is byte-identical to cowork's; `tools/check_schema_mirror.py` guards the invariant. Four mode fixtures under `references/mode_fixtures/` all validate against cowork's `validate_strategy_output`. No pytest suite — manual test playbook at `TESTING.md` covers operator-loop scenarios; schema/archive/state semantics are automated on the cowork side.
 
 ---
 
@@ -121,15 +123,17 @@ From Phase 22/23:
 
 1. `cd /Users/ranbirchawla/ai-code/vlc-openclaw/skills/grailzee-eval`
 2. `git status` — confirm clean
-3. `git log --oneline -5` — confirm head is `b971151`
+3. `git log --oneline -5` — confirm head is `9ad9333`
 4. `python3 -m pytest tests/ -q` — confirm 542 passing (skill-only)
-5. From repo root `/Users/ranbirchawla/ai-code/vlc-openclaw`: `python3 -m pytest` — confirm 612 passing (skill + cowork)
-6. Read these in order:
+5. From repo root `/Users/ranbirchawla/ai-code/vlc-openclaw`: `python3 -m pytest` — confirm 698 passing (skill + cowork)
+6. `python3 /Users/ranbirchawla/ai-code/vlc-openclaw/grailzee-strategy/tools/check_schema_mirror.py` — confirm schema byte-identity holds across both plugins
+7. Read these in order:
    - `progress.md` (this file)
    - `DECISIONS_session3_kickoff.md` (D1–D5)
-   - `../../grailzee-cowork/REVIEW_phase24a.md` (most recent phase)
+   - `../../grailzee-cowork/REVIEW_phase24b_cowork.md` (most recent phase, Deliverable A)
+   - `../../grailzee-strategy/REVIEW_phase24b_strategy.md` (Deliverable B)
    - `Grailzee_Eval_v2_Implementation.md` §14–15 (remaining phase roadmap)
-7. Ready for Phase 24b (Chat strategy skill against the cowork bundle format) or Phase 25 (commit+push).
+8. Ready for Phase 25 (Mac Studio dry-run → merge to main). The push at Session 4 close already delivered `9ad9333` to origin, so the Mac Studio can pull directly.
 
 ---
 
@@ -139,4 +143,4 @@ From Phase 22/23:
 - Hard stop at phase boundaries. No drifting into the next phase without a new prompt.
 - Opening moves → state summary → **STOP** → plan → **STOP** → execute.
 - Every completed module gets a code-review pass before commit.
-- One phase = one (or at most two) commits, with a `REVIEW_phase{N}.md` capturing the work (exception: cowork's review lives at `grailzee-cowork/REVIEW_phase24a.md` since the plugin is a sibling dir).
+- One phase = one (or at most two) commits, with a `REVIEW_phase{N}.md` capturing the work. Phase 24 reviews live with their respective plugins as siblings: `grailzee-cowork/REVIEW_phase24a.md`, `grailzee-cowork/REVIEW_phase24b_cowork.md`, `grailzee-strategy/REVIEW_phase24b_strategy.md`. Phase 24b was large enough to split into two deliverables (A = cowork INBOUND extension, B = Chat skill) with a supervisor gate between them; future multi-deliverable phases can follow the same pattern.
