@@ -42,11 +42,19 @@ bundle in this order:
    brief is strong, your job is to layer judgment on top, not to
    restate it.
 
-3. **`trade_ledger_snippet.csv`** — current cycle's closes with
-   `net_profit` and `roi_pct`. Check margin drift: if `roi_pct`
-   clusters below `target_margin_fraction * 100`, that's a signal
-   to retune `margin_config` or reconsider platform mix, not just
-   to push harder on sourcing.
+3. **`trade_ledger.csv`** — the full trade ledger. Every closed
+   Grailzee position across all historical cycles, one row per
+   trade, with `net_profit`, `roi_pct`, and `cycle_id`. Not a
+   snippet — all cycles are present. Read it two ways:
+   - **Current-cycle slice** (filter rows where `cycle_id ==
+     manifest.cycle_id`): checks this cycle's margin drift. If
+     `roi_pct` clusters below `target_margin_fraction * 100`,
+     that's a signal to retune `margin_config` or reconsider
+     platform mix, not just to push harder on sourcing.
+   - **Full-history view**: context for quantified review_notes in
+     `monthly_review` and `quarterly_allocation`, and for
+     cross-referencing the pre-computed `cycle_outcome_previous`
+     rollup against trade-level detail.
 
 4. **`analysis_cache.json`** — every reference the agent knows
    about, with `signal`, `max_buy_nr`, `brand`, `model`. This is

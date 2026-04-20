@@ -28,8 +28,10 @@ Read in order (all are in the uploaded `.zip`):
    `scope.quarter_boundary`. These drive which decision sections the
    session is responsible for populating.
 2. `sourcing_brief.json` — the agent's current narrative read.
-3. `trade_ledger_snippet.csv` — realized margins and ROI for the
-   current cycle's closes.
+3. `trade_ledger.csv` — the full trade ledger. Every historical
+   Grailzee close, one row per trade, with realized margins and ROI.
+   Not a snippet; all cycles present so you can see drift, streaks,
+   and category-level behaviour across the full Vardalux history.
 4. `analysis_cache.json` — every known reference with `signal`,
    `max_buy_nr`, `brand`, `model`.
 5. `cycle_focus_current.json` — what the agent currently focuses on.
