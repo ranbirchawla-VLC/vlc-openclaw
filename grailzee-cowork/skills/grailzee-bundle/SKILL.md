@@ -48,7 +48,8 @@ The bundle is written to `<GRAILZEE_ROOT>/bundles/` as
   on the agent; the Chat session's response renames this to `cycle_focus`)
 - `monthly_goals.json`
 - `quarterly_allocation.json`
-- `trade_ledger_snippet.csv` (current cycle's rows only)
+- `trade_ledger.csv` (the full trade ledger — all historical Grailzee
+  trades, one row per closed position)
 - `sourcing_brief.json`
 - `latest_report/grailzee_YYYY-MM-DD.csv` (newest)
 

@@ -19,9 +19,9 @@ cycle_focus_      yes       state/cycle_focus.json
 monthly_goals     yes       state/monthly_goals.json
 quarterly_        yes       state/quarterly_allocation.json
   allocation
-trade_ledger_     yes       state/trade_ledger.csv, filtered to rows
-  snippet                   whose ``cycle_id`` equals the current
-                            cycle_id
+trade_ledger      yes       state/trade_ledger.csv, the FULL ledger
+                            (every historical trade, no cycle
+                            filtering)
 sourcing_brief    yes       output/briefs/sourcing_brief_<cycle>.json
 latest_report_    yes       reports_csv/grailzee_YYYY-MM-DD.csv,
   csv                       most recent by lexical-desc sort
@@ -40,9 +40,7 @@ before this script runs; comparing against itself would mask the boundary).
 from __future__ import annotations
 
 import argparse
-import csv
 import hashlib
-import io
 import json
 import re
 import sys
@@ -151,31 +149,18 @@ def _detect_boundaries(current_cycle_id: str, run_history_path: Path) -> dict[st
     return {"month_boundary": month_boundary, "quarter_boundary": quarter_boundary}
 
 
-def _slice_ledger(ledger_path: Path, cycle_id: str) -> bytes:
-    """Return CSV bytes: header + rows whose ``cycle_id`` column matches.
+def _read_full_ledger(ledger_path: Path) -> bytes:
+    """Return the full ledger CSV as bytes. No filtering, no trimming.
 
-    If the ledger file is missing or has no rows, returns the header line
-    from an empty in-memory scaffold so the bundle role is still populated.
+    Per Section 11 of the implementation plan, the strategist reads ALL
+    state before opening a session. Cycle-scoped slicing (Phase 24a's
+    initial behaviour) hid historical context; the strategist
+    cross-references current-cycle signal against the full close
+    history. Header-only ledgers (no trades yet) pass through verbatim.
     """
     if not ledger_path.exists():
         raise FileNotFoundError(f"Missing trade ledger: {ledger_path}")
-    text = ledger_path.read_text()
-    reader = csv.reader(io.StringIO(text))
-    rows = list(reader)
-    if not rows:
-        raise ValueError(f"Empty trade ledger at {ledger_path} (no header row)")
-    header = rows[0]
-    if "cycle_id" not in header:
-        raise ValueError(
-            f"Trade ledger at {ledger_path} missing required 'cycle_id' column"
-        )
-    cycle_idx = header.index("cycle_id")
-    matching = [r for r in rows[1:] if len(r) > cycle_idx and r[cycle_idx] == cycle_id]
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(header)
-    writer.writerows(matching)
-    return buf.getvalue().encode("utf-8")
+    return ledger_path.read_bytes()
 
 
 def _find_latest_report(reports_csv_dir: Path) -> Path:
@@ -339,9 +324,9 @@ def build_outbound_bundle(
     )
     payloads.append(
         (
-            "trade_ledger_snippet",
-            "trade_ledger_snippet.csv",
-            _slice_ledger(state / "trade_ledger.csv", cycle_id),
+            "trade_ledger",
+            "trade_ledger.csv",
+            _read_full_ledger(state / "trade_ledger.csv"),
         )
     )
     brief_path = briefs / f"sourcing_brief_{cycle_id}.json"
