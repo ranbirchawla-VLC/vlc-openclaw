@@ -51,11 +51,32 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# ─── Cross-skill import (single source of truth for cycle math) ─────
+# grailzee-eval owns prev_cycle and cycle_outcome_path. Duplicating them
+# here would reintroduce the dual-source problem Phase A.5 just killed,
+# so we add grailzee-eval/scripts to sys.path instead. Layout-fragile
+# but explicit.
+_WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
+_GRAILZEE_EVAL = _WORKSPACE_ROOT / "skills" / "grailzee-eval"
+if _GRAILZEE_EVAL.exists() and str(_GRAILZEE_EVAL) not in sys.path:
+    sys.path.insert(0, str(_GRAILZEE_EVAL))
+from scripts.grailzee_common import (  # noqa: E402
+    prev_cycle,
+)
+
 MANIFEST_VERSION = 1
 SOURCE_TAG = "grailzee-cowork/build_bundle"
 BUNDLE_KIND = "outbound"
 REPORT_CSV_PATTERN = re.compile(r"^grailzee_\d{4}-\d{2}-\d{2}\.csv$")
 CYCLE_ID_PATTERN = re.compile(r"^cycle_(\d{4})-(\d{2})$")
+
+# Phase A.7: how far back to look for a cycle outcome with real trades.
+# 26 biweekly cycles ≈ 52 weeks. Bailout prevents infinite walk when the
+# ledger is empty / brand-new deployments.
+MAX_PREVIOUS_CYCLE_LOOKBACK = 26
+
+PREVIOUS_OUTCOME_ARCNAME = "cycle_outcome_previous.json"
+PREVIOUS_OUTCOME_META_ARCNAME = "cycle_outcome_previous.meta.json"
 
 
 def _sha256(data: bytes) -> str:
@@ -188,6 +209,73 @@ def _read_required(path: Path, label: str) -> bytes:
     return path.read_bytes()
 
 
+def resolve_previous_cycle_outcome(
+    state_dir: Path,
+    target_cycle_id: str,
+    max_lookback: int = MAX_PREVIOUS_CYCLE_LOOKBACK,
+) -> tuple[Path | None, dict[str, Any]]:
+    """Find the most recent cycle outcome file with real trade data.
+
+    Walks ``prev_cycle()`` starting from ``target_cycle_id`` until it
+    hits a ``state/cycle_outcome_<id>.json`` whose ``trades`` array is
+    non-empty, or until ``max_lookback`` cycles have been examined.
+
+    A cycle outcome file that exists but has an empty ``trades`` array
+    counts as a "skipped" cycle; missing files are simply absent from
+    the history. The distinction is what the strategist uses to say
+    "your most recent completed cycle was empty — here's the last one
+    with data."
+
+    Returns ``(path_or_None, manifest_dict)`` where manifest_dict is the
+    JSON payload for ``cycle_outcome_previous.meta.json``. On no-match
+    bailout, path is None and manifest has ``source_cycle_id: None``.
+    """
+    skipped: list[str] = []
+    candidate = prev_cycle(target_cycle_id)
+    for _ in range(max_lookback):
+        path = state_dir / f"cycle_outcome_{candidate}.json"
+        if path.exists():
+            trades: list[Any] = []
+            try:
+                data = json.loads(path.read_text())
+            except (json.JSONDecodeError, OSError):
+                data = None
+            if isinstance(data, dict):
+                raw_trades = data.get("trades", [])
+                if isinstance(raw_trades, list):
+                    trades = raw_trades
+            if trades:
+                resolution_note = (
+                    f"{candidate} is the most recent cycle with real "
+                    f"trade data before {target_cycle_id}"
+                )
+                if skipped:
+                    resolution_note += (
+                        f"; skipped {len(skipped)} empty cycle"
+                        f"{'s' if len(skipped) != 1 else ''} "
+                        f"({', '.join(skipped)})"
+                    )
+                return path, {
+                    "source_cycle_id": candidate,
+                    "target_planning_cycle_id": target_cycle_id,
+                    "skipped_cycles": skipped,
+                    "resolution_note": resolution_note,
+                }
+            # File existed but had no trades — explicit skip
+            skipped.append(candidate)
+        candidate = prev_cycle(candidate)
+
+    return None, {
+        "source_cycle_id": None,
+        "target_planning_cycle_id": target_cycle_id,
+        "skipped_cycles": skipped,
+        "resolution_note": (
+            f"No cycle outcome with trade data found within "
+            f"{max_lookback} cycles before {target_cycle_id}"
+        ),
+    }
+
+
 def build_outbound_bundle(
     grailzee_root: Path,
     *,
@@ -270,6 +358,28 @@ def build_outbound_bundle(
             "latest_report_csv",
             f"latest_report/{latest_report.name}",
             latest_report.read_bytes(),
+        )
+    )
+
+    # Phase A.7: previous cycle outcome. Resolve the most recent cycle
+    # with real trade data; always bundle the meta (even when resolution
+    # returns null) so the strategist has a single consistent signal.
+    prev_outcome_path, prev_outcome_meta = resolve_previous_cycle_outcome(
+        state, cycle_id
+    )
+    if prev_outcome_path is not None:
+        payloads.append(
+            (
+                "previous_cycle_outcome",
+                PREVIOUS_OUTCOME_ARCNAME,
+                prev_outcome_path.read_bytes(),
+            )
+        )
+    payloads.append(
+        (
+            "previous_cycle_outcome_meta",
+            PREVIOUS_OUTCOME_META_ARCNAME,
+            (json.dumps(prev_outcome_meta, indent=2) + "\n").encode("utf-8"),
         )
     )
 
