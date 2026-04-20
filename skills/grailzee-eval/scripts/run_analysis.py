@@ -164,8 +164,8 @@ def run_analysis(
     # load_cycle_focus() returns None for missing files; parse_ledger_csv()
     # returns [] for a missing or empty ledger — both handle first-run cleanly.
     # Any remaining exception (write error, malformed cache JSON, bad output
-    # path) means cycle_outcome.json was not written. Swallowing that would
-    # leave the strategy skill with stale cycle data.
+    # path) means the cycle outcome file was not written. Swallowing that
+    # would leave the strategy skill with stale cycle data.
     previous_cycle_id = prev_cycle(current_cycle_id)
     with tracer.start_as_current_span("roll_cycle.run") as span:
         span.set_attribute("previous_cycle_id", previous_cycle_id)
@@ -175,7 +175,11 @@ def run_analysis(
                 ledger_path=ledger_path,
                 cache_path=cache_path,
                 cycle_focus_path=cycle_focus_path,
-                output_path=str(Path(cache_path).parent / "cycle_outcome.json") if cache_path else None,
+                output_path=(
+                    str(Path(cache_path).parent
+                        / f"cycle_outcome_{previous_cycle_id}.json")
+                    if cache_path else None
+                ),
             )
         except Exception as exc:
             span.record_exception(exc)
