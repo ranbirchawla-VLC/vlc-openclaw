@@ -1,15 +1,17 @@
-"""Historical trade backfill tool for the Grailzee ledger.
+"""Backfill historical trades into the Grailzee trade ledger.
 
-Three modes:
-  backfill_ledger.py validate <input.csv>
-  backfill_ledger.py preview <input.csv>
-  backfill_ledger.py commit <input.csv> [--ledger PATH]
+Reads a hand-curated CSV of historical trades, validates each row,
+derives cycle_id from date_closed, and appends to trade_ledger.csv.
 
-Validates input rows against the ledger schema, computes aggregates,
-and optionally appends to the production ledger. All output is JSON
-on stdout. Errors to stderr.
+Usage:
+    backfill_ledger.py <input.csv> [--dry-run] [--force] [--no-roll]
+                       [--ledger PATH] [--name-cache PATH]
 
-Exit codes: 0 = clean (warnings ok), 2 = validation failures, 1 = other.
+Exit codes:
+    0  success, or dry-run completed with no validation errors
+    1  validation error (ledger untouched)
+    2  I/O error during write (ledger untouched)
+    3  dependency / primitive error (see Section 12.3)
 """
 
 from __future__ import annotations
@@ -17,401 +19,603 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import re
-import statistics
+import subprocess
 import sys
 from collections import Counter
-from datetime import date
-from io import StringIO
+from datetime import date, datetime
 from pathlib import Path
+from typing import Optional
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 V2_ROOT = SCRIPT_DIR.parent
-sys.path.insert(0, str(V2_ROOT))
+if str(V2_ROOT) not in sys.path:
+    sys.path.insert(0, str(V2_ROOT))
 
-from scripts.grailzee_common import (
-    ACCOUNT_FEES,
-    LEDGER_COLUMNS,
-    LEDGER_PATH,
-    LedgerRow,
-    VALID_ACCOUNTS,
-    append_ledger_row,
-    cycle_id_from_date,
-    get_tracer,
-    parse_ledger_csv,
+import scripts.grailzee_common as gc  # noqa: E402
+
+
+REQUIRED_ATTRS: list[str] = [
+    "LEDGER_PATH",
+    "ACCOUNT_FEES",
+    "cycle_id_from_date",
+    "normalize_ref",
+    "NAME_CACHE_PATH",
+]
+
+INPUT_COLUMNS: list[str] = [
+    "date_closed", "brand", "reference", "account",
+    "buy_price", "sell_price", "notes",
+]
+
+OUTPUT_COLUMNS: list[str] = [
+    "date_closed", "cycle_id", "brand", "reference",
+    "account", "buy_price", "sell_price",
+]
+
+VALID_ACCOUNTS: set[str] = {"NR", "RES"}
+
+SECTION_12_3_HINT = (
+    "See Grailzee_Eval_v2_Implementation.md Section 12.3 for required "
+    "grailzee_common primitives."
 )
 
-tracer = get_tracer(__name__)
+
+# ─── Dependency check ─────────────────────────────────────────────────
 
 
-# ─── Parsing ──────────────────────────────────────────────────────────
+def check_dependencies() -> int:
+    """Return 0 if all REQUIRED_ATTRS present on grailzee_common, else 3.
 
-
-def _strip_comments_and_blanks(text: str) -> str:
-    """Remove comment lines (# prefix) and trailing blank lines."""
-    lines = text.splitlines(keepends=True)
-    out = []
-    for line in lines:
-        stripped = line.lstrip()
-        if stripped.startswith("#"):
-            continue
-        if stripped.strip() == "" and out:
-            continue
-        out.append(line)
-    return "".join(out)
-
-
-def _strip_bom(text: str) -> str:
-    """Remove UTF-8 BOM if present."""
-    if text.startswith("\ufeff"):
-        return text[1:]
-    return text
-
-
-def parse_input(path: str) -> tuple[list[dict], list[str]]:
-    """Parse a backfill CSV. Returns (rows, errors).
-
-    Rows are raw dicts from csv.DictReader. Errors are per-row
-    messages; if errors is non-empty, no rows should be committed.
+    Prints a pointer to Section 12.3 on failure. Reads attrs via hasattr
+    so tests can monkeypatch-delete an attr and re-invoke main().
     """
-    with open(path, "r", encoding="utf-8") as f:
-        raw = f.read()
-    raw = _strip_bom(raw)
-    raw = _strip_comments_and_blanks(raw)
+    missing = [a for a in REQUIRED_ATTRS if not hasattr(gc, a)]
+    if missing:
+        print(
+            f"ERROR: grailzee_common missing required attrs: {missing}",
+            file=sys.stderr,
+        )
+        print(SECTION_12_3_HINT, file=sys.stderr)
+        return 3
+    return 0
 
-    reader = csv.DictReader(StringIO(raw))
 
-    # Validate header
-    if reader.fieldnames is None or list(reader.fieldnames) != LEDGER_COLUMNS:
-        return [], [
-            f"Header mismatch. Expected: {LEDGER_COLUMNS}. "
-            f"Got: {reader.fieldnames}"
-        ]
+# ─── Input parsing ────────────────────────────────────────────────────
 
-    rows = list(reader)
-    return rows, []
+
+def parse_date(raw: str) -> Optional[date]:
+    """Accept YYYY-MM-DD, M/D/YY, or M/D/YYYY. Return None on parse failure."""
+    raw = raw.strip()
+    if not raw:
+        return None
+    for fmt in ("%Y-%m-%d", "%m/%d/%y", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(raw, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def parse_price(raw: str) -> Optional[float]:
+    """Parse positive price. Reject $, comma, or any whitespace."""
+    if raw is None:
+        return None
+    if raw != raw.strip():
+        return None
+    if "$" in raw or "," in raw:
+        return None
+    if re.search(r"\s", raw):
+        return None
+    try:
+        v = float(raw)
+    except ValueError:
+        return None
+    if v <= 0:
+        return None
+    return v
+
+
+def read_input(path: str) -> tuple[list[dict], list[str]]:
+    """Read input CSV with BOM strip and header/value whitespace trim.
+
+    Returns (rows, file_errors). Each row dict includes '_line_num' (the
+    CSV line number, 2-indexed for data rows). On file-level errors (not
+    found, missing columns, empty file) rows is empty and file_errors
+    contains the reason.
+    """
+    errors: list[str] = []
+    rows: list[dict] = []
+    try:
+        with open(path, "r", encoding="utf-8-sig", newline="") as f:
+            reader = csv.reader(f)
+            try:
+                raw_header = next(reader)
+            except StopIteration:
+                errors.append(f"Input file is empty: {path}")
+                return rows, errors
+            header = [h.strip() for h in raw_header]
+            missing_cols = [c for c in INPUT_COLUMNS if c not in header]
+            if missing_cols:
+                errors.append(
+                    f"Missing required columns: {missing_cols}. "
+                    f"Expected: {INPUT_COLUMNS}. Got: {header}"
+                )
+                return rows, errors
+            for line_num, raw in enumerate(reader, start=2):
+                if not raw or all(
+                    (c is None or c.strip() == "") for c in raw
+                ):
+                    continue
+                if len(raw) != len(header):
+                    errors.append(
+                        f"line {line_num}: column count mismatch "
+                        f"(expected {len(header)}, got {len(raw)})"
+                    )
+                    continue
+                row = {h: (v or "").strip() for h, v in zip(header, raw)}
+                row["_line_num"] = line_num
+                rows.append(row)
+    except FileNotFoundError:
+        errors.append(f"Input file not found: {path}")
+    except OSError as e:
+        errors.append(f"Cannot read input file {path}: {e}")
+    return rows, errors
 
 
 # ─── Validation ───────────────────────────────────────────────────────
 
 
-def validate_row(raw: dict, row_num: int) -> tuple[
-    LedgerRow | None, list[str], list[str]
-]:
-    """Validate one row. Returns (LedgerRow | None, errors, warnings).
-
-    If errors is non-empty, the LedgerRow is None.
-    """
+def validate_row(row: dict, today: date) -> tuple[Optional[dict], list[str]]:
+    """Validate one raw row. Return (normalized_dict_or_None, errors)."""
     errors: list[str] = []
-    warnings: list[str] = []
+    ln = row.get("_line_num", "?")
 
-    # 1. date_closed
-    ds = (raw.get("date_closed") or "").strip()
-    trade_date: date | None = None
-    if not re.match(r"^\d{4}-\d{2}-\d{2}$", ds):
-        errors.append(f"Row {row_num}: Invalid date format '{ds}' (need YYYY-MM-DD)")
-    else:
-        try:
-            y, m, d = ds.split("-")
-            trade_date = date(int(y), int(m), int(d))
-            if trade_date > date.today():
-                errors.append(f"Row {row_num}: Future date {ds}")
-        except ValueError:
-            errors.append(f"Row {row_num}: Invalid date '{ds}'")
+    date_raw = row.get("date_closed", "")
+    dt = parse_date(date_raw)
+    if dt is None:
+        errors.append(
+            f"line {ln}: invalid date_closed '{date_raw}' "
+            f"(expected YYYY-MM-DD, M/D/YY, or M/D/YYYY)"
+        )
+    elif dt > today:
+        errors.append(
+            f"line {ln}: date_closed {dt.isoformat()} is in the future"
+        )
+        dt = None
 
-    # 2. cycle_id
-    raw_cycle = (raw.get("cycle_id") or "").strip()
-    cycle = raw_cycle
-    if trade_date and raw_cycle:
-        expected = cycle_id_from_date(trade_date)
-        if raw_cycle != expected:
-            errors.append(
-                f"Row {row_num}: cycle_id '{raw_cycle}' does not match "
-                f"computed '{expected}' for date {ds}"
-            )
-    elif trade_date and not raw_cycle:
-        cycle = cycle_id_from_date(trade_date)
-
-    # 3. brand
-    brand = (raw.get("brand") or "").strip()
+    brand = row.get("brand", "")
     if not brand:
-        errors.append(f"Row {row_num}: brand is empty")
+        errors.append(f"line {ln}: brand is empty")
 
-    # 4. reference
-    reference = (raw.get("reference") or "").strip()
+    reference = row.get("reference", "")
     if not reference:
-        errors.append(f"Row {row_num}: reference is empty")
-    elif "," in reference or '"' in reference:
+        errors.append(f"line {ln}: reference is empty")
+    elif re.search(r"\s", reference):
         errors.append(
-            f"Row {row_num}: reference contains comma or quote (CSV corruption?)"
+            f"line {ln}: reference '{reference}' contains internal whitespace"
         )
 
-    # 5. account
-    account_raw = (raw.get("account") or "").strip().upper()
-    if account_raw not in VALID_ACCOUNTS:
+    account = row.get("account", "")
+    if account not in VALID_ACCOUNTS:
         errors.append(
-            f"Row {row_num}: invalid account '{raw.get('account')}' "
-            f"(must be NR or RES)"
+            f"line {ln}: invalid account '{account}' "
+            f"(must be exactly 'NR' or 'RES')"
         )
 
-    # 6. buy_price
-    buy: float = 0
-    buy_raw = (raw.get("buy_price") or "").strip()
-    try:
-        buy = float(buy_raw.replace("$", "").replace(",", ""))
-        if buy <= 0:
-            errors.append(f"Row {row_num}: buy_price must be positive, got {buy}")
-    except (ValueError, TypeError):
-        errors.append(f"Row {row_num}: buy_price not numeric: '{buy_raw}'")
-
-    # 7. sell_price
-    sell: float = 0
-    sell_raw = (raw.get("sell_price") or "").strip()
-    try:
-        sell = float(sell_raw.replace("$", "").replace(",", ""))
-        if sell <= 0:
-            errors.append(f"Row {row_num}: sell_price must be positive, got {sell}")
-    except (ValueError, TypeError):
-        errors.append(f"Row {row_num}: sell_price not numeric: '{sell_raw}'")
-
-    # 8. sell < buy warning
-    if buy > 0 and sell > 0 and sell < buy:
-        warnings.append(
-            f"Row {row_num}: Losing trade (sell {sell} < buy {buy})"
+    buy_raw = row.get("buy_price", "")
+    buy = parse_price(buy_raw)
+    if buy is None:
+        errors.append(
+            f"line {ln}: buy_price '{buy_raw}' invalid "
+            f"(positive number, no $/comma/whitespace)"
         )
 
-    # 9. High-value warning
-    if buy > 50000:
-        warnings.append(
-            f"Row {row_num}: High-value trade (buy_price={buy})"
+    sell_raw = row.get("sell_price", "")
+    sell = parse_price(sell_raw)
+    if sell is None:
+        errors.append(
+            f"line {ln}: sell_price '{sell_raw}' invalid "
+            f"(positive number, no $/comma/whitespace)"
         )
 
-    if errors:
-        return None, errors, warnings
-
-    return LedgerRow(
-        date_closed=trade_date,  # type: ignore[arg-type]
-        cycle_id=cycle,
-        brand=brand,
-        reference=reference,
-        account=account_raw,
-        buy_price=buy,
-        sell_price=sell,
-    ), errors, warnings
-
-
-def validate_all(raw_rows: list[dict]) -> tuple[
-    list[LedgerRow], list[str], list[str]
-]:
-    """Validate all rows. Returns (valid_rows, all_errors, all_warnings)."""
-    valid: list[LedgerRow] = []
-    all_errors: list[str] = []
-    all_warnings: list[str] = []
-    for i, raw in enumerate(raw_rows, start=2):
-        row, errs, warns = validate_row(raw, i)
-        all_errors.extend(errs)
-        all_warnings.extend(warns)
-        if row:
-            valid.append(row)
-    return valid, all_errors, all_warnings
-
-
-# ─── Aggregates ───────────────────────────────────────────────────────
-
-
-def compute_aggregates(rows: list[LedgerRow]) -> dict:
-    """Compute preview aggregates for validated rows."""
-    if not rows:
-        return {
-            "total_trades": 0, "total_buy": 0, "total_sell": 0,
-            "total_fees": 0, "total_net_profit": 0, "avg_roi_pct": 0,
-            "profitable_count": 0, "losing_count": 0,
-            "accounts": {}, "brands": {}, "date_range": {},
-            "cycles": [],
-        }
-
-    rois = []
-    profitable = 0
-    total_fees = 0
-    for r in rows:
-        fees = ACCOUNT_FEES.get(r.account, 149)
-        net = r.sell_price - r.buy_price - fees
-        roi = (net / r.buy_price) * 100 if r.buy_price > 0 else 0
-        rois.append(roi)
-        total_fees += fees
-        if net > 0:
-            profitable += 1
-
-    total_buy = sum(r.buy_price for r in rows)
-    total_sell = sum(r.sell_price for r in rows)
-
+    if errors or dt is None or buy is None or sell is None:
+        return None, errors
     return {
-        "total_trades": len(rows),
-        "total_buy": round(total_buy, 2),
-        "total_sell": round(total_sell, 2),
-        "total_fees": round(total_fees, 2),
-        "total_net_profit": round(total_sell - total_buy - total_fees, 2),
-        "avg_roi_pct": round(statistics.mean(rois), 2),
-        "profitable_count": profitable,
-        "losing_count": len(rows) - profitable,
-        "accounts": dict(Counter(r.account for r in rows)),
-        "brands": dict(Counter(r.brand for r in rows)),
-        "date_range": {
-            "earliest": min(r.date_closed for r in rows).isoformat(),
-            "latest": max(r.date_closed for r in rows).isoformat(),
-        },
-        "cycles": sorted(set(r.cycle_id for r in rows)),
-    }
+        "_line_num": ln,
+        "_date_obj": dt,
+        "date_closed": dt.isoformat(),
+        "brand": brand,
+        "reference": reference,
+        "account": account,
+        "buy_price": buy,
+        "sell_price": sell,
+    }, errors
 
 
-# ─── Commands ─────────────────────────────────────────────────────────
+def validate_all(
+    rows: list[dict], today: date, force: bool
+) -> tuple[list[dict], list[str]]:
+    """Validate every row. Return (valid_rows, errors).
+
+    force=True skips rows with errors but keeps the good ones.
+    force=False returns all errors; caller aborts the run.
+    """
+    valid: list[dict] = []
+    all_errors: list[str] = []
+    for row in rows:
+        norm, errs = validate_row(row, today)
+        if norm:
+            valid.append(norm)
+        all_errors.extend(errs)
+    if force:
+        return valid, all_errors
+    return valid, all_errors
 
 
-def cmd_validate(args: argparse.Namespace) -> int:
-    with tracer.start_as_current_span("backfill_ledger.validate") as span:
-        span.set_attribute("input_path", args.input)
-        raw_rows, parse_errors = parse_input(args.input)
-        if parse_errors:
-            result = {"status": "error", "errors": parse_errors}
-            span.set_attribute("rows_total", 0)
-            span.set_attribute("rows_rejected", len(parse_errors))
-            print(json.dumps(result, indent=2))
-            return 2
-
-        valid, errors, warnings = validate_all(raw_rows)
-        span.set_attribute("rows_total", len(raw_rows))
-        span.set_attribute("rows_valid", len(valid))
-        span.set_attribute("rows_rejected", len(errors))
-        span.set_attribute("warning_count", len(warnings))
-
-        result = {
-            "status": "error" if errors else "ok",
-            "rows_total": len(raw_rows),
-            "rows_valid": len(valid),
-            "rows_rejected": len(raw_rows) - len(valid),
-            "errors": errors,
-            "warnings": warnings,
-        }
-        print(json.dumps(result, indent=2))
-        return 2 if errors else 0
+# ─── Brand-mismatch warnings ──────────────────────────────────────────
 
 
-def cmd_preview(args: argparse.Namespace) -> int:
-    with tracer.start_as_current_span("backfill_ledger.preview") as span:
-        span.set_attribute("input_path", args.input)
-        raw_rows, parse_errors = parse_input(args.input)
-        if parse_errors:
-            print(json.dumps({"status": "error", "errors": parse_errors}, indent=2))
-            return 2
-
-        valid, errors, warnings = validate_all(raw_rows)
-        span.set_attribute("rows_total", len(raw_rows))
-        span.set_attribute("rows_valid", len(valid))
-        span.set_attribute("rows_rejected", len(errors))
-        span.set_attribute("warning_count", len(warnings))
-
-        if errors:
-            print(json.dumps({
-                "status": "error",
-                "rows_validated": len(raw_rows),
-                "rows_rejected": len(raw_rows) - len(valid),
-                "errors": errors,
-                "warnings": warnings,
-            }, indent=2))
-            return 2
-
-        agg = compute_aggregates(valid)
-        span.set_attribute("total_net_profit", agg["total_net_profit"])
-
-        print(json.dumps({
-            "input_file": args.input,
-            "rows_validated": len(valid),
-            "rows_rejected": 0,
-            "warnings": warnings,
-            "aggregates": agg,
-        }, indent=2))
-        return 0
+def load_name_cache(path: str) -> dict:
+    """Load name_cache.json. Returns {} if missing or malformed."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    # Handle both flat {ref: {...}} and wrapped {"references": {ref: {...}}}
+    if "references" in data and isinstance(data["references"], dict):
+        return data["references"]
+    return data
 
 
-def cmd_commit(args: argparse.Namespace) -> int:
-    with tracer.start_as_current_span("backfill_ledger.commit") as span:
-        span.set_attribute("input_path", args.input)
-        span.set_attribute("ledger_path", args.ledger)
+def brand_mismatch_warnings(
+    valid_rows: list[dict], name_cache: dict
+) -> list[str]:
+    """Return one WARNING string per row whose brand disagrees with cache."""
+    warnings: list[str] = []
+    if not name_cache:
+        return warnings
 
-        raw_rows, parse_errors = parse_input(args.input)
-        if parse_errors:
-            print(json.dumps({"status": "error", "errors": parse_errors}, indent=2),
-                  file=sys.stderr)
-            return 2
+    lookup: dict[str, dict] = {}
+    for key, entry in name_cache.items():
+        if not isinstance(entry, dict):
+            continue
+        lookup[gc.normalize_ref(key)] = entry
+        for alt in entry.get("alt_refs", []) or []:
+            lookup[gc.normalize_ref(alt)] = entry
 
-        # Validate ALL rows before any write (atomic: all or nothing)
-        valid, errors, warnings = validate_all(raw_rows)
-        if errors:
-            print(json.dumps({
-                "status": "error",
-                "message": "Validation failed; zero rows written.",
-                "rows_rejected": len(raw_rows) - len(valid),
-                "errors": errors,
-                "warnings": warnings,
-            }, indent=2), file=sys.stderr)
-            return 2
-
-        # Check existing ledger state
-        existing = parse_ledger_csv(args.ledger)
-        rows_before = len(existing)
-        span.set_attribute("ledger_rows_before", rows_before)
-
-        if rows_before > 0:
-            print(
-                f"WARNING: Target ledger has {rows_before} existing rows. "
-                f"Appending {len(valid)} new rows.",
-                file=sys.stderr,
+    for r in valid_rows:
+        entry = lookup.get(gc.normalize_ref(r["reference"]))
+        if not entry:
+            continue
+        cached_brand = str(entry.get("brand", "")).strip()
+        if not cached_brand:
+            continue
+        if cached_brand.lower() != r["brand"].lower():
+            warnings.append(
+                f"WARNING line {r['_line_num']}: reference {r['reference']} "
+                f"brand mismatch — input '{r['brand']}', "
+                f"name_cache '{cached_brand}'"
             )
+    return warnings
 
-        # Write all validated rows
-        for row in valid:
-            append_ledger_row(row, args.ledger)
 
-        rows_after = len(parse_ledger_csv(args.ledger))
-        span.set_attribute("ledger_rows_after", rows_after)
+# ─── Cycle-id derivation ──────────────────────────────────────────────
 
-        print(json.dumps({
-            "status": "ok",
-            "rows_committed": len(valid),
-            "ledger_rows_before": rows_before,
-            "ledger_rows_after": rows_after,
-            "warnings": warnings,
-            "aggregates": compute_aggregates(valid),
-        }, indent=2))
+
+def derive_cycle_ids(
+    valid_rows: list[dict],
+) -> tuple[list[dict], Optional[str]]:
+    """Inject cycle_id on every valid row. Return (rows, error_msg_or_None).
+
+    If cycle_id_from_date raises or produces an empty string, abort with a
+    descriptive error. Callers should exit 3 in that case.
+    """
+    fn = gc.cycle_id_from_date
+    out: list[dict] = []
+    for r in valid_rows:
+        try:
+            cid = fn(r["_date_obj"])
+        except Exception as e:
+            return out, (
+                f"cycle_id_from_date failed on line {r['_line_num']} "
+                f"(date {r['date_closed']}): {e}"
+            )
+        if not cid:
+            return out, (
+                f"cycle_id_from_date returned empty on line {r['_line_num']} "
+                f"(date {r['date_closed']})"
+            )
+        r2 = dict(r)
+        r2["cycle_id"] = cid
+        out.append(r2)
+    return out, None
+
+
+# ─── Dedup ────────────────────────────────────────────────────────────
+
+
+def load_existing_ledger_keys(ledger_path: str) -> set[tuple]:
+    """Return set of dedup keys from existing ledger file.
+
+    Key: (iso_date, normalized_ref, account, buy_price, sell_price).
+    """
+    keys: set[tuple] = set()
+    if not os.path.exists(ledger_path):
+        return keys
+    try:
+        with open(ledger_path, "r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    buy = float(row.get("buy_price", "") or 0)
+                    sell = float(row.get("sell_price", "") or 0)
+                except (ValueError, TypeError):
+                    continue
+                keys.add((
+                    (row.get("date_closed", "") or "").strip(),
+                    gc.normalize_ref(row.get("reference", "") or ""),
+                    (row.get("account", "") or "").strip(),
+                    buy,
+                    sell,
+                ))
+    except OSError:
+        return keys
+    return keys
+
+
+def filter_duplicates(
+    valid_rows: list[dict], existing_keys: set[tuple]
+) -> tuple[list[dict], list[str]]:
+    """Split rows into (kept, dup_messages). In-batch dupes also caught."""
+    seen = set(existing_keys)
+    kept: list[dict] = []
+    dupes: list[str] = []
+    for r in valid_rows:
+        key = (
+            r["date_closed"],
+            gc.normalize_ref(r["reference"]),
+            r["account"],
+            r["buy_price"],
+            r["sell_price"],
+        )
+        if key in seen:
+            dupes.append(
+                f"line {r['_line_num']}: duplicate of existing ledger row "
+                f"({r['date_closed']} {r['reference']} {r['account']} "
+                f"buy={r['buy_price']} sell={r['sell_price']})"
+            )
+            continue
+        seen.add(key)
+        kept.append(r)
+    return kept, dupes
+
+
+# ─── Summary rendering ────────────────────────────────────────────────
+
+
+def _fmt_price(v: float) -> str:
+    return str(int(v)) if float(v).is_integer() else f"{v:.2f}"
+
+
+def print_summary(
+    parsed_count: int,
+    valid_count: int,
+    errors: list[str],
+    warnings: list[str],
+    dupes: list[str],
+    rows_with_cycle: list[dict],
+) -> None:
+    print(f"Parsed rows:        {parsed_count}")
+    print(f"Valid rows:         {valid_count}")
+    print(f"Validation errors:  {len(errors)}")
+    for e in errors:
+        print(f"  {e}")
+    print(f"Brand warnings:     {len(warnings)}")
+    for w in warnings:
+        print(f"  {w}")
+    print(f"Duplicates:         {len(dupes)}")
+    for d in dupes:
+        print(f"  {d}")
+    cycles = Counter(
+        r["cycle_id"] for r in rows_with_cycle if r.get("cycle_id")
+    )
+    print("Cycle distribution:")
+    if not cycles:
+        print("  (none)")
+    for cid in sorted(cycles):
+        n = cycles[cid]
+        print(f"  {cid}:  {n} trade{'s' if n != 1 else ''}")
+    accounts = Counter(r["account"] for r in rows_with_cycle)
+    print("Accounts:")
+    if not accounts:
+        print("  (none)")
+    for a in sorted(accounts):
+        print(f"  {a}:  {accounts[a]}")
+
+
+# ─── Atomic write ─────────────────────────────────────────────────────
+
+
+def write_ledger_atomic(rows: list[dict], ledger_path: str) -> None:
+    """Append rows to ledger via .tmp + os.replace.
+
+    If the ledger file is missing or empty (no header), writes the header
+    before the new rows. If the file already has a header (or rows), the
+    existing content is preserved and new rows are appended.
+    Raises OSError on any filesystem failure.
+    """
+    tmp_path = ledger_path + ".tmp"
+    existing = ""
+    if os.path.exists(ledger_path):
+        with open(ledger_path, "r", encoding="utf-8", newline="") as src:
+            existing = src.read()
+
+    parent = os.path.dirname(ledger_path) or "."
+    os.makedirs(parent, exist_ok=True)
+
+    with open(tmp_path, "w", encoding="utf-8", newline="") as dst:
+        if existing.strip():
+            dst.write(existing)
+            if not existing.endswith("\n"):
+                dst.write("\n")
+        else:
+            writer = csv.writer(dst)
+            writer.writerow(OUTPUT_COLUMNS)
+        writer = csv.writer(dst)
+        for r in rows:
+            writer.writerow([
+                r["date_closed"],
+                r["cycle_id"],
+                r["brand"],
+                r["reference"],
+                r["account"],
+                _fmt_price(r["buy_price"]),
+                _fmt_price(r["sell_price"]),
+            ])
+    os.replace(tmp_path, ledger_path)
+
+
+# ─── Post-write sibling calls ─────────────────────────────────────────
+
+
+def _run_subcmd(cmd: list[str], label: str) -> None:
+    """Invoke a sibling script via subprocess; print label + stdout/stderr."""
+    print(f"\n── {label} ──")
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True)
+    except OSError as e:
+        print(f"ERROR invoking {label}: {e}", file=sys.stderr)
+        return
+    if r.stdout:
+        print(r.stdout.rstrip())
+    if r.stderr:
+        print(r.stderr.rstrip(), file=sys.stderr)
+
+
+def post_write_hooks(
+    rows: list[dict],
+    skip_roll: bool,
+) -> None:
+    python = sys.executable
+    ledger_mgr = str(SCRIPT_DIR / "ledger_manager.py")
+    roll_script = str(SCRIPT_DIR / "roll_cycle.py")
+
+    _run_subcmd([python, ledger_mgr, "summary"], "ledger_manager summary")
+    _run_subcmd([python, ledger_mgr, "premium"], "ledger_manager premium")
+
+    if skip_roll:
+        print("\n-- roll_cycle skipped (--no-roll) --")
+        return
+
+    cycles = sorted({r["cycle_id"] for r in rows})
+    for cid in cycles:
+        _run_subcmd([python, roll_script, cid], f"roll_cycle {cid}")
+
+
+# ─── Main ─────────────────────────────────────────────────────────────
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Backfill historical trades into the Grailzee ledger."
+    )
+    parser.add_argument("input", help="Path to input CSV")
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Validate and print summary; no writes.",
+    )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Skip bad rows and import the good ones anyway.",
+    )
+    parser.add_argument(
+        "--no-roll", action="store_true",
+        help="Skip roll_cycle.py invocation after write.",
+    )
+    parser.add_argument(
+        "--ledger", default=None,
+        help="Override LEDGER_PATH (for tests).",
+    )
+    parser.add_argument(
+        "--name-cache", default=None,
+        help="Override NAME_CACHE_PATH (for tests).",
+    )
+    args = parser.parse_args(argv)
+
+    rc = check_dependencies()
+    if rc != 0:
+        return rc
+
+    ledger_path = args.ledger or gc.LEDGER_PATH
+    name_cache_path = args.name_cache or gc.NAME_CACHE_PATH
+
+    rows, file_errors = read_input(args.input)
+    if file_errors:
+        for e in file_errors:
+            print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+
+    today = date.today()
+    valid, validation_errors = validate_all(rows, today, force=args.force)
+
+    with_cycle, cycle_err = derive_cycle_ids(valid)
+    if cycle_err is not None:
+        print(f"ERROR: {cycle_err}", file=sys.stderr)
+        print(SECTION_12_3_HINT, file=sys.stderr)
+        return 3
+
+    existing_keys = load_existing_ledger_keys(ledger_path)
+    to_write, dupe_messages = filter_duplicates(with_cycle, existing_keys)
+
+    name_cache = load_name_cache(name_cache_path)
+    warnings = brand_mismatch_warnings(to_write, name_cache)
+
+    print_summary(
+        parsed_count=len(rows),
+        valid_count=len(valid),
+        errors=validation_errors,
+        warnings=warnings,
+        dupes=dupe_messages,
+        rows_with_cycle=to_write,
+    )
+
+    blocking_errors = validation_errors and not args.force
+    if blocking_errors:
+        print("\nAborting: validation errors present (use --force to import "
+              "only the valid rows).", file=sys.stderr)
+        return 1
+
+    if args.dry_run:
+        print("\n── Dry run: rows that would be appended ──")
+        for r in to_write:
+            print(
+                f"  {r['date_closed']}  {r['cycle_id']}  {r['brand']:<12} "
+                f"{r['reference']:<20} {r['account']:<3} "
+                f"buy={_fmt_price(r['buy_price'])} "
+                f"sell={_fmt_price(r['sell_price'])}"
+            )
+        print("\nDry run complete. No disk writes performed.")
         return 0
 
+    if not to_write:
+        print("\nNothing to write (0 rows after dedup).")
+        return 0
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    sub = parser.add_subparsers(dest="command")
-
-    p_val = sub.add_parser("validate", help="Validate input CSV")
-    p_val.add_argument("input", help="Path to input CSV")
-
-    p_pre = sub.add_parser("preview", help="Validate + show aggregates")
-    p_pre.add_argument("input", help="Path to input CSV")
-
-    p_com = sub.add_parser("commit", help="Validate + append to ledger")
-    p_com.add_argument("input", help="Path to input CSV")
-    p_com.add_argument("--ledger", default=LEDGER_PATH,
-                       help=f"Target ledger (default: {LEDGER_PATH})")
-
-    args = parser.parse_args()
-    if args.command is None:
-        parser.print_help()
+    try:
+        write_ledger_atomic(to_write, ledger_path)
+    except OSError as e:
+        print(f"ERROR writing ledger: {e}", file=sys.stderr)
         return 2
 
-    dispatch = {
-        "validate": cmd_validate,
-        "preview": cmd_preview,
-        "commit": cmd_commit,
-    }
-    return dispatch[args.command](args)
+    print(f"\nAppended {len(to_write)} row(s) to {ledger_path}.")
+
+    post_write_hooks(to_write, skip_roll=args.no_roll)
+    return 0
 
 
 if __name__ == "__main__":
