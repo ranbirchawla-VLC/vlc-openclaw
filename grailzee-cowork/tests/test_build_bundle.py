@@ -18,7 +18,7 @@ from grailzee_bundle.build_bundle import (
     _filename_timestamp,
     _parse_cycle_id,
     _quarter_of,
-    _slice_ledger,
+    _read_full_ledger,
     build_outbound_bundle,
     resolve_previous_cycle_outcome,
 )
@@ -58,7 +58,7 @@ def test_happy_path_builds_bundle_with_all_roles(tmp_path):
             "cycle_focus_current",
             "monthly_goals",
             "quarterly_allocation",
-            "trade_ledger_snippet",
+            "trade_ledger",
             "sourcing_brief",
             "latest_report_csv",
         }
@@ -96,38 +96,73 @@ def test_output_dir_override_respected(tmp_path):
     assert custom.exists()
 
 
-# ─── ledger slicing ─────────────────────────────────────────────────
+# ─── full ledger bundling (Phase A.8) ───────────────────────────────
 
 
-def test_ledger_snippet_filters_to_current_cycle(tmp_path):
+def test_bundled_ledger_matches_source_verbatim(tmp_path):
+    """Bundled trade_ledger.csv is byte-identical to state/trade_ledger.csv.
+
+    Phase A.8 replaced the cycle-scoped slice with a pass-through read;
+    no filtering, no rewriting of CSV quoting. The bundle consumer
+    (strategist) sees exactly what's on disk.
+    """
+    paths = build_fake_grailzee_tree(tmp_path)
+    bundle = build_outbound_bundle(tmp_path)
+    with zipfile.ZipFile(bundle, "r") as zf:
+        bundled = zf.read("trade_ledger.csv")
+    assert bundled == paths["ledger"].read_bytes()
+
+
+def test_bundle_ledger_includes_all_cycles(tmp_path):
+    """Populate a ledger spanning multiple cycles; bundle for any target
+    cycle; assert every row is present.
+    """
     ledger_rows = [
-        {"cycle_id": FAKE_CYCLE_ID, "reference": "79830RB", "net_profit": "340", "roi_pct": "14.5"},
         {"cycle_id": FAKE_PRIOR_CYCLE_ID, "reference": "210.30", "net_profit": "800", "roi_pct": "22.0"},
+        {"cycle_id": FAKE_CYCLE_ID, "reference": "79830RB", "net_profit": "340", "roi_pct": "14.5"},
         {"cycle_id": FAKE_CYCLE_ID, "reference": "124060", "net_profit": "950", "roi_pct": "30.0"},
+        {"cycle_id": "cycle_2026-02", "reference": "116610LN", "net_profit": "1200", "roi_pct": "18.0"},
     ]
     build_fake_grailzee_tree(tmp_path, ledger_rows=ledger_rows)
     bundle = build_outbound_bundle(tmp_path)
     with zipfile.ZipFile(bundle, "r") as zf:
-        snippet = zf.read("trade_ledger_snippet.csv").decode("utf-8")
-    lines = [ln for ln in snippet.splitlines() if ln]
-    # header + 2 matching rows (prior-cycle row excluded)
+        bundled = zf.read("trade_ledger.csv").decode("utf-8")
+    lines = [ln for ln in bundled.splitlines() if ln]
+    # header + 4 rows across three distinct cycles
     assert lines[0].startswith("cycle_id,")
-    assert len(lines) == 3
-    assert FAKE_PRIOR_CYCLE_ID not in snippet
+    assert len(lines) == 5
+    # Every cycle_id the fixture seeded must survive into the bundle
+    assert FAKE_PRIOR_CYCLE_ID in bundled
+    assert FAKE_CYCLE_ID in bundled
+    assert "cycle_2026-02" in bundled
 
 
-def test_slice_ledger_rejects_missing_cycle_id_column(tmp_path):
-    ledger = tmp_path / "bad_ledger.csv"
-    ledger.write_text("reference,net_profit\n79830RB,340\n")
-    with pytest.raises(ValueError, match="cycle_id"):
-        _slice_ledger(ledger, FAKE_CYCLE_ID)
+def test_bundle_ledger_empty_ledger_bundles_header_only(tmp_path):
+    """Header-only ledger (first deployment, no closes yet) passes through
+    to the bundle as a header-only CSV. No filtering, no synthetic rows.
+    """
+    build_fake_grailzee_tree(tmp_path, ledger_rows=[])
+    bundle = build_outbound_bundle(tmp_path)
+    with zipfile.ZipFile(bundle, "r") as zf:
+        bundled = zf.read("trade_ledger.csv").decode("utf-8")
+    lines = [ln for ln in bundled.splitlines() if ln]
+    assert len(lines) == 1
+    assert lines[0].startswith("cycle_id,")
 
 
-def test_slice_ledger_rejects_empty_file(tmp_path):
-    ledger = tmp_path / "empty_ledger.csv"
-    ledger.write_text("")
-    with pytest.raises(ValueError, match="no header row"):
-        _slice_ledger(ledger, FAKE_CYCLE_ID)
+def test_read_full_ledger_returns_bytes_verbatim(tmp_path):
+    """Unit test: _read_full_ledger is a byte-exact pass-through read."""
+    ledger = tmp_path / "ledger.csv"
+    content = b"cycle_id,reference,net_profit\ncycle_2026-04,79830RB,340\n"
+    ledger.write_bytes(content)
+    assert _read_full_ledger(ledger) == content
+
+
+def test_read_full_ledger_missing_file_raises(tmp_path):
+    """Unit test: missing ledger raises FileNotFoundError with path."""
+    ledger = tmp_path / "nonexistent.csv"
+    with pytest.raises(FileNotFoundError, match="trade ledger"):
+        _read_full_ledger(ledger)
 
 
 # ─── report csv selection ──────────────────────────────────────────
