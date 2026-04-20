@@ -22,6 +22,7 @@ from scripts.grailzee_common import (
     classify_dj_config,
     cycle_date_range,
     cycle_id_from_date,
+    cycle_outcome_path,
     ensure_ledger_exists,
     get_ad_budget,
     is_cycle_focus_current,
@@ -361,6 +362,29 @@ class TestPrevCycle:
         result = prev_cycle("cycle_2026-05")
         assert result.startswith("cycle_")
         assert len(result.split("-")[1]) == 2
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 10b. cycle_outcome_path tests (Phase A.5)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestCycleOutcomePath:
+    """Phase A.5: per-cycle outcome filenames replace single-file constant."""
+
+    def test_cycle_outcome_path_per_cycle(self):
+        """Expected path embeds the full cycle_id in the filename."""
+        p = cycle_outcome_path("cycle_2026-07")
+        assert p.endswith("/state/cycle_outcome_cycle_2026-07.json")
+
+    def test_cycle_outcome_path_distinct_per_cycle(self):
+        """Different cycle_ids produce different files (no collision)."""
+        assert cycle_outcome_path("cycle_2026-06") != cycle_outcome_path("cycle_2026-08")
+
+    def test_cycle_outcome_path_year_boundary(self):
+        """Year boundary cycle_ids are handled as opaque strings."""
+        p = cycle_outcome_path("cycle_2025-26")
+        assert p.endswith("cycle_outcome_cycle_2025-26.json")
 
 
 # ═══════════════════════════════════════════════════════════════════════

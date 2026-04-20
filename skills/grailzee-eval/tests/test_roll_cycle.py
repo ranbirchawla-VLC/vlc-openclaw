@@ -255,7 +255,7 @@ class TestEmptyCycle:
 
 class TestFileWrite:
     def test_writes_json(self, tmp_path):
-        """run() writes cycle_outcome.json to output_path."""
+        """run() writes cycle outcome JSON to the supplied output_path."""
         ledger = _write_ledger(tmp_path, [
             "2026-01-19,cycle_2026-02,Tudor,79830RB,NR,2750,3200",
         ])
@@ -278,6 +278,48 @@ class TestFileWrite:
         result1 = run("cycle_2026-02", ledger, cache, output_path=out)
         result2 = run("cycle_2026-02", ledger, cache, output_path=out)
         assert result1 == result2
+
+    def test_roll_cycle_writes_per_cycle_file(self, tmp_path):
+        """Phase A.5: running two different cycles produces two distinct files,
+        neither overwriting the other.
+        """
+        ledger = _write_ledger(tmp_path, [
+            "2026-01-19,cycle_2026-02,Tudor,79830RB,NR,2750,3200",
+            "2026-02-02,cycle_2026-03,Tudor,91650,NR,1800,2100",
+        ])
+        cache = _empty_cache(tmp_path)
+        out_02 = str(tmp_path / "cycle_outcome_cycle_2026-02.json")
+        out_03 = str(tmp_path / "cycle_outcome_cycle_2026-03.json")
+
+        run("cycle_2026-02", ledger, cache, output_path=out_02)
+        run("cycle_2026-03", ledger, cache, output_path=out_03)
+
+        assert Path(out_02).exists()
+        assert Path(out_03).exists()
+        d02 = json.loads(Path(out_02).read_text())
+        d03 = json.loads(Path(out_03).read_text())
+        assert d02["cycle_id"] == "cycle_2026-02"
+        assert d03["cycle_id"] == "cycle_2026-03"
+        # Neither file was overwritten by the other
+        assert d02 != d03
+
+    def test_roll_cycle_default_path_uses_cycle_outcome_path(
+        self, tmp_path, monkeypatch
+    ):
+        """When output_path is None, run() writes to cycle_outcome_path(cycle_id)."""
+        import scripts.grailzee_common as gc
+        import scripts.roll_cycle as rc
+        monkeypatch.setattr(
+            rc, "cycle_outcome_path",
+            lambda cid: str(tmp_path / f"cycle_outcome_{cid}.json"),
+        )
+        ledger = _write_ledger(tmp_path, [
+            "2026-01-19,cycle_2026-02,Tudor,79830RB,NR,2750,3200",
+        ])
+        cache = _empty_cache(tmp_path)
+        run("cycle_2026-02", ledger, cache)  # no output_path
+        expected = tmp_path / "cycle_outcome_cycle_2026-02.json"
+        assert expected.exists()
 
 
 # ═══════════════════════════════════════════════════════════════════════
