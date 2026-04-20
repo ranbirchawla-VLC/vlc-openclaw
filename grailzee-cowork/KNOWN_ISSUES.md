@@ -1,22 +1,22 @@
 # Known Issues — grailzee-cowork
 
-## Issue 1: OUTBOUND bundle requires cycle_focus.json on first cycle_planning session
+## Issue 1: OUTBOUND bundle requires all strategy state files on first cycle_planning session
 
 **Surfaced:** 2026-04-19 during Session 5 Mac Studio end-to-end dry-run.
 
 **Symptom:**
-Running the outbound bundle build in cycle_planning mode fails with "Bundle build failed: Missing cycle_focus: <path>/state/cycle_focus.json"
+Running the outbound bundle build on first-ever use fails iteratively with "Bundle build failed: Missing <file>" for each strategy state file that hasn't been produced yet. Observed failures: cycle_focus.json, monthly_goals.json. Likely also: quarterly_allocation.json and possibly the six threshold config files.
 
 **Root cause:**
-The bundle builder in grailzee_bundle/build_bundle.py treats state/cycle_focus.json as a required input. On the FIRST cycle_planning session for a new cycle, that file does not yet exist — it is produced by the strategy session itself. Chicken-and-egg.
+grailzee_bundle/build_bundle.py treats ALL strategy state files as required inputs via _read_required() (file-exists check). On a first cycle_planning session, none of these files exist — they are OUTPUTS of strategy sessions that haven't run yet.
 
 **Workaround in use:**
-Operator manually writes a placeholder cycle_focus.json before the first bundle build.
+Operator writes placeholders for each missing file before the bundle build. Placeholders contain cycle_id for agent-side anchoring, placeholder: true marker, and null/empty field values. INBOUND overwrites them on first real strategy commit.
 
 **Proper fix direction:**
-Bundle builder should treat missing cycle_focus.json as valid for session_mode=cycle_planning and include a null placeholder in the bundle manifest. Other session modes may still reasonably require it to exist.
+Bundle builder should treat missing strategy-state files (cycle_focus, monthly_goals, quarterly_allocation) as optional when session_mode=cycle_planning, emitting null in the bundle manifest. For non-cycle_planning modes, strategy files should still be required. Threshold config files (signal, scoring, momentum, window, premium, margin) are a separate class — they should probably ship with sensible defaults in state/ on initial setup, not require first-session fabrication.
 
-**Priority:** Medium — fix before merge to main OR document as manual step for first-cycle sessions.
+**Priority:** Medium-High — must be fixed before merge to main. Current behavior makes the plugin unusable for any first-ever operator without the workaround knowledge.
 
 **Status:** Open
 
