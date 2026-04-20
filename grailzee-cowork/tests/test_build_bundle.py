@@ -11,12 +11,16 @@ from pathlib import Path
 import pytest
 
 from grailzee_bundle.build_bundle import (
+    MAX_PREVIOUS_CYCLE_LOOKBACK,
+    PREVIOUS_OUTCOME_ARCNAME,
+    PREVIOUS_OUTCOME_META_ARCNAME,
     _detect_boundaries,
     _filename_timestamp,
     _parse_cycle_id,
     _quarter_of,
     _slice_ledger,
     build_outbound_bundle,
+    resolve_previous_cycle_outcome,
 )
 from _fixtures import (
     FAKE_CYCLE_ID,
@@ -310,3 +314,195 @@ def test_detect_boundaries_missing_file():
         "month_boundary": False,
         "quarter_boundary": False,
     }
+
+
+# ─── Phase A.7: resolve_previous_cycle_outcome ─────────────────────
+
+def _write_outcome(state: Path, cycle_id: str, trades: list) -> Path:
+    """Write a minimal cycle_outcome_<id>.json for tests."""
+    path = state / f"cycle_outcome_{cycle_id}.json"
+    path.write_text(json.dumps({
+        "cycle_id": cycle_id,
+        "date_range": {"start": "2026-01-01", "end": "2026-01-14"},
+        "trades": trades,
+        "summary": {
+            "total_trades": len(trades),
+            "profitable": sum(1 for t in trades if t.get("net", 0) > 0),
+            "avg_roi": 0.0,
+            "total_net": sum(t.get("net", 0) for t in trades),
+        },
+        "cycle_focus": {},
+    }))
+    return path
+
+
+class TestResolvePreviousCycleOutcome:
+    """Phase A.7: resolver used by the bundle builder to find the most
+    recent cycle outcome with real trade data before the planning target.
+    """
+
+    def test_resolve_previous_cycle_finds_adjacent(self, tmp_path):
+        """Target cycle_2026-07; cycle_2026-06 has trades → returns cycle_2026-06."""
+        state = tmp_path / "state"
+        state.mkdir()
+        _write_outcome(state, "cycle_2026-06", [
+            {"date": "2026-03-24", "reference": "79830RB", "net": 551.0},
+        ])
+        path, meta = resolve_previous_cycle_outcome(state, "cycle_2026-07")
+        assert path == state / "cycle_outcome_cycle_2026-06.json"
+        assert meta["source_cycle_id"] == "cycle_2026-06"
+        assert meta["target_planning_cycle_id"] == "cycle_2026-07"
+        assert meta["skipped_cycles"] == []
+        assert "cycle_2026-06" in meta["resolution_note"]
+
+    def test_resolve_previous_cycle_skips_empty(self, tmp_path):
+        """Target cycle_2026-08; cycle_2026-07 empty, cycle_2026-06 has trades
+        → returns cycle_2026-06 with skipped=[cycle_2026-07].
+        """
+        state = tmp_path / "state"
+        state.mkdir()
+        _write_outcome(state, "cycle_2026-07", [])  # empty trades array
+        _write_outcome(state, "cycle_2026-06", [
+            {"date": "2026-03-25", "reference": "M28500-0003", "net": 401.0},
+        ])
+        path, meta = resolve_previous_cycle_outcome(state, "cycle_2026-08")
+        assert path == state / "cycle_outcome_cycle_2026-06.json"
+        assert meta["source_cycle_id"] == "cycle_2026-06"
+        assert meta["skipped_cycles"] == ["cycle_2026-07"]
+        assert "skipped" in meta["resolution_note"]
+
+    def test_resolve_previous_cycle_missing_file_not_counted_as_skip(self, tmp_path):
+        """Missing outcome files are not listed in skipped_cycles — only
+        existing-but-empty files are."""
+        state = tmp_path / "state"
+        state.mkdir()
+        # cycle_2026-07 file DOES NOT exist; cycle_2026-06 has trades
+        _write_outcome(state, "cycle_2026-06", [
+            {"date": "2026-03-24", "reference": "116900", "net": 200.0},
+        ])
+        path, meta = resolve_previous_cycle_outcome(state, "cycle_2026-08")
+        assert meta["source_cycle_id"] == "cycle_2026-06"
+        assert meta["skipped_cycles"] == []  # missing file is not a skip
+
+    def test_resolve_previous_cycle_no_history(self, tmp_path):
+        """No outcome files exist anywhere → returns None + null source."""
+        state = tmp_path / "state"
+        state.mkdir()
+        path, meta = resolve_previous_cycle_outcome(state, "cycle_2026-07")
+        assert path is None
+        assert meta["source_cycle_id"] is None
+        assert meta["target_planning_cycle_id"] == "cycle_2026-07"
+        assert "No cycle outcome" in meta["resolution_note"]
+
+    def test_resolve_previous_cycle_bailout(self, tmp_path):
+        """All cycles in the lookback window are empty → bailout without
+        infinite loop.
+        """
+        state = tmp_path / "state"
+        state.mkdir()
+        # Pre-populate 30 empty cycles — more than MAX_PREVIOUS_CYCLE_LOOKBACK
+        for i in range(26, 0, -1):
+            _write_outcome(state, f"cycle_2026-{i:02d}", [])
+        for i in range(26, 22, -1):
+            _write_outcome(state, f"cycle_2025-{i:02d}", [])
+        path, meta = resolve_previous_cycle_outcome(
+            state, "cycle_2026-26", max_lookback=MAX_PREVIOUS_CYCLE_LOOKBACK,
+        )
+        assert path is None
+        assert meta["source_cycle_id"] is None
+        # All 26 lookback cycles should be in the skip list
+        assert len(meta["skipped_cycles"]) == MAX_PREVIOUS_CYCLE_LOOKBACK
+
+    def test_resolve_previous_cycle_malformed_outcome_treated_as_empty(self, tmp_path):
+        """A cycle_outcome file that can't be parsed is treated as having no
+        trades (not a hard failure — the resolver walks past it).
+        """
+        state = tmp_path / "state"
+        state.mkdir()
+        (state / "cycle_outcome_cycle_2026-07.json").write_text("not valid json")
+        _write_outcome(state, "cycle_2026-06", [
+            {"date": "2026-03-24", "reference": "79230B", "net": 151.0},
+        ])
+        path, meta = resolve_previous_cycle_outcome(state, "cycle_2026-08")
+        assert meta["source_cycle_id"] == "cycle_2026-06"
+
+
+# ─── Phase A.7: bundle integration ─────────────────────────────────
+
+def test_bundle_includes_cycle_outcome_previous(tmp_path):
+    """Bundle contains cycle_outcome_previous.json + .meta.json when a
+    prior cycle with trades exists.
+    """
+    paths = build_fake_grailzee_tree(tmp_path)
+    # FAKE_CYCLE_ID is cycle_2026-04; the prior cycle with trades should
+    # be cycle_2026-03. Seed it.
+    _write_outcome(paths["state"], "cycle_2026-03", [
+        {"date": "2026-02-05", "reference": "216570", "net": 251.0},
+    ])
+
+    bundle_path = build_outbound_bundle(tmp_path)
+
+    with zipfile.ZipFile(bundle_path) as zf:
+        names = set(zf.namelist())
+        assert PREVIOUS_OUTCOME_ARCNAME in names
+        assert PREVIOUS_OUTCOME_META_ARCNAME in names
+
+        meta = json.loads(zf.read(PREVIOUS_OUTCOME_META_ARCNAME))
+        assert meta["source_cycle_id"] == "cycle_2026-03"
+        assert meta["target_planning_cycle_id"] == FAKE_CYCLE_ID
+        assert meta["skipped_cycles"] == []
+
+        outcome = json.loads(zf.read(PREVIOUS_OUTCOME_ARCNAME))
+        assert outcome["cycle_id"] == "cycle_2026-03"
+        assert len(outcome["trades"]) == 1
+
+        # Manifest has both roles registered
+        manifest = json.loads(zf.read("manifest.json"))
+        roles = {f["role"] for f in manifest["files"]}
+        assert "previous_cycle_outcome" in roles
+        assert "previous_cycle_outcome_meta" in roles
+
+
+def test_bundle_meta_only_when_no_previous_cycle_has_trades(tmp_path):
+    """First-deployment case: no prior cycles have trade data. Bundle
+    still includes the meta (with source_cycle_id: null) but NOT the
+    outcome file itself.
+    """
+    paths = build_fake_grailzee_tree(tmp_path)
+    # Do NOT seed any cycle_outcome files.
+
+    bundle_path = build_outbound_bundle(tmp_path)
+
+    with zipfile.ZipFile(bundle_path) as zf:
+        names = set(zf.namelist())
+        assert PREVIOUS_OUTCOME_META_ARCNAME in names
+        assert PREVIOUS_OUTCOME_ARCNAME not in names
+
+        meta = json.loads(zf.read(PREVIOUS_OUTCOME_META_ARCNAME))
+        assert meta["source_cycle_id"] is None
+        assert meta["target_planning_cycle_id"] == FAKE_CYCLE_ID
+        assert meta["skipped_cycles"] == []
+
+        manifest = json.loads(zf.read("manifest.json"))
+        roles = {f["role"] for f in manifest["files"]}
+        assert "previous_cycle_outcome_meta" in roles
+        assert "previous_cycle_outcome" not in roles
+
+
+def test_bundle_skipped_cycles_surfaced_in_meta(tmp_path):
+    """Bundle meta lists empty-but-existent cycles in skipped_cycles so
+    the strategist can say 'your most recent cycle was empty; here's
+    the last one with data.'
+    """
+    paths = build_fake_grailzee_tree(tmp_path, cycle_id="cycle_2026-05")
+    _write_outcome(paths["state"], "cycle_2026-04", [])  # empty
+    _write_outcome(paths["state"], "cycle_2026-03", [
+        {"date": "2026-02-10", "reference": "28500", "net": 120.0},
+    ])
+
+    bundle_path = build_outbound_bundle(tmp_path)
+
+    with zipfile.ZipFile(bundle_path) as zf:
+        meta = json.loads(zf.read(PREVIOUS_OUTCOME_META_ARCNAME))
+        assert meta["source_cycle_id"] == "cycle_2026-03"
+        assert meta["skipped_cycles"] == ["cycle_2026-04"]
