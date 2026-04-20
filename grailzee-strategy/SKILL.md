@@ -34,7 +34,16 @@ Read in order (all are in the uploaded `.zip`):
    `max_buy_nr`, `brand`, `model`.
 5. `cycle_focus_current.json` — what the agent currently focuses on.
 6. `monthly_goals.json` / `quarterly_allocation.json` — current state.
-7. `latest_report/grailzee_YYYY-MM-DD.csv` — raw market snapshot, for
+7. `cycle_outcome_previous.meta.json` (always present) and
+   `cycle_outcome_previous.json` (present when a prior cycle produced
+   trade data). The meta's `source_cycle_id` tells you which cycle the
+   outcome came from — it is NOT always the cycle immediately before
+   the planning target, because cycles with zero trades are skipped.
+   If `source_cycle_id` is null, no prior cycle has trade data yet; do
+   not try to render PERFORMANCE or WHAT WE ACTUALLY BOUGHT from
+   empty state. See `references/strategy-framework.md` for how to
+   fold this read into the brief.
+8. `latest_report/grailzee_YYYY-MM-DD.csv` — raw market snapshot, for
    spot-checks only.
 
 Then read `references/strategy-framework.md` for the per-mode decision

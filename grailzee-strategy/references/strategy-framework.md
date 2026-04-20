@@ -61,7 +61,36 @@ bundle in this order:
    untouched (decision section null). If you ARE crossing, write a
    full replacement.
 
-7. **`latest_report/grailzee_YYYY-MM-DD.csv`** — raw market data
+7. **`cycle_outcome_previous.meta.json` + `cycle_outcome_previous.json`**
+   — the most recent completed cycle that produced real trade data, as
+   resolved by the bundle builder. Read the meta first:
+   - `source_cycle_id` — which cycle this payload is for. Usually the
+     cycle immediately before `cycle_id`, but NOT always: cycles with
+     zero trades are skipped, so a `cycle_2026-08` planning session
+     may surface `cycle_2026-06` as the source if cycle 07 had no
+     closes. Call the skip out in the brief's headline or PERFORMANCE
+     section when it happens.
+   - `skipped_cycles` — the empty cycles walked past, if any.
+   - `resolution_note` — human-readable summary of what was resolved.
+   - `source_cycle_id: null` means no prior cycle has trade data (first
+     session on a fresh deployment, or the ledger hasn't accumulated
+     14-day closes yet). In that case `cycle_outcome_previous.json` is
+     absent from the bundle; do NOT render empty PERFORMANCE or
+     WHAT WE ACTUALLY BOUGHT sections. The brief should say explicitly
+     "no prior cycle outcome available" and frame purely from current
+     signal + cache.
+
+   When the outcome file IS present, its payload is the same structure
+   `roll_cycle.py` produces: `cycle_id`, `date_range`, `trades[]`,
+   `summary`, and `cycle_focus` (snapshot of what was targeted at the
+   time). Use the `summary` totals (total_trades, profitable, avg_roi,
+   total_net, capital_deployed) in the brief's PERFORMANCE section.
+   Use `trades[]` with their `in_focus` flags for WHAT WE ACTUALLY
+   BOUGHT — off-cycle closes (`in_focus: false`) are the tell that
+   the prior plan missed the shot. Anchor every quantified claim
+   ("we did X% ROI") to these numbers, not to the operator's memory.
+
+8. **`latest_report/grailzee_YYYY-MM-DD.csv`** — raw market data
    snapshot. Usually consulted only for spot-checking specific
    references.
 
