@@ -43,3 +43,29 @@ Cowork INBOUND should inject cycle_id from strategy_output.json top-level into t
 **Priority:** High — MUST be fixed before merge to main.
 
 **Status:** Open
+
+---
+
+## Issue 3: sourcing_brief path mismatch between analyzer output and bundle builder expectation
+
+**Surfaced:** 2026-04-19 during Session 5 bundle build investigation.
+
+**Symptom:**
+Bundle builder expects sourcing_brief at output/briefs/sourcing_brief_<cycle_id>.json but the grailzee-eval analyzer writes it to state/sourcing_brief.json. Without manual intervention, the file is never at the path the builder needs.
+
+**Root cause:**
+Two possible design intents conflict:
+- state/sourcing_brief.json as ephemeral working state produced by the analyzer
+- output/briefs/sourcing_brief_<cycle>.json as the canonical archived deliverable the bundle should carry
+
+Nothing currently bridges these — no post-analyzer publish step, no builder fallback to state/.
+
+**Workaround in use:**
+Operator manually copies state/sourcing_brief.json to output/briefs/sourcing_brief_<cycle_id>.json after each analyzer run.
+
+**Proper fix direction:**
+Either (a) the analyzer's report_pipeline should publish the sourcing brief to output/briefs/<cycle>.json as its final step, or (b) the bundle builder should read from state/sourcing_brief.json directly. Option (a) matches the architectural split (state = working, output = canonical).
+
+**Priority:** Medium — fix before merge to main. Breaks clean first-run UX.
+
+**Status:** Open
