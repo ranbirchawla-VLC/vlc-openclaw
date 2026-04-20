@@ -40,7 +40,6 @@ BRIEF_PATH          = f"{STATE_PATH}/sourcing_brief.json"
 LEDGER_PATH         = f"{STATE_PATH}/trade_ledger.csv"
 NAME_CACHE_PATH     = f"{STATE_PATH}/name_cache.json"
 CYCLE_FOCUS_PATH    = f"{STATE_PATH}/cycle_focus.json"
-CYCLE_OUTCOME_PATH  = f"{STATE_PATH}/cycle_outcome.json"
 MONTHLY_GOALS_PATH  = f"{STATE_PATH}/monthly_goals.json"
 QUARTERLY_PATH      = f"{STATE_PATH}/quarterly_allocation.json"
 RUN_HISTORY_PATH    = f"{STATE_PATH}/run_history.json"
@@ -392,6 +391,17 @@ def cycle_id_from_date(d: date) -> str:
     delta_days = (d - first_monday).days
     cycle_num = 1 + (delta_days // 14)
     return f"cycle_{d.year}-{cycle_num:02d}"
+
+
+def cycle_outcome_path(cycle_id: str) -> str:
+    """Per-cycle outcome file path (Phase A.5).
+
+    Each cycle rollup writes to its own file so a loop of rollups does not
+    overwrite prior results. Replaces the prior single-file CYCLE_OUTCOME_PATH
+    constant. Consumers computing 'previous cycle outcome' resolve the
+    previous cycle_id first, then pass it here.
+    """
+    return f"{STATE_PATH}/cycle_outcome_{cycle_id}.json"
 
 
 def cycle_date_range(cycle_id: str) -> tuple[date, date]:
