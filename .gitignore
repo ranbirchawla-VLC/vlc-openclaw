@@ -46,3 +46,11 @@ client_secret*.json
 # Agent runtime state (user-specific, not code)
 gtd-workspace/storage/
 .fastembed_cache/
+
+# Dev-only session artifacts
+skills/grailzee-eval/.openclaw/
+skills/grailzee-eval/reports/
+
+# User-specific shell helpers (hardcoded Drive paths)
+skills/grailzee-eval/run_pipeline.sh
+skills/grailzee-eval/run_report.sh
