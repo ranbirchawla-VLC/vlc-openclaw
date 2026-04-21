@@ -76,6 +76,7 @@ _GRAILZEE_EVAL = _WORKSPACE_ROOT / "skills" / "grailzee-eval"
 if _GRAILZEE_EVAL.exists() and str(_GRAILZEE_EVAL) not in sys.path:
     sys.path.insert(0, str(_GRAILZEE_EVAL))
 from scripts.grailzee_common import (  # noqa: E402
+    cycle_date_range,
     prev_cycle,
 )
 
@@ -132,13 +133,21 @@ def _filename_timestamp(dt: datetime) -> str:
 
 
 def _parse_cycle_id(cycle_id: str) -> tuple[int, int]:
-    """Return ``(year, month)`` for a ``cycle_YYYY-MM`` id.
+    """Return ``(year, cycle_num)`` for a ``cycle_YYYY-NN`` id.
 
-    Raises ValueError on malformed input.
+    NN is the biweekly cycle counter (1 through ~26 for a calendar year),
+    NOT a calendar month. Callers needing the cycle's month/quarter on
+    the Gregorian calendar must use ``_cycle_calendar_position`` — the
+    cycle number alone does not map to a month because biweekly cycles
+    are ~14 days long and drift relative to month boundaries (e.g.
+    cycle_2026-07 spans Mar 30 - Apr 12, 2026).
+
+    Raises ValueError on malformed input (wrong prefix, non-four-digit
+    year, non-two-digit cycle number).
     """
     m = CYCLE_ID_PATTERN.match(cycle_id)
     if not m:
-        raise ValueError(f"Malformed cycle_id {cycle_id!r}; expected cycle_YYYY-MM")
+        raise ValueError(f"Malformed cycle_id {cycle_id!r}; expected cycle_YYYY-NN")
     return int(m.group(1)), int(m.group(2))
 
 
@@ -146,12 +155,35 @@ def _quarter_of(month: int) -> int:
     return (month - 1) // 3 + 1
 
 
+def _cycle_calendar_position(cycle_id: str) -> tuple[int, int, int]:
+    """Return ``(start_year, start_month, start_quarter)`` for a cycle.
+
+    Anchors the cycle's calendar identity to its start date. Bundling
+    happens at cycle-planning time which is the cycle start; the cycle's
+    "which month" answer is the month that contains Day 1 of the cycle.
+    A cycle that spans a month boundary (e.g. cycle_2026-07: Mar 30 ->
+    Apr 12) is classified by its start (March).
+
+    Delegates to ``grailzee_common.cycle_date_range`` so the math lives
+    in exactly one place (the analyzer side). Propagates whatever the
+    analyzer-side parser raises on malformed input.
+    """
+    start, _end = cycle_date_range(cycle_id)
+    return start.year, start.month, _quarter_of(start.month)
+
+
 def _detect_boundaries(current_cycle_id: str, run_history_path: Path) -> dict[str, bool]:
     """Return ``{'month_boundary': bool, 'quarter_boundary': bool}``.
 
-    Anchors on the most recent run_history entry whose cycle_id DIFFERS
-    from ``current_cycle_id``. If history is absent, empty, or contains
-    only the current cycle, both flags are False.
+    Compares the calendar position (year/month/quarter of the cycle's
+    start date) of the current cycle against the most recent run_history
+    entry whose cycle_id DIFFERS from ``current_cycle_id``. If history
+    is absent, empty, or contains only the current cycle, both flags
+    default to False.
+
+    Calendar-position comparison is critical: biweekly cycle numbers
+    (01..~26) are NOT calendar months, so raw NN-equality is nonsense
+    for boundary detection.
     """
     if not run_history_path.exists():
         return {"month_boundary": False, "quarter_boundary": False}
@@ -178,12 +210,12 @@ def _detect_boundaries(current_cycle_id: str, run_history_path: Path) -> dict[st
     if prior_cycle_id is None:
         return {"month_boundary": False, "quarter_boundary": False}
     try:
-        curr_y, curr_m = _parse_cycle_id(current_cycle_id)
-        prev_y, prev_m = _parse_cycle_id(prior_cycle_id)
+        curr_y, curr_m, curr_q = _cycle_calendar_position(current_cycle_id)
+        prev_y, prev_m, prev_q = _cycle_calendar_position(prior_cycle_id)
     except ValueError:
         return {"month_boundary": False, "quarter_boundary": False}
     month_boundary = (curr_y, curr_m) != (prev_y, prev_m)
-    quarter_boundary = (curr_y, _quarter_of(curr_m)) != (prev_y, _quarter_of(prev_m))
+    quarter_boundary = (curr_y, curr_q) != (prev_y, prev_q)
     return {"month_boundary": month_boundary, "quarter_boundary": quarter_boundary}
 
 

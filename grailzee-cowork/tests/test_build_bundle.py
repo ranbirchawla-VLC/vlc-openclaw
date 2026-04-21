@@ -228,8 +228,29 @@ def test_only_current_cycle_in_history_both_false(tmp_path):
 
 
 def test_prior_cycle_in_different_quarter_both_true(tmp_path):
-    # 2026-03 (Q1) → 2026-04 (Q2): month AND quarter boundary
-    build_fake_grailzee_tree(tmp_path, with_boundary=True)
+    # cycle_2026-06 starts Mar 16 (Q1); cycle_2026-08 starts Apr 13 (Q2).
+    # Crossing biweekly cycles that span the quarter boundary. Previous
+    # version of this test used cycle_2026-03 -> cycle_2026-04 assuming
+    # NN == month; that's the A.6 bug — biweekly cycles 03 and 04 both
+    # start in February.
+    build_fake_grailzee_tree(
+        tmp_path,
+        cycle_id="cycle_2026-08",
+        run_history={
+            "runs": [
+                {"cycle_id": "cycle_2026-06", "generated_at": "2026-03-18T00:00:00Z"},
+                {"cycle_id": "cycle_2026-08", "generated_at": "2026-04-14T00:00:00Z"},
+            ]
+        },
+        cache={
+            "schema_version": 2,
+            "cycle_id": "cycle_2026-08",
+            "generated_at": "2026-04-14T12:00:00Z",
+            "references": {},
+        },
+        cycle_focus={"cycle_id": "cycle_2026-08"},
+        brief={"cycle_id": "cycle_2026-08", "headline": "", "sections": []},
+    )
     bundle = build_outbound_bundle(tmp_path)
     with zipfile.ZipFile(bundle, "r") as zf:
         manifest = json.loads(zf.read("manifest.json"))
@@ -237,20 +258,23 @@ def test_prior_cycle_in_different_quarter_both_true(tmp_path):
 
 
 def test_prior_cycle_within_same_quarter_only_month_boundary(tmp_path):
-    # 2026-04 (current) vs 2026-05 (prior) — same quarter, different month
+    # cycle_2026-04 starts Feb 16 (Q1); cycle_2026-05 starts Mar 2 (Q1).
+    # Feb -> Mar = month boundary, same quarter. Unlike the quarter-
+    # boundary test above, this pair was accidentally correct under the
+    # A.6 bug and stays correct under the fix.
     paths = build_fake_grailzee_tree(
         tmp_path,
         cycle_id="cycle_2026-05",
         run_history={
             "runs": [
-                {"cycle_id": "cycle_2026-04", "generated_at": "2026-04-10T00:00:00Z"},
-                {"cycle_id": "cycle_2026-05", "generated_at": "2026-05-10T00:00:00Z"},
+                {"cycle_id": "cycle_2026-04", "generated_at": "2026-02-16T00:00:00Z"},
+                {"cycle_id": "cycle_2026-05", "generated_at": "2026-03-02T00:00:00Z"},
             ]
         },
         cache={
             "schema_version": 2,
             "cycle_id": "cycle_2026-05",
-            "generated_at": "2026-05-15T12:00:00Z",
+            "generated_at": "2026-03-02T12:00:00Z",
             "references": {},
         },
         cycle_focus={"cycle_id": "cycle_2026-05"},
@@ -264,21 +288,34 @@ def test_prior_cycle_within_same_quarter_only_month_boundary(tmp_path):
 
 def test_boundary_anchor_skips_current_cycle_entries(tmp_path):
     """Most recent history entry equals current cycle; anchor must skip
-    to the next-older DIFFERENT entry to detect the boundary."""
+    to the next-older DIFFERENT entry to detect the boundary.
+
+    Uses the cycle_2026-06 (Mar start, Q1) -> cycle_2026-08 (Apr start,
+    Q2) pair so the boundary is both month and quarter under the correct
+    biweekly semantics."""
     build_fake_grailzee_tree(
         tmp_path,
+        cycle_id="cycle_2026-08",
         run_history={
             "runs": [
-                {"cycle_id": FAKE_PRIOR_CYCLE_ID, "generated_at": "2026-03-18T00:00:00Z"},
-                {"cycle_id": FAKE_CYCLE_ID, "generated_at": "2026-04-10T00:00:00Z"},
-                {"cycle_id": FAKE_CYCLE_ID, "generated_at": "2026-04-12T00:00:00Z"},
+                {"cycle_id": "cycle_2026-06", "generated_at": "2026-03-18T00:00:00Z"},
+                {"cycle_id": "cycle_2026-08", "generated_at": "2026-04-14T00:00:00Z"},
+                {"cycle_id": "cycle_2026-08", "generated_at": "2026-04-16T00:00:00Z"},
             ]
         },
+        cache={
+            "schema_version": 2,
+            "cycle_id": "cycle_2026-08",
+            "generated_at": "2026-04-14T12:00:00Z",
+            "references": {},
+        },
+        cycle_focus={"cycle_id": "cycle_2026-08"},
+        brief={"cycle_id": "cycle_2026-08", "headline": "", "sections": []},
     )
     bundle = build_outbound_bundle(tmp_path)
     with zipfile.ZipFile(bundle, "r") as zf:
         manifest = json.loads(zf.read("manifest.json"))
-    # anchor = cycle_2026-03 (Q1); current = cycle_2026-04 (Q2)
+    # anchor = cycle_2026-06 (Mar start, Q1); current = cycle_2026-08 (Apr start, Q2)
     assert manifest["scope"] == {"month_boundary": True, "quarter_boundary": True}
 
 
@@ -333,12 +370,129 @@ def test_tmp_file_cleaned_on_failure(tmp_path):
 
 
 def test_parse_cycle_id_happy():
+    """Second tuple element is the biweekly cycle counter (01-26+), not
+    a calendar month. A.6 fix: docstring and downstream consumers now
+    treat NN as cycle_num."""
     assert _parse_cycle_id("cycle_2026-04") == (2026, 4)
 
 
 def test_parse_cycle_id_malformed():
     with pytest.raises(ValueError):
         _parse_cycle_id("2026-04")
+
+
+# ─── A.6 regression: biweekly-as-month bug ─────────────────────────
+
+
+from grailzee_bundle.build_bundle import _cycle_calendar_position  # noqa: E402
+
+
+class TestCycleIdBiweeklySemantics:
+    """A.6 regression suite. Before the fix, _parse_cycle_id claimed to
+    return (year, month) and _detect_boundaries compared NN as a month
+    index. Because biweekly cycles drift relative to month boundaries,
+    every boundary flag was wrong. Tests cover both sides of the fix:
+    NN in the 1-12 range (misparsed as a month under the bug) and the
+    13-26 range (produced invalid months like Q5 under the bug)."""
+
+    def test_parse_cycle_id_13_through_26_returns_cycle_num(self):
+        """Cycles 13-26 parse cleanly under the fix. Pre-fix,
+        `_quarter_of` on these produced Q5..Q9, which are not real
+        quarters."""
+        for nn in range(13, 27):
+            year, cycle_num = _parse_cycle_id(f"cycle_2026-{nn:02d}")
+            assert (year, cycle_num) == (2026, nn)
+
+    def test_parse_cycle_id_1_through_12_returns_cycle_num(self):
+        """Cycles 1-12 parse to their cycle number, not to any month."""
+        for nn in range(1, 13):
+            year, cycle_num = _parse_cycle_id(f"cycle_2026-{nn:02d}")
+            assert (year, cycle_num) == (2026, nn)
+
+    def test_cycle_calendar_position_maps_to_start_date(self):
+        """Calendar position anchors on the cycle's start date. Spot
+        checks several cycles in 2026 to confirm month/quarter map from
+        cycle_date_range, not from NN."""
+        # cycle_2026-01 starts Jan 5 (Q1).
+        assert _cycle_calendar_position("cycle_2026-01") == (2026, 1, 1)
+        # cycle_2026-06 starts Mar 16 (Q1).
+        assert _cycle_calendar_position("cycle_2026-06") == (2026, 3, 1)
+        # cycle_2026-07 spans Mar 30 - Apr 12. Start = March = Q1. This
+        # is the load-bearing assertion: the bug called cycle_2026-07
+        # "July/Q3".
+        assert _cycle_calendar_position("cycle_2026-07") == (2026, 3, 1)
+        # cycle_2026-08 starts Apr 13 = April = Q2.
+        assert _cycle_calendar_position("cycle_2026-08") == (2026, 4, 2)
+        # cycle_2026-13 starts ~Jun 22 = Q2. Bug would have returned
+        # month=13 (invalid) or quarter=5.
+        year, month, quarter = _cycle_calendar_position("cycle_2026-13")
+        assert (year, month, quarter) == (2026, 6, 2)
+        # cycle_2026-26 falls in late Dec = Q4.
+        year, month, quarter = _cycle_calendar_position("cycle_2026-26")
+        assert year == 2026
+        assert quarter == 4
+
+    def test_month_spanning_cycle_anchors_on_start(self):
+        """Cycle_2026-07 (Mar 30 - Apr 12) anchors to March. If its
+        prior was cycle_2026-06 (also March), no month or quarter
+        boundary."""
+        y1, m1, q1 = _cycle_calendar_position("cycle_2026-06")
+        y2, m2, q2 = _cycle_calendar_position("cycle_2026-07")
+        assert (y1, m1, q1) == (y2, m2, q2)
+
+    def test_detect_boundaries_for_cycles_past_12(self, tmp_path):
+        """End-to-end: a cycle pair in the 13-26 range produces correct
+        boundary flags. cycle_2026-13 (Jun start, Q2) -> cycle_2026-14
+        (Jul start, Q3) is both a month and a quarter boundary."""
+        build_fake_grailzee_tree(
+            tmp_path,
+            cycle_id="cycle_2026-14",
+            run_history={
+                "runs": [
+                    {"cycle_id": "cycle_2026-13", "generated_at": "2026-06-22T00:00:00Z"},
+                    {"cycle_id": "cycle_2026-14", "generated_at": "2026-07-06T00:00:00Z"},
+                ]
+            },
+            cache={
+                "schema_version": 2,
+                "cycle_id": "cycle_2026-14",
+                "generated_at": "2026-07-06T12:00:00Z",
+                "references": {},
+            },
+            cycle_focus={"cycle_id": "cycle_2026-14"},
+            brief={"cycle_id": "cycle_2026-14", "headline": "", "sections": []},
+        )
+        bundle = build_outbound_bundle(tmp_path)
+        with zipfile.ZipFile(bundle, "r") as zf:
+            manifest = json.loads(zf.read("manifest.json"))
+        assert manifest["scope"] == {"month_boundary": True, "quarter_boundary": True}
+
+    def test_detect_boundaries_adjacent_same_month_cycles(self, tmp_path):
+        """cycle_2026-03 (Feb 2) -> cycle_2026-04 (Feb 16): same Feb,
+        same Q1. No boundaries. Under the A.6 bug this would have
+        reported quarter boundary=True (NN 3 -> 4, Q1 -> Q2)."""
+        build_fake_grailzee_tree(
+            tmp_path,
+            cycle_id="cycle_2026-04",
+            run_history={
+                "runs": [
+                    {"cycle_id": "cycle_2026-03", "generated_at": "2026-02-02T00:00:00Z"},
+                    {"cycle_id": "cycle_2026-04", "generated_at": "2026-02-16T00:00:00Z"},
+                ]
+            },
+            cache={
+                "schema_version": 2,
+                "cycle_id": "cycle_2026-04",
+                "generated_at": "2026-02-16T12:00:00Z",
+                "references": {},
+            },
+            cycle_focus={"cycle_id": "cycle_2026-04"},
+            brief={"cycle_id": "cycle_2026-04", "headline": "", "sections": []},
+        )
+        bundle = build_outbound_bundle(tmp_path)
+        with zipfile.ZipFile(bundle, "r") as zf:
+            manifest = json.loads(zf.read("manifest.json"))
+        assert manifest["scope"] == {"month_boundary": False, "quarter_boundary": False}
 
 
 def test_quarter_of():
