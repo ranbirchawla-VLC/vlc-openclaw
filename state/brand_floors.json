@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "brands": {
+    "Rolex": {
+      "floor_pct": 5.0,
+      "tradeable": true,
+      "asset_class": "watch"
+    },
+    "Tudor": {
+      "floor_pct": 10.0,
+      "tradeable": true,
+      "asset_class": "watch"
+    },
+    "Breitling": {
+      "floor_pct": 10.0,
+      "tradeable": true,
+      "asset_class": "watch"
+    },
+    "Cartier": {
+      "floor_pct": 10.0,
+      "tradeable": true,
+      "asset_class": "watch"
+    },
+    "Omega": {
+      "floor_pct": 8.0,
+      "tradeable": true,
+      "asset_class": "watch"
+    }
+  },
+  "last_updated": "2026-04-21T19:36:53Z",
+  "updated_by": "phase_a_install",
+  "defaulted_fields": [
+    "brands.Breitling.floor_pct",
+    "brands.Cartier.floor_pct",
+    "brands.Omega.floor_pct",
+    "brands.Rolex.floor_pct",
+    "brands.Tudor.floor_pct"
+  ]
+}
