@@ -27,6 +27,7 @@ from scripts.grailzee_common import (
     get_ad_budget,
     is_cycle_focus_current,
     is_quality_sale,
+    load_cycle_focus,
     load_name_cache,
     match_reference,
     max_buy_nr,
@@ -405,6 +406,67 @@ class TestIsCycleFocusCurrent:
     def test_mismatched(self):
         focus = {"cycle_id": "cycle_2026-07", "targets": []}
         assert is_cycle_focus_current("cycle_2026-08", focus=focus) is False
+
+    def test_starter_sentinel_never_matches_real_cycle(self):
+        """Phase A.5: ``cycle_id="starter"`` is the installer sentinel.
+        is_cycle_focus_current returns False for any real cycle_id so
+        agent-side freshness gates treat the starter file as 'not yet
+        strategy-set' — which is exactly the intended behavior."""
+        focus = {"cycle_id": "starter", "targets": []}
+        assert is_cycle_focus_current("cycle_2026-08", focus=focus) is False
+        assert is_cycle_focus_current("cycle_2026-04", focus=focus) is False
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 11b. load_cycle_focus v1-shape compatibility (Phase A.5)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestLoadCycleFocusV1Shape:
+    """Phase A.5: the installer ships a v1-shape cycle_focus.json.
+    load_cycle_focus is a simple json loader with no schema_version
+    check; verify it reads the installer's v1 content cleanly."""
+
+    def test_load_cycle_focus_reads_installer_shape(self, tmp_path):
+        """Write the installer's exact factory content to a tmp path;
+        load_cycle_focus reads it without error and returns all fields."""
+        from scripts.install_cycle_focus import CYCLE_FOCUS_FACTORY_CONTENT
+
+        payload = dict(CYCLE_FOCUS_FACTORY_CONTENT)
+        payload["last_updated"] = "2026-04-21T00:00:00Z"
+        payload["updated_by"] = "phase_a_install"
+        payload["defaulted_fields"] = [
+            "brand_emphasis",
+            "brand_pullback",
+            "capital_target",
+            "cycle_date_range",
+            "cycle_id",
+            "notes",
+            "target_margin_fraction",
+            "targets",
+            "volume_target",
+        ]
+        target = tmp_path / "cycle_focus.json"
+        target.write_text(json.dumps(payload))
+
+        loaded = load_cycle_focus(str(target))
+        assert loaded is not None
+        assert loaded["schema_version"] == 1
+        assert loaded["cycle_id"] == "starter"
+        assert loaded["cycle_date_range"] == {
+            "start": "1970-01-01",
+            "end": "1970-01-01",
+        }
+        assert loaded["capital_target"] == 15000
+        assert loaded["volume_target"] == 4
+        assert loaded["targets"] == []
+        assert loaded["brand_emphasis"] == []
+
+    def test_load_cycle_focus_missing_returns_none(self, tmp_path):
+        """Absent file yields None (existing contract); starter behavior
+        should match the absent-file path downstream."""
+        missing = tmp_path / "absent.json"
+        assert load_cycle_focus(str(missing)) is None
 
 
 # ═══════════════════════════════════════════════════════════════════════
