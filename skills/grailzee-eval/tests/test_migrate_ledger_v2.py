@@ -6,6 +6,8 @@ Drive ledger is never touched by this suite.
 
 from __future__ import annotations
 
+import csv
+import io
 import subprocess
 import sys
 from pathlib import Path
@@ -134,6 +136,40 @@ class TestMigrateDryRun:
         migrate(str(ledger), dry_run=True, force=False)
         backup = Path(str(ledger) + BACKUP_SUFFIX)
         assert not backup.exists()
+
+    def test_dry_run_preview_quotes_comma_values(self, tmp_path, capsys):
+        """A value containing a comma must round-trip through the dry-run
+        preview without corrupting column boundaries. Regression guard
+        for the ",".join-based preview that mis-rendered such rows."""
+        ledger = tmp_path / "trade_ledger.csv"
+        # Use csv.writer to emit a properly-quoted v1 row whose brand
+        # contains a comma. The migration accepts it; the preview must
+        # preserve the comma without splitting into extra columns.
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["date_closed", "cycle_id", "brand", "reference",
+                    "account", "buy_price", "sell_price"])
+        w.writerow(["2026-02-05", "cycle_2026-03", "Rolex, Inc.",
+                    "216570", "RES", "9550", "10000"])
+        ledger.write_text(buf.getvalue())
+
+        rc = migrate(str(ledger), dry_run=True, force=False)
+        assert rc == 0
+
+        out = capsys.readouterr().out
+        # Strip the JSON summary block and the preview banner; parse what
+        # follows as CSV. The comma-containing brand must land in a
+        # single column, not split across two.
+        preview_marker = "── dry-run preview (no disk writes) ──"
+        assert preview_marker in out
+        preview_csv = out.split(preview_marker, 1)[1].strip()
+        rows = list(csv.reader(io.StringIO(preview_csv)))
+        assert rows[0] == list(LEDGER_COLUMNS)
+        data_row = rows[1]
+        # Column count unchanged; brand preserved verbatim.
+        assert len(data_row) == len(LEDGER_COLUMNS)
+        brand_idx = list(LEDGER_COLUMNS).index("brand")
+        assert data_row[brand_idx] == "Rolex, Inc."
 
 
 class TestMigrateIdempotence:

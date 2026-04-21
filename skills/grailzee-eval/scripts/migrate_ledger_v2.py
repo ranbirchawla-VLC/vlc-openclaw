@@ -200,9 +200,9 @@ def migrate(ledger_path: str, *, dry_run: bool, force: bool) -> int:
 
         if dry_run:
             print("\n── dry-run preview (no disk writes) ──")
-            print(",".join(LEDGER_COLUMNS))
-            for r in new_rows:
-                print(",".join(r))
+            writer = csv.writer(sys.stdout)
+            writer.writerow(LEDGER_COLUMNS)
+            writer.writerows(new_rows)
             span.set_attribute("outcome", "dry_run")
             return 0
 

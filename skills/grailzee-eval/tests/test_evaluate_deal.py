@@ -104,10 +104,9 @@ def _write_cache(tmp_path, cache_dict):
 def _write_ledger(tmp_path, rows):
     """Write trade_ledger.csv (v2 shape) from list of dicts; return path.
 
-    Row dicts use the legacy keys ``date_closed``/``cycle_id`` (the
-    test code was authored pre-A.6). This helper maps them to the v2
-    schema: date_closed -> sell_date, cycle_id -> sell_cycle_id, with
-    buy_date / buy_cycle_id left blank (legacy-row convention per S6).
+    Row dicts use v2 keys (``sell_date``, ``sell_cycle_id``); buy_date
+    and buy_cycle_id are left blank in the emitted CSV (legacy-row
+    convention per schema v1 §4 S6).
     """
     p = tmp_path / "trade_ledger.csv"
     header = (
@@ -117,7 +116,7 @@ def _write_ledger(tmp_path, rows):
     lines = [header]
     for r in rows:
         lines.append(
-            f",{r['date_closed']},,{r['cycle_id']},{r['brand']},"
+            f",{r['sell_date']},,{r['sell_cycle_id']},{r['brand']},"
             f"{r['reference']},{r['account']},{r['buy_price']},"
             f"{r['sell_price']}\n"
         )
@@ -569,13 +568,13 @@ class TestConfidenceEnrichment:
         cache = _make_cache(refs={"79830RB": _make_ref()})
         cache_path = _write_cache(tmp_path, cache)
         ledger_path = _write_ledger(tmp_path, [
-            {"date_closed": "2026-01-15", "cycle_id": "cycle_2026-01",
+            {"sell_date": "2026-01-15", "sell_cycle_id": "cycle_2026-01",
              "brand": "Tudor", "reference": "79830RB", "account": "NR",
              "buy_price": 2800, "sell_price": 3200},
-            {"date_closed": "2026-02-15", "cycle_id": "cycle_2026-04",
+            {"sell_date": "2026-02-15", "sell_cycle_id": "cycle_2026-04",
              "brand": "Tudor", "reference": "79830RB", "account": "NR",
              "buy_price": 2700, "sell_price": 3520},
-            {"date_closed": "2026-03-15", "cycle_id": "cycle_2026-06",
+            {"sell_date": "2026-03-15", "sell_cycle_id": "cycle_2026-06",
              "brand": "Tudor", "reference": "79830RB", "account": "NR",
              "buy_price": 2750, "sell_price": 3360},
         ])
@@ -598,7 +597,7 @@ class TestConfidenceEnrichment:
         cache_path = _write_cache(tmp_path, cache)
         # Ledger with trades for a DIFFERENT reference
         ledger_path = _write_ledger(tmp_path, [
-            {"date_closed": "2026-01-15", "cycle_id": "cycle_2026-01",
+            {"sell_date": "2026-01-15", "sell_cycle_id": "cycle_2026-01",
              "brand": "Tudor", "reference": "91650", "account": "NR",
              "buy_price": 1500, "sell_price": 1700},
         ])
@@ -638,19 +637,19 @@ class TestConfidenceEnrichment:
         )})
         cache_path = _write_cache(tmp_path, cache)
         ledger_path = _write_ledger(tmp_path, [
-            {"date_closed": "2026-01-15", "cycle_id": "cycle_2026-01",
+            {"sell_date": "2026-01-15", "sell_cycle_id": "cycle_2026-01",
              "brand": "Tudor", "reference": "MIX123", "account": "NR",
              "buy_price": 1000, "sell_price": 1200},
-            {"date_closed": "2026-02-15", "cycle_id": "cycle_2026-04",
+            {"sell_date": "2026-02-15", "sell_cycle_id": "cycle_2026-04",
              "brand": "Tudor", "reference": "MIX123", "account": "NR",
              "buy_price": 1000, "sell_price": 1100},
-            {"date_closed": "2026-03-15", "cycle_id": "cycle_2026-06",
+            {"sell_date": "2026-03-15", "sell_cycle_id": "cycle_2026-06",
              "brand": "Tudor", "reference": "MIX123", "account": "NR",
              "buy_price": 1000, "sell_price": 1300},
-            {"date_closed": "2026-04-01", "cycle_id": "cycle_2026-07",
+            {"sell_date": "2026-04-01", "sell_cycle_id": "cycle_2026-07",
              "brand": "Tudor", "reference": "MIX123", "account": "NR",
              "buy_price": 1000, "sell_price": 1050},
-            {"date_closed": "2026-04-10", "cycle_id": "cycle_2026-07",
+            {"sell_date": "2026-04-10", "sell_cycle_id": "cycle_2026-07",
              "brand": "Tudor", "reference": "MIX123", "account": "NR",
              "buy_price": 1000, "sell_price": 1250},
         ])
