@@ -31,9 +31,10 @@ htmlcov/
 *.swo
 *~
 
-# Claude Code — session artifacts; keep project settings.json tracked
+# Claude Code — session artifacts; keep project settings.json + progress.md tracked
 .claude/*
 !.claude/settings.json
+!.claude/progress.md
 
 # Environment
 .env
