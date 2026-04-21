@@ -26,7 +26,14 @@
       "Bash(cp:*)",
       "Edit(~/ai-code/vlc-openclaw/**)",
       "Write(~/ai-code/vlc-openclaw/**)",
-      "Read(~/ai-code/vlc-openclaw/**)"
+      "Read(~/ai-code/vlc-openclaw/**)",
+      "Bash(openclaw message read *)",
+      "Bash(openclaw --help)",
+      "Bash(openclaw channels logs *)",
+      "Bash(openclaw gateway query *)",
+      "Bash(mnemo-cli memory search *)",
+      "Bash(mnemo-cli memory list *)",
+      "Bash(mnemo-cli memory show *)"
     ],
     "deny": [
       "Bash(git push:*)",
@@ -58,9 +65,9 @@
           {
             "type": "command",
             "command": "FILE=\"$CLAUDE_FILE_PATH\"; if echo \"$FILE\" | grep -q 'test_\\|_test\\.py'; then cd ~/ai-code/vlc-openclaw && python -m pytest \"$FILE\" -v --tb=short 2>&1 | tail -20; elif echo \"$FILE\" | grep -q '\\.py$'; then python -m py_compile \"$FILE\" 2>&1 || echo 'Syntax error in $FILE'; fi"
-        }
-      ]
-    }
-  ]
+          }
+        ]
+      }
+    ]
   }
 }
