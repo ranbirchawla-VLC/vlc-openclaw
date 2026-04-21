@@ -44,9 +44,11 @@ def run(
     """Produce the cycle outcome file for the given cycle.
 
     Loads cycle_focus, delegates to read_ledger.cycle_rollup(), writes JSON
-    atomically (temp + os.replace) to the per-cycle path returned by
-    cycle_outcome_path(previous_cycle_id), or to output_path when provided.
-    Returns the outcome dict.
+    atomically (tmp + fsync + os.replace) to the per-cycle path returned
+    by cycle_outcome_path(previous_cycle_id), or to output_path when
+    provided. fsync before rename matches config_helper._atomic_write_json
+    so a crash or power loss after os.replace cannot surface an empty or
+    truncated cycle_outcome file. Returns the outcome dict.
     """
     focus = load_cycle_focus(cycle_focus_path)
     outcome = cycle_rollup(
@@ -63,6 +65,8 @@ def run(
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(outcome, f, indent=2, default=str)
             f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, out)
     except Exception:
         if os.path.exists(tmp):

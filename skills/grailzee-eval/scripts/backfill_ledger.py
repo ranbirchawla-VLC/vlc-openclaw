@@ -464,11 +464,16 @@ def print_summary(
 
 
 def write_ledger_atomic(rows: list[dict], ledger_path: str) -> None:
-    """Append rows to ledger via .tmp + os.replace.
+    """Append rows to ledger via .tmp + fsync + os.replace.
 
     If the ledger file is missing or empty (no header), writes the header
     before the new rows. If the file already has a header (or rows), the
     existing content is preserved and new rows are appended.
+
+    Durability: contents are flushed and fsync'd before the rename so a
+    kill -9, crash, or power loss after os.replace cannot surface a
+    rename-completed-but-contents-truncated ledger. Matches the pattern
+    in config_helper._atomic_write_json.
 
     On any OSError during write or replace, the .tmp file is removed so
     no orphan files linger. Raises OSError to the caller after cleanup.
@@ -507,6 +512,8 @@ def write_ledger_atomic(rows: list[dict], ledger_path: str) -> None:
                     _fmt_price(r["buy_price"]),
                     _fmt_price(r["sell_price"]),
                 ])
+            dst.flush()
+            os.fsync(dst.fileno())
         os.replace(tmp_path, ledger_path)
     except Exception:
         if os.path.exists(tmp_path):
