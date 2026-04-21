@@ -34,6 +34,9 @@ if str(V2_ROOT) not in sys.path:
     sys.path.insert(0, str(V2_ROOT))
 
 import scripts.grailzee_common as gc  # noqa: E402
+from scripts.grailzee_common import get_tracer  # noqa: E402
+
+tracer = get_tracer(__name__)
 
 
 REQUIRED_ATTRS: list[str] = [
@@ -547,75 +550,146 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    rc = check_dependencies()
-    if rc != 0:
-        return rc
+    with tracer.start_as_current_span("backfill_ledger.main") as span:
+        span.set_attribute("input_path", args.input)
+        span.set_attribute("dry_run", args.dry_run)
+        span.set_attribute("force", args.force)
+        span.set_attribute("skip_roll", args.no_roll)
 
-    ledger_path = args.ledger or gc.LEDGER_PATH
-    name_cache_path = args.name_cache or gc.NAME_CACHE_PATH
+        rc = check_dependencies()
+        if rc != 0:
+            span.set_attribute("outcome", "primitive_missing")
+            return rc
 
-    rows, file_errors = read_input(args.input)
-    if file_errors:
-        for e in file_errors:
-            print(f"ERROR: {e}", file=sys.stderr)
-        return 1
+        ledger_path = args.ledger or gc.LEDGER_PATH
+        name_cache_path = args.name_cache or gc.NAME_CACHE_PATH
+        span.set_attribute("ledger_path", ledger_path)
 
-    today = date.today()
-    valid, validation_errors = validate_all(rows, today, force=args.force)
+        with tracer.start_as_current_span("backfill_ledger.read_input") as s_read:
+            s_read.set_attribute("input_path", args.input)
+            rows, file_errors = read_input(args.input)
+            s_read.set_attribute("rows_parsed", len(rows))
+            s_read.set_attribute("file_error_count", len(file_errors))
 
-    with_cycle, cycle_err = derive_cycle_ids(valid)
-    if cycle_err is not None:
-        print(f"ERROR: {cycle_err}", file=sys.stderr)
-        print(SECTION_12_3_HINT, file=sys.stderr)
-        return 3
+        if file_errors:
+            for e in file_errors:
+                print(f"ERROR: {e}", file=sys.stderr)
+            span.set_attribute("rows_parsed", len(rows))
+            span.set_attribute("outcome", "file_error")
+            return 1
 
-    existing_keys = load_existing_ledger_keys(ledger_path)
-    to_write, dupe_messages = filter_duplicates(with_cycle, existing_keys)
+        span.set_attribute("rows_parsed", len(rows))
 
-    name_cache = load_name_cache(name_cache_path)
-    warnings = brand_mismatch_warnings(to_write, name_cache)
+        today = date.today()
+        with tracer.start_as_current_span("backfill_ledger.validate") as s_val:
+            s_val.set_attribute("rows_in", len(rows))
+            valid, validation_errors = validate_all(rows, today, force=args.force)
+            s_val.set_attribute("rows_valid", len(valid))
+            s_val.set_attribute("validation_error_count", len(validation_errors))
 
-    print_summary(
-        parsed_count=len(rows),
-        valid_count=len(valid),
-        errors=validation_errors,
-        warnings=warnings,
-        dupes=dupe_messages,
-        rows_with_cycle=to_write,
-    )
+        span.set_attribute("rows_valid", len(valid))
+        span.set_attribute("validation_error_count", len(validation_errors))
 
-    blocking_errors = validation_errors and not args.force
-    if blocking_errors:
-        print("\nAborting: validation errors present (use --force to import "
-              "only the valid rows).", file=sys.stderr)
-        return 1
+        with tracer.start_as_current_span("backfill_ledger.derive_cycle_ids") as s_cyc:
+            s_cyc.set_attribute("rows_in", len(valid))
+            with_cycle, cycle_err = derive_cycle_ids(valid)
+            if cycle_err is not None:
+                s_cyc.set_attribute("outcome", "error")
+            else:
+                s_cyc.set_attribute(
+                    "cycles_covered",
+                    len({r["cycle_id"] for r in with_cycle}),
+                )
 
-    if args.dry_run:
-        print("\n── Dry run: rows that would be appended ──")
-        for r in to_write:
-            print(
-                f"  {r['date_closed']}  {r['cycle_id']}  {r['brand']:<12} "
-                f"{r['reference']:<20} {r['account']:<3} "
-                f"buy={_fmt_price(r['buy_price'])} "
-                f"sell={_fmt_price(r['sell_price'])}"
+        if cycle_err is not None:
+            print(f"ERROR: {cycle_err}", file=sys.stderr)
+            print(SECTION_12_3_HINT, file=sys.stderr)
+            span.set_attribute("outcome", "cycle_id_error")
+            return 3
+
+        with tracer.start_as_current_span("backfill_ledger.dedup") as s_dup:
+            existing_keys = load_existing_ledger_keys(ledger_path)
+            s_dup.set_attribute("existing_key_count", len(existing_keys))
+            s_dup.set_attribute("rows_in", len(with_cycle))
+            to_write, dupe_messages = filter_duplicates(with_cycle, existing_keys)
+            s_dup.set_attribute("rows_kept", len(to_write))
+            s_dup.set_attribute("dupe_count", len(dupe_messages))
+
+        name_cache = load_name_cache(name_cache_path)
+        warnings = brand_mismatch_warnings(to_write, name_cache)
+
+        # Cardinality attrs on the parent span — canonical set (trades_processed,
+        # brand_count) plus the cycles-covered fanout. cycle_id is not a scalar
+        # here: a single backfill run can span many cycles.
+        span.set_attribute("rows_to_write", len(to_write))
+        span.set_attribute("trades_processed", len(to_write))
+        span.set_attribute("dupe_count", len(dupe_messages))
+        span.set_attribute("warning_count", len(warnings))
+        span.set_attribute(
+            "cycles_covered", len({r["cycle_id"] for r in to_write})
+        )
+        span.set_attribute(
+            "brand_count", len({r["brand"] for r in to_write})
+        )
+
+        print_summary(
+            parsed_count=len(rows),
+            valid_count=len(valid),
+            errors=validation_errors,
+            warnings=warnings,
+            dupes=dupe_messages,
+            rows_with_cycle=to_write,
+        )
+
+        blocking_errors = validation_errors and not args.force
+        if blocking_errors:
+            print("\nAborting: validation errors present (use --force to import "
+                  "only the valid rows).", file=sys.stderr)
+            span.set_attribute("outcome", "validation_error")
+            return 1
+
+        if args.dry_run:
+            print("\n── Dry run: rows that would be appended ──")
+            for r in to_write:
+                print(
+                    f"  {r['date_closed']}  {r['cycle_id']}  {r['brand']:<12} "
+                    f"{r['reference']:<20} {r['account']:<3} "
+                    f"buy={_fmt_price(r['buy_price'])} "
+                    f"sell={_fmt_price(r['sell_price'])}"
+                )
+            print("\nDry run complete. No disk writes performed.")
+            span.set_attribute("outcome", "dry_run")
+            return 0
+
+        if not to_write:
+            print("\nNothing to write (0 rows after dedup).")
+            span.set_attribute("outcome", "nothing_to_write")
+            return 0
+
+        with tracer.start_as_current_span("backfill_ledger.write_ledger") as s_wr:
+            s_wr.set_attribute("ledger_path", ledger_path)
+            s_wr.set_attribute("rows_written", len(to_write))
+            s_wr.set_attribute("trades_processed", len(to_write))
+            try:
+                write_ledger_atomic(to_write, ledger_path)
+            except OSError as e:
+                s_wr.set_attribute("outcome", "error")
+                print(f"ERROR writing ledger: {e}", file=sys.stderr)
+                span.set_attribute("outcome", "io_error")
+                return 2
+
+        print(f"\nAppended {len(to_write)} row(s) to {ledger_path}.")
+
+        with tracer.start_as_current_span("backfill_ledger.post_write_hooks") as s_hk:
+            s_hk.set_attribute("skip_roll", args.no_roll)
+            cycles = sorted({r["cycle_id"] for r in to_write})
+            s_hk.set_attribute(
+                "cycles_rolled", 0 if args.no_roll else len(cycles)
             )
-        print("\nDry run complete. No disk writes performed.")
+            post_write_hooks(to_write, skip_roll=args.no_roll)
+
+        span.set_attribute("outcome", "written")
         return 0
-
-    if not to_write:
-        print("\nNothing to write (0 rows after dedup).")
-        return 0
-
-    try:
-        write_ledger_atomic(to_write, ledger_path)
-    except OSError as e:
-        print(f"ERROR writing ledger: {e}", file=sys.stderr)
-        return 2
-
-    print(f"\nAppended {len(to_write)} row(s) to {ledger_path}.")
-
-    post_write_hooks(to_write, skip_roll=args.no_roll)
-    return 0
 
 
 if __name__ == "__main__":
