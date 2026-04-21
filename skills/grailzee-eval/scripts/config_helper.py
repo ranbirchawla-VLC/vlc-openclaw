@@ -426,6 +426,31 @@ def defaulted_fields_of(config: dict) -> list[str]:
     return [f for f in fields if isinstance(f, str)]
 
 
+def leaf_paths(content: dict, *, prefix: str = "") -> list[str]:
+    """Return every leaf dotted path in ``content``, excluding managed keys.
+
+    Shared across Phase A installers so each of analyzer_config,
+    brand_floors, sourcing_rules, etc. can populate ``defaulted_fields``
+    uniformly. A leaf is a value that is not a dict. Managed keys
+    (schema_version, last_updated, updated_by, defaulted_fields) are
+    excluded because they are file-level metadata, not configurable
+    fields that strategy commits.
+
+    Paths are returned in insertion order; installers typically
+    ``sorted()`` the result before writing.
+    """
+    paths: list[str] = []
+    for key, value in content.items():
+        if key in MANAGED_KEYS or key == "schema_version":
+            continue
+        dotted = f"{prefix}{key}" if not prefix else f"{prefix}.{key}"
+        if isinstance(value, dict):
+            paths.extend(leaf_paths(value, prefix=dotted))
+        else:
+            paths.append(dotted)
+    return paths
+
+
 # Optional sentinel kept for symmetric naming with the module's exports.
 # The caller's code reads cleaner as
 #   ``from scripts.config_helper import read_config, write_config, ...``
@@ -439,4 +464,5 @@ __all__ = [
     "is_defaulted",
     "schema_version_or_fail",
     "defaulted_fields_of",
+    "leaf_paths",
 ]

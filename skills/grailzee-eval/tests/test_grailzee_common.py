@@ -555,3 +555,307 @@ class TestTracer:
         tracer = get_tracer("grailzee_common.submodule.operation")
         with tracer.start_as_current_span("op") as span:
             assert span is not None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Phase A.2 — config_path + load_analyzer_config
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestConfigPath:
+    """config_path resolves under the workspace state/ directory."""
+
+    def test_resolves_to_workspace_state(self):
+        from scripts.grailzee_common import config_path, WORKSPACE_STATE_PATH
+        assert config_path("analyzer_config.json") == (
+            f"{WORKSPACE_STATE_PATH}/analyzer_config.json"
+        )
+
+    def test_all_phase_a_filenames(self):
+        """A.2-A.5 will create six files under STATE_PATH."""
+        from scripts.grailzee_common import config_path, WORKSPACE_STATE_PATH
+        names = [
+            "analyzer_config.json",
+            "brand_floors.json",
+            "sourcing_rules.json",
+            "cycle_focus.json",
+            "monthly_goals.json",
+            "quarterly_allocation.json",
+        ]
+        for name in names:
+            resolved = config_path(name)
+            assert resolved.startswith(WORKSPACE_STATE_PATH + "/")
+            assert resolved.endswith("/" + name)
+
+    def test_strips_leading_slash(self):
+        from scripts.grailzee_common import config_path, WORKSPACE_STATE_PATH
+        assert config_path("/analyzer_config.json") == (
+            f"{WORKSPACE_STATE_PATH}/analyzer_config.json"
+        )
+
+    def test_strips_trailing_slash(self):
+        from scripts.grailzee_common import config_path, WORKSPACE_STATE_PATH
+        assert config_path("analyzer_config.json/") == (
+            f"{WORKSPACE_STATE_PATH}/analyzer_config.json"
+        )
+
+    def test_empty_name_raises(self):
+        import pytest
+        from scripts.grailzee_common import config_path
+        with pytest.raises(ValueError):
+            config_path("")
+        with pytest.raises(ValueError):
+            config_path("   ")
+        with pytest.raises(ValueError):
+            config_path("/")
+
+    def test_non_string_raises(self):
+        import pytest
+        from scripts.grailzee_common import config_path
+        with pytest.raises(ValueError):
+            config_path(None)  # type: ignore[arg-type]
+        with pytest.raises(ValueError):
+            config_path(123)  # type: ignore[arg-type]
+
+    def test_rejects_parent_traversal(self):
+        import pytest
+        from scripts.grailzee_common import config_path
+        with pytest.raises(ValueError):
+            config_path("../secrets.json")
+        with pytest.raises(ValueError):
+            config_path("sub/../../etc/passwd")
+
+    def test_workspace_state_path_absolute(self):
+        """WORKSPACE_STATE_PATH must be an absolute path."""
+        from scripts.grailzee_common import WORKSPACE_STATE_PATH
+        assert os.path.isabs(WORKSPACE_STATE_PATH)
+        assert WORKSPACE_STATE_PATH.endswith("/state")
+
+
+class TestLoadAnalyzerConfig:
+    """Cache-once-per-process memoized loader with file-absent fallback."""
+
+    def setup_method(self) -> None:
+        from scripts.grailzee_common import _reset_analyzer_config_cache
+        _reset_analyzer_config_cache()
+
+    def teardown_method(self) -> None:
+        from scripts.grailzee_common import _reset_analyzer_config_cache
+        _reset_analyzer_config_cache()
+
+    def test_file_present_path(self, tmp_path):
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import (
+            ANALYZER_CONFIG_FACTORY_DEFAULTS,
+            analyzer_config_source,
+            load_analyzer_config,
+        )
+        p = tmp_path / "analyzer_config.json"
+        content = json.loads(json.dumps(ANALYZER_CONFIG_FACTORY_DEFAULTS))
+        content["margin"]["per_trade_target_margin_fraction"] = 0.07
+        write_config(p, content, [], "test")
+
+        cfg = load_analyzer_config(path=str(p))
+        assert cfg["margin"]["per_trade_target_margin_fraction"] == 0.07
+        assert analyzer_config_source() == "file"
+
+    def test_file_absent_falls_back_to_defaults(self, tmp_path):
+        from scripts.grailzee_common import (
+            ANALYZER_CONFIG_FACTORY_DEFAULTS,
+            analyzer_config_source,
+            load_analyzer_config,
+        )
+        missing = tmp_path / "does_not_exist.json"
+
+        cfg = load_analyzer_config(path=str(missing))
+        assert (
+            cfg["margin"]["per_trade_target_margin_fraction"]
+            == ANALYZER_CONFIG_FACTORY_DEFAULTS["margin"]["per_trade_target_margin_fraction"]
+        )
+        assert (
+            cfg["scoring"]["signal_thresholds"]
+            == ANALYZER_CONFIG_FACTORY_DEFAULTS["scoring"]["signal_thresholds"]
+        )
+        assert analyzer_config_source() == "fallback"
+
+    def test_malformed_file_falls_back(self, tmp_path):
+        from scripts.grailzee_common import (
+            analyzer_config_source,
+            load_analyzer_config,
+        )
+        p = tmp_path / "analyzer_config.json"
+        p.write_text("{not valid json")
+
+        cfg = load_analyzer_config(path=str(p))
+        assert cfg["margin"]["per_trade_target_margin_fraction"] == 0.05
+        assert analyzer_config_source() == "fallback"
+
+    def test_cache_returns_same_dict_across_calls(self, tmp_path):
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import (
+            ANALYZER_CONFIG_FACTORY_DEFAULTS,
+            load_analyzer_config,
+        )
+        p = tmp_path / "analyzer_config.json"
+        content = json.loads(json.dumps(ANALYZER_CONFIG_FACTORY_DEFAULTS))
+        write_config(p, content, [], "test")
+
+        first = load_analyzer_config(path=str(p))
+        second = load_analyzer_config(path=str(p))
+        assert first is second
+
+    def test_cache_ignores_path_after_first_call(self, tmp_path):
+        """Second call with a different path returns cached content.
+
+        Documents the 'first call wins' semantic: tests that want to
+        exercise a new path must call _reset_analyzer_config_cache()
+        first.
+        """
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import (
+            ANALYZER_CONFIG_FACTORY_DEFAULTS,
+            load_analyzer_config,
+        )
+        first_path = tmp_path / "first.json"
+        second_path = tmp_path / "second.json"
+        c1 = json.loads(json.dumps(ANALYZER_CONFIG_FACTORY_DEFAULTS))
+        c1["margin"]["per_trade_target_margin_fraction"] = 0.01
+        write_config(first_path, c1, [], "test")
+        c2 = json.loads(json.dumps(ANALYZER_CONFIG_FACTORY_DEFAULTS))
+        c2["margin"]["per_trade_target_margin_fraction"] = 0.99
+        write_config(second_path, c2, [], "test")
+
+        cfg1 = load_analyzer_config(path=str(first_path))
+        cfg2 = load_analyzer_config(path=str(second_path))
+        assert cfg1["margin"]["per_trade_target_margin_fraction"] == 0.01
+        assert cfg2["margin"]["per_trade_target_margin_fraction"] == 0.01
+
+    def test_reset_allows_rereading(self, tmp_path):
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import (
+            ANALYZER_CONFIG_FACTORY_DEFAULTS,
+            _reset_analyzer_config_cache,
+            load_analyzer_config,
+        )
+        p = tmp_path / "analyzer_config.json"
+        c1 = json.loads(json.dumps(ANALYZER_CONFIG_FACTORY_DEFAULTS))
+        c1["margin"]["per_trade_target_margin_fraction"] = 0.01
+        write_config(p, c1, [], "test")
+
+        cfg1 = load_analyzer_config(path=str(p))
+        assert cfg1["margin"]["per_trade_target_margin_fraction"] == 0.01
+
+        c2 = json.loads(json.dumps(ANALYZER_CONFIG_FACTORY_DEFAULTS))
+        c2["margin"]["per_trade_target_margin_fraction"] = 0.09
+        write_config(p, c2, [], "test")
+
+        _reset_analyzer_config_cache()
+        cfg2 = load_analyzer_config(path=str(p))
+        assert cfg2["margin"]["per_trade_target_margin_fraction"] == 0.09
+
+    def test_missing_section_backfilled_from_defaults(self, tmp_path):
+        """A partial config file gets unlisted sections from defaults."""
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import load_analyzer_config
+        p = tmp_path / "analyzer_config.json"
+        partial = {
+            "schema_version": 1,
+            "margin": {"per_trade_target_margin_fraction": 0.03},
+            # other sections intentionally absent
+        }
+        write_config(p, partial, [], "test")
+
+        cfg = load_analyzer_config(path=str(p))
+        assert cfg["margin"]["per_trade_target_margin_fraction"] == 0.03
+        # other margin field backfilled
+        assert cfg["margin"]["monthly_return_target_fraction"] == 0.10
+        # whole sections backfilled
+        assert cfg["windows"]["pricing_reports"] == 2
+        assert cfg["scoring"]["signal_thresholds"]["strong_max_risk_pct"] == 10
+
+    def test_newer_schema_version_falls_back(self, tmp_path):
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import (
+            ANALYZER_CONFIG_FACTORY_DEFAULTS,
+            analyzer_config_source,
+            load_analyzer_config,
+        )
+        p = tmp_path / "analyzer_config.json"
+        content = json.loads(json.dumps(ANALYZER_CONFIG_FACTORY_DEFAULTS))
+        content["schema_version"] = 99
+        write_config(p, content, [], "test")
+
+        cfg = load_analyzer_config(path=str(p))
+        # Fell back to factory defaults rather than parsing a newer file.
+        assert cfg["schema_version"] == 1
+        assert analyzer_config_source() == "fallback"
+
+    def test_fallback_has_same_shape_as_factory(self, tmp_path):
+        from scripts.grailzee_common import (
+            ANALYZER_CONFIG_FACTORY_DEFAULTS,
+            load_analyzer_config,
+        )
+        missing = tmp_path / "nope.json"
+        cfg = load_analyzer_config(path=str(missing))
+
+        def shape(d, prefix=""):
+            out = set()
+            for k, v in d.items():
+                p = f"{prefix}.{k}" if prefix else k
+                if isinstance(v, dict):
+                    out |= shape(v, p)
+                else:
+                    out.add(p)
+            return out
+
+        assert shape(cfg) == shape(ANALYZER_CONFIG_FACTORY_DEFAULTS)
+
+    def test_fallback_does_not_leak_mutations(self, tmp_path):
+        """Mutating the returned dict must not affect the next fallback."""
+        from scripts.grailzee_common import (
+            _reset_analyzer_config_cache,
+            load_analyzer_config,
+        )
+        missing = tmp_path / "nope.json"
+        cfg1 = load_analyzer_config(path=str(missing))
+        cfg1["margin"]["per_trade_target_margin_fraction"] = 999
+
+        _reset_analyzer_config_cache()
+        cfg2 = load_analyzer_config(path=str(missing))
+        assert cfg2["margin"]["per_trade_target_margin_fraction"] == 0.05
+
+
+class TestMaxBuyFormulaReadsFromConfig:
+    """max_buy_nr/max_buy_reserve/adjusted_max_buy read target margin
+    from analyzer_config, not the TARGET_MARGIN constant."""
+
+    def setup_method(self) -> None:
+        from scripts.grailzee_common import _reset_analyzer_config_cache
+        _reset_analyzer_config_cache()
+
+    def teardown_method(self) -> None:
+        from scripts.grailzee_common import _reset_analyzer_config_cache
+        _reset_analyzer_config_cache()
+
+    def test_max_buy_nr_uses_config_margin(self, tmp_path):
+        """A 10% margin in the config shifts max_buy_nr correctly."""
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import (
+            ANALYZER_CONFIG_FACTORY_DEFAULTS,
+            load_analyzer_config,
+            max_buy_nr,
+        )
+        p = tmp_path / "analyzer_config.json"
+        content = json.loads(json.dumps(ANALYZER_CONFIG_FACTORY_DEFAULTS))
+        content["margin"]["per_trade_target_margin_fraction"] = 0.10
+        write_config(p, content, [], "test")
+        load_analyzer_config(path=str(p))  # prime cache
+
+        # (3349 - 149) / 1.10 = 2909.09 -> rounded to 2910
+        assert max_buy_nr(3349) == 2910
+
+    def test_fallback_matches_05_constant(self, tmp_path):
+        """With no config file, max_buy_nr uses the 0.05 factory default."""
+        from scripts.grailzee_common import max_buy_nr
+        # Same input as original test: (3200 - 149) / 1.05 = 2905.71 -> 2910
+        assert max_buy_nr(3200) == 2910

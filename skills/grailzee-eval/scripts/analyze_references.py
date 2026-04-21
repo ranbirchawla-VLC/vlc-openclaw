@@ -29,14 +29,13 @@ V2_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(V2_ROOT))
 
 from scripts.grailzee_common import (
-    MIN_SALES_FOR_SCORING,
     NR_FIXED,
     RES_FIXED,
-    RISK_RESERVE_THRESHOLD,
-    TARGET_MARGIN,
+    analyzer_config_source,
     classify_dj_config,
     get_tracer,
     is_quality_sale,
+    load_analyzer_config,
     load_name_cache,
     max_buy_nr as calc_max_buy_nr,
     max_buy_reserve as calc_max_buy_reserve,
@@ -69,14 +68,21 @@ def analyze_reference(
     """Score a single reference from its sales.
 
     Extracted from v1 analyze_report.py:265-299. Behavior preserved:
-    same formula, same signal thresholds. Only recommend_reserve uses
-    RISK_RESERVE_THRESHOLD (v2=0.40 i.e. 40%, v1 was 20%).
+    same formula, same signal thresholds. recommend_reserve and the
+    four signal thresholds are sourced from analyzer_config.json
+    (Phase A.2); defaults match the prior hardcoded values.
 
     Expects sales dicts with keys: price (float), condition (str),
     papers (str). Matches v1's dict shape from parse_report().
     """
     if not sales:
         return None
+    cfg = load_analyzer_config()
+    scoring = cfg["scoring"]
+    signal_thresholds = scoring["signal_thresholds"]
+    risk_reserve_threshold = scoring["risk_reserve_threshold_fraction"]
+    min_sales = scoring["min_sales_for_scoring"]
+
     prices = [s["price"] for s in sales]
     quality_prices = [s["price"] for s in sales if is_quality_sale(s)]
     median = statistics.median(prices)
@@ -89,22 +95,20 @@ def analyze_reference(
     be_res = mb_res + RES_FIXED
     risk_res = calc_risk(quality_prices, be_res)
 
-    # recommend_reserve: v2 threshold is fraction (0.40 = 40%)
     recommend_reserve = (
-        risk_nr is not None and risk_nr > RISK_RESERVE_THRESHOLD * 100
+        risk_nr is not None and risk_nr > risk_reserve_threshold * 100
     )
     qc = len(quality_prices)
 
-    # Signal thresholds preserved from v1 (percentage scale)
-    if risk_nr is None or qc < 3:
+    if risk_nr is None or qc < min_sales:
         signal = "Low data"
-    elif risk_nr <= 10:
+    elif risk_nr <= signal_thresholds["strong_max_risk_pct"]:
         signal = "Strong"
-    elif risk_nr <= 20:
+    elif risk_nr <= signal_thresholds["normal_max_risk_pct"]:
         signal = "Normal"
-    elif risk_nr <= 30:
+    elif risk_nr <= signal_thresholds["reserve_max_risk_pct"]:
         signal = "Reserve"
-    elif risk_nr <= 50:
+    elif risk_nr <= signal_thresholds["careful_max_risk_pct"]:
         signal = "Careful"
     else:
         signal = "Pass"
@@ -158,9 +162,11 @@ def score_dj_configs(dj_sales: list[dict]) -> dict[str, dict]:
         if cfg is not None:
             configs[cfg].append(s)
 
+    min_sales = load_analyzer_config()["scoring"]["min_sales_for_scoring"]
+
     result = {}
     for cfg_name, cfg_sales in configs.items():
-        if len(cfg_sales) < MIN_SALES_FOR_SCORING:
+        if len(cfg_sales) < min_sales:
             continue
         a = analyze_reference(cfg_sales)
         if a:
@@ -182,7 +188,7 @@ def score_all_references(
     name_cache: dict,
     sell_through: dict[str, float] | None = None,
 ) -> dict:
-    """Score every reference with MIN_SALES_FOR_SCORING+ sales.
+    """Score every reference with min_sales_for_scoring+ sales.
 
     Returns {
         "references": {ref: {brand, model, reference, named, ...metrics}},
@@ -193,12 +199,14 @@ def score_all_references(
     sell_through = sell_through or {}
     grouped = group_sales_by_reference(sales)
 
+    min_sales = load_analyzer_config()["scoring"]["min_sales_for_scoring"]
+
     references = {}
     unnamed = []
     dj_sales: list[dict] = []
 
     for ref, ref_sales in grouped.items():
-        if len(ref_sales) < MIN_SALES_FOR_SCORING:
+        if len(ref_sales) < min_sales:
             continue
 
         st = sell_through.get(ref)
@@ -323,6 +331,20 @@ def main() -> int:
                     "error": f"CSV not found: {path}",
                 }), file=sys.stderr)
                 return 1
+
+        # Surface the scoring knobs that actually changed behavior during
+        # this run. analyzer_config_source tells the reader whether the
+        # run saw the committed file or fell back to factory defaults.
+        cfg = load_analyzer_config()
+        scoring = cfg["scoring"]
+        span.set_attribute("analyzer_config_source", analyzer_config_source())
+        span.set_attribute("min_sales_for_scoring", scoring["min_sales_for_scoring"])
+        span.set_attribute(
+            "risk_reserve_threshold_fraction",
+            scoring["risk_reserve_threshold_fraction"],
+        )
+        for key, value in scoring["signal_thresholds"].items():
+            span.set_attribute(f"signal_thresholds.{key}", value)
 
         result = run(args.csv_paths, args.name_cache)
         span.set_attribute("references_scored", len(result["references"]))

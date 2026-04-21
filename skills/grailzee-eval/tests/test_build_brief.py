@@ -288,3 +288,75 @@ class TestMomentum:
         brief = json.loads(Path(result["json_path"]).read_text())
         t = brief["targets"][0]
         assert t["momentum"] is None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Phase A.2 — analyzer_config parity
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestAnalyzerConfigParity:
+    """build_brief reads no §2.1 constants directly in A.2 (its
+    SOURCING_RULES migrate in A.4). Parity here is trivially expected,
+    but we assert it anyway to catch accidental couplings."""
+
+    def setup_method(self) -> None:
+        from scripts.grailzee_common import _reset_analyzer_config_cache
+        _reset_analyzer_config_cache()
+
+    def teardown_method(self) -> None:
+        from scripts.grailzee_common import _reset_analyzer_config_cache
+        _reset_analyzer_config_cache()
+
+    def test_brief_output_identical_file_present_vs_absent(self, tmp_path):
+        from unittest.mock import patch
+        from scripts.build_brief import build_brief
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import (
+            ANALYZER_CONFIG_FACTORY_DEFAULTS,
+            _reset_analyzer_config_cache,
+            load_analyzer_config,
+        )
+
+        refs = {
+            "79830RB": {
+                "brand": "Tudor", "model": "BB GMT", "reference": "79830RB",
+                "median": 3200, "st_pct": 0.6,
+                "max_buy_nr": 2910, "max_buy_res": 2770,
+                "risk_nr": 8.0, "signal": "Strong",
+                "recommend_reserve": False, "floor": 3000, "volume": 5,
+            },
+        }
+        all_results = {"references": refs, "dj_configs": {}}
+        trends = {"trends": [], "momentum": {}}
+
+        # Run 1: file absent -> fallback
+        _reset_analyzer_config_cache()
+        load_analyzer_config(path="/tmp/__absent_for_build_brief__")
+        out1 = tmp_path / "run1"
+        out1.mkdir()
+        brief1_path = str(out1 / "sourcing_brief.json")
+        with patch("scripts.build_brief.BRIEF_PATH", brief1_path):
+            build_brief(all_results, trends, {}, {}, {}, str(out1))
+        b1 = json.loads(Path(brief1_path).read_text())
+
+        # Run 2: file present with factory defaults
+        _reset_analyzer_config_cache()
+        cfg_path = tmp_path / "analyzer_config.json"
+        write_config(
+            cfg_path,
+            json.loads(json.dumps(ANALYZER_CONFIG_FACTORY_DEFAULTS)),
+            [], "test",
+        )
+        load_analyzer_config(path=str(cfg_path))
+        out2 = tmp_path / "run2"
+        out2.mkdir()
+        brief2_path = str(out2 / "sourcing_brief.json")
+        with patch("scripts.build_brief.BRIEF_PATH", brief2_path):
+            build_brief(all_results, trends, {}, {}, {}, str(out2))
+        b2 = json.loads(Path(brief2_path).read_text())
+
+        # generated_at timestamp drifts across runs; everything else must match.
+        b1.pop("generated_at", None)
+        b2.pop("generated_at", None)
+        assert b1 == b2

@@ -37,9 +37,9 @@ from scripts.grailzee_common import (
     LEDGER_PATH,
     NR_FIXED,
     RES_FIXED,
-    RISK_RESERVE_THRESHOLD,
     get_ad_budget,
     get_tracer,
+    load_analyzer_config,
     load_cycle_focus,
     normalize_ref,
     match_reference,
@@ -352,12 +352,16 @@ def _score_decision(entry: dict, purchase_price: float) -> dict:
     signal = entry["signal"]
 
     # recommend_reserve is computed at evaluation time from risk_nr and
-    # RISK_RESERVE_THRESHOLD. The cache does not store this field; it is
+    # the current risk_reserve_threshold_fraction (analyzer_config.json
+    # scoring section). The cache does not store this field; it is
     # derived here so the threshold can evolve without cache regeneration.
-    # Changing RISK_RESERVE_THRESHOLD changes format recommendations for
+    # Strategy edits to the threshold change format recommendations for
     # all future evaluations, even against existing cache data.
+    risk_reserve_threshold = load_analyzer_config()["scoring"][
+        "risk_reserve_threshold_fraction"
+    ]
     recommend_reserve = (
-        risk_nr is not None and risk_nr > RISK_RESERVE_THRESHOLD * 100
+        risk_nr is not None and risk_nr > risk_reserve_threshold * 100
     )
 
     # Determine initial format and effective MAX BUY
@@ -413,8 +417,8 @@ def _score_decision(entry: dict, purchase_price: float) -> dict:
 
     elif signal in ("Careful", "Reserve") and not recommend_reserve:
         # MAYBE: signal indicates elevated risk (20-50%) but below the
-        # Reserve threshold (RISK_RESERVE_THRESHOLD * 100 = 40%). The
-        # 20-40% risk band means the reference has too much VG+ downside
+        # Reserve threshold (risk_reserve_threshold_fraction * 100 = 40%).
+        # The 20-40% risk band means the reference has too much VG+ downside
         # for confident NR listing but not enough to auto-route to Reserve.
         # Recommendation: list on Reserve account instead. This covers
         # both "Reserve" signal (risk 20-30%) and lower-band "Careful"

@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "windows": {
+    "pricing_reports": 2,
+    "trend_reports": 6
+  },
+  "margin": {
+    "per_trade_target_margin_fraction": 0.05,
+    "monthly_return_target_fraction": 0.1
+  },
+  "labor": {
+    "hours_per_piece": 1.5
+  },
+  "premium_model": {
+    "lookback_days": 30,
+    "close_count_floor": 5,
+    "recent_weighted": true
+  },
+  "scoring": {
+    "min_sales_for_scoring": 3,
+    "risk_reserve_threshold_fraction": 0.4,
+    "signal_thresholds": {
+      "strong_max_risk_pct": 10,
+      "normal_max_risk_pct": 20,
+      "reserve_max_risk_pct": 30,
+      "careful_max_risk_pct": 50
+    }
+  },
+  "last_updated": "2026-04-21T18:55:58Z",
+  "updated_by": "phase_a_install",
+  "defaulted_fields": [
+    "labor.hours_per_piece",
+    "margin.monthly_return_target_fraction",
+    "margin.per_trade_target_margin_fraction",
+    "premium_model.close_count_floor",
+    "premium_model.lookback_days",
+    "premium_model.recent_weighted",
+    "scoring.min_sales_for_scoring",
+    "scoring.risk_reserve_threshold_fraction",
+    "scoring.signal_thresholds.careful_max_risk_pct",
+    "scoring.signal_thresholds.normal_max_risk_pct",
+    "scoring.signal_thresholds.reserve_max_risk_pct",
+    "scoring.signal_thresholds.strong_max_risk_pct",
+    "windows.pricing_reports",
+    "windows.trend_reports"
+  ]
+}

@@ -31,10 +31,12 @@ from opentelemetry.trace import StatusCode
 
 from scripts.grailzee_common import (
     OUTPUT_PATH,
+    analyzer_config_source,
     apply_premium_adjustment,
     calculate_presentation_premium,
     cycle_id_from_csv,
     get_tracer,
+    load_analyzer_config,
     load_name_cache,
     prev_cycle,
 )
@@ -76,11 +78,16 @@ def run_analysis(
     source_report = Path(current_csv).name
     current_cycle_id = cycle_id_from_csv(current_csv)
 
-    # Step 6: Score references (pricing window: latest 2 per Section 6.2)
+    cfg = load_analyzer_config()
+    pricing_window = cfg["windows"]["pricing_reports"]
+    pricing_csv_paths = csv_paths[:pricing_window]
+
+    # Step 6: Score references (pricing window sourced from analyzer_config)
     with tracer.start_as_current_span("analyze_references.run") as span:
-        span.set_attribute("csv_count", len(csv_paths[:2]))
+        span.set_attribute("pricing_csv_count", len(pricing_csv_paths))
+        span.set_attribute("windows.pricing_reports", pricing_window)
         try:
-            all_results = analyze_references.run(csv_paths[:2], name_cache_path)
+            all_results = analyze_references.run(pricing_csv_paths, name_cache_path)
             span.set_attribute("refs_count", len(all_results.get("references", {})))
         except Exception as exc:
             span.record_exception(exc)
@@ -232,7 +239,7 @@ def run_analysis(
 
     # Step 15: Cache write
     market_window = {
-        "pricing_reports": [Path(p).name for p in csv_paths[:2]],
+        "pricing_reports": [Path(p).name for p in pricing_csv_paths],
         "trend_reports": [Path(p).name for p in csv_paths],
     }
     with tracer.start_as_current_span("write_cache.run") as span:
@@ -273,6 +280,11 @@ def main() -> int:
 
     with tracer.start_as_current_span("run_analysis") as span:
         span.set_attribute("csv_count", len(args.csv_paths))
+
+        cfg = load_analyzer_config()
+        span.set_attribute("analyzer_config_source", analyzer_config_source())
+        span.set_attribute("windows.pricing_reports", cfg["windows"]["pricing_reports"])
+        span.set_attribute("windows.trend_reports", cfg["windows"]["trend_reports"])
 
         try:
             result = run_analysis(

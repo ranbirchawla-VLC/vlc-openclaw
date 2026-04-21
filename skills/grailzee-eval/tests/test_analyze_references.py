@@ -332,3 +332,69 @@ class TestCLI:
         assert r.returncode == 0
         data = json.loads(r.stdout)
         assert data["total_sales_loaded"] == 28
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Phase A.2 — file-present vs file-absent parity
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestAnalyzerConfigParity:
+    """Scoring output must be identical whether analyzer_config.json is
+    present (with factory defaults) or absent (fallback path).
+
+    Uses the in-process run() so we can control the config cache; the
+    CLI subprocess path can't be swayed without env vars."""
+
+    def setup_method(self) -> None:
+        from scripts.grailzee_common import _reset_analyzer_config_cache
+        _reset_analyzer_config_cache()
+
+    def teardown_method(self) -> None:
+        from scripts.grailzee_common import _reset_analyzer_config_cache
+        _reset_analyzer_config_cache()
+
+    def _score(self, name_cache, config_path=None):
+        """Run analyze_references.run with the given config path (or no
+        config for fallback). Returns the JSON-stringified output."""
+        from scripts.grailzee_common import (
+            _reset_analyzer_config_cache,
+            load_analyzer_config,
+        )
+        _reset_analyzer_config_cache()
+        if config_path is None:
+            # Point at a non-existent file; loader falls back to defaults.
+            load_analyzer_config(path="/tmp/__grailzee_absent_config__")
+        else:
+            load_analyzer_config(path=str(config_path))
+        return json.dumps(run([SALES_CSV], name_cache), sort_keys=True, default=str)
+
+    def test_file_absent_equals_file_present_with_defaults(self, tmp_path):
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import ANALYZER_CONFIG_FACTORY_DEFAULTS
+
+        cfg_path = tmp_path / "analyzer_config.json"
+        content = json.loads(json.dumps(ANALYZER_CONFIG_FACTORY_DEFAULTS))
+        write_config(cfg_path, content, [], "test")
+
+        with_file = self._score(NAME_CACHE, config_path=cfg_path)
+        without_file = self._score(NAME_CACHE, config_path=None)
+
+        assert with_file == without_file
+
+    def test_custom_config_shifts_output(self, tmp_path):
+        """Sanity: if we DO change a value, output changes — proving the
+        parity test above has discriminative power."""
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import ANALYZER_CONFIG_FACTORY_DEFAULTS
+
+        # Raise min_sales_for_scoring to 5 so A17320 (3 sales) + 126300
+        # (4 sales) are excluded from the output.
+        cfg_path = tmp_path / "analyzer_config.json"
+        content = json.loads(json.dumps(ANALYZER_CONFIG_FACTORY_DEFAULTS))
+        content["scoring"]["min_sales_for_scoring"] = 5
+        write_config(cfg_path, content, [], "test")
+
+        default_score = self._score(NAME_CACHE, config_path=None)
+        tightened = self._score(NAME_CACHE, config_path=cfg_path)
+        assert default_score != tightened

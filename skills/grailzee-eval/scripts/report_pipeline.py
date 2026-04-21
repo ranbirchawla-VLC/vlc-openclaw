@@ -28,12 +28,25 @@ sys.path.insert(0, str(V2_ROOT))
 from opentelemetry.trace import StatusCode
 
 from scripts import ingest_report, run_analysis
-from scripts.grailzee_common import CSV_PATH, OUTPUT_PATH, get_tracer
+from scripts.grailzee_common import (
+    CSV_PATH,
+    OUTPUT_PATH,
+    get_tracer,
+    load_analyzer_config,
+)
 
 tracer = get_tracer(__name__)
 
-DEFAULT_TREND_WINDOW = 6
 CSV_GLOB = "grailzee_*.csv"
+
+
+def _configured_trend_window() -> int:
+    """Live trend-window value from analyzer_config.json.
+
+    Falls back to the factory default via load_analyzer_config()'s
+    own fallback behavior when the config file is missing.
+    """
+    return load_analyzer_config()["windows"]["trend_reports"]
 
 
 def run_pipeline(
@@ -46,7 +59,7 @@ def run_pipeline(
     backup_path: str | None = None,
     name_cache_path: str | None = None,
     cycle_focus_path: str | None = None,
-    trend_window: int = DEFAULT_TREND_WINDOW,
+    trend_window: int | None = None,
 ) -> dict:
     """Ingest a Grailzee Pro workbook, gather the trend window, run analysis.
 
@@ -58,11 +71,14 @@ def run_pipeline(
     sort equivalent to chronological-descending.
     """
     resolved_csv_dir = csv_dir or CSV_PATH
+    resolved_trend_window = (
+        trend_window if trend_window is not None else _configured_trend_window()
+    )
 
     with tracer.start_as_current_span("report_pipeline.ingest_glob") as span:
         span.set_attribute("input_report", input_report)
         span.set_attribute("csv_dir", resolved_csv_dir)
-        span.set_attribute("trend_window", trend_window)
+        span.set_attribute("trend_window", resolved_trend_window)
         try:
             ingest_result = ingest_report.ingest(
                 input_report, output_dir=resolved_csv_dir,
@@ -77,7 +93,7 @@ def run_pipeline(
                     f"No CSVs found in {resolved_csv_dir!r} "
                     f"matching {CSV_GLOB!r}"
                 )
-            csv_paths = matches[:trend_window]
+            csv_paths = matches[:resolved_trend_window]
             span.set_attribute("csv_count", len(csv_paths))
             span.set_attribute("csv_newest", Path(csv_paths[0]).name)
             span.set_attribute("csv_oldest", Path(csv_paths[-1]).name)
@@ -110,7 +126,16 @@ def main() -> int:
     parser.add_argument("--backup", default=None)
     parser.add_argument("--name-cache", default=None)
     parser.add_argument("--cycle-focus", default=None)
-    parser.add_argument("--trend-window", type=int, default=DEFAULT_TREND_WINDOW)
+    parser.add_argument(
+        "--trend-window",
+        type=int,
+        default=None,
+        help=(
+            "Override the trend-window size. Default reads "
+            "windows.trend_reports from analyzer_config.json "
+            "(with factory-default fallback if the file is missing)."
+        ),
+    )
     args = parser.parse_args()
 
     with tracer.start_as_current_span("report_pipeline.run") as span:

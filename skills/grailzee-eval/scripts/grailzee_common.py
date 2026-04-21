@@ -1,11 +1,11 @@
 """Shared constants, formulas, and utilities for Grailzee Eval v2.
 
 All constants, formulas, and reference-matching logic live here. Every
-other script in skills/grailzee-eval-v2/scripts/ imports from this module.
+other script in skills/grailzee-eval/scripts/ imports from this module.
 
-Extracted and refactored from skills/grailzee-eval/scripts/
-analyze_report.py and evaluate_deal.py. Behavior preserved unless
-explicitly noted (see RISK_RESERVE_THRESHOLD comment).
+Extracted and refactored from the original v1 analyze_report.py and
+evaluate_deal.py. Behavior preserved unless explicitly noted (see
+RISK_RESERVE_THRESHOLD comment).
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import statistics
 import sys
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 from typing import Any, Optional
 
 
@@ -35,6 +36,16 @@ BRIEFS_PATH   = f"{OUTPUT_PATH}/briefs"
 STATE_PATH    = f"{GRAILZEE_ROOT}/state"
 BACKUP_PATH   = f"{GRAILZEE_ROOT}/backup"
 
+# Phase A.2: config files (analyzer_config, brand_floors, sourcing_rules,
+# cycle_focus, monthly_goals, quarterly_allocation, capacity_context)
+# live in the repo's ``state/`` directory rather than on Drive. They
+# ship with the code, unlike data files (cache, ledger, outcomes)
+# which are generated at runtime and live on Drive via STATE_PATH.
+# ``config_path(name)`` resolves against WORKSPACE_STATE_PATH.
+WORKSPACE_STATE_PATH = str(
+    (Path(__file__).resolve().parent.parent.parent.parent / "state")
+)
+
 CACHE_PATH          = f"{STATE_PATH}/analysis_cache.json"
 BRIEF_PATH          = f"{STATE_PATH}/sourcing_brief.json"
 LEDGER_PATH         = f"{STATE_PATH}/trade_ledger.csv"
@@ -49,14 +60,60 @@ RUN_HISTORY_PATH    = f"{STATE_PATH}/run_history.json"
 
 NR_FIXED = 149              # NR account: $49 Grailzee fee + $100 shipping
 RES_FIXED = 199             # Reserve account: $99 fee + $100 shipping
-TARGET_MARGIN = 0.05        # 5% target margin on every trade
+
+# Fallback defaults for values now sourced from analyzer_config.json
+# (v1.1 §2, Phase A.2 migration). The live value is read via
+# load_analyzer_config(); these constants remain as the in-process
+# fallback when the config file is missing or unreadable, and as the
+# documented "factory default" matching the bootstrapped config.
+TARGET_MARGIN = 0.05        # fallback default; live value in analyzer_config.json
 
 # NOTE: v1 used RISK_RESERVE_THRESHOLD = 20 (percent). v2 uses fraction.
 # All downstream consumers must use the fraction (0.40 = 40%).
-RISK_RESERVE_THRESHOLD = 0.40
+RISK_RESERVE_THRESHOLD = 0.40  # fallback default; live value in analyzer_config.json
 
-MIN_SALES_FOR_SCORING = 3   # plan Section 7.1: need 3+ sales to score
+MIN_SALES_FOR_SCORING = 3   # fallback default; live value in analyzer_config.json
 CACHE_SCHEMA_VERSION = 2    # plan Section 13: v2 cache schema
+
+# Phase A.2: analyzer_config.json name + schema version + factory defaults.
+# Factory defaults mirror the values bootstrapped by
+# scripts/install_analyzer_config.py — they are the ground truth that
+# load_analyzer_config() falls back to when the file is missing or
+# malformed. After changing anything below, rerun the installer with
+# --force to regenerate state/analyzer_config.json; the
+# ``test_values_match_factory_defaults`` test in test_analyzer_config.py
+# catches drift.
+ANALYZER_CONFIG_NAME = "analyzer_config.json"
+ANALYZER_CONFIG_SCHEMA_VERSION = 1
+ANALYZER_CONFIG_FACTORY_DEFAULTS: dict = {
+    "schema_version": ANALYZER_CONFIG_SCHEMA_VERSION,
+    "windows": {
+        "pricing_reports": 2,
+        "trend_reports": 6,
+    },
+    "margin": {
+        "per_trade_target_margin_fraction": 0.05,
+        "monthly_return_target_fraction": 0.10,
+    },
+    "labor": {
+        "hours_per_piece": 1.5,
+    },
+    "premium_model": {
+        "lookback_days": 30,
+        "close_count_floor": 5,
+        "recent_weighted": True,
+    },
+    "scoring": {
+        "min_sales_for_scoring": 3,
+        "risk_reserve_threshold_fraction": 0.40,
+        "signal_thresholds": {
+            "strong_max_risk_pct": 10,
+            "normal_max_risk_pct": 20,
+            "reserve_max_risk_pct": 30,
+            "careful_max_risk_pct": 50,
+        },
+    },
+}
 
 ACCOUNT_FEES = {"NR": NR_FIXED, "RES": RES_FIXED}
 
@@ -91,20 +148,33 @@ AD_BUDGETS = [
 
 # ─── Formulas ─────────────────────────────────────────────────────────
 
+def _target_margin() -> float:
+    """Live target-margin fraction, sourced from analyzer_config.json.
+
+    Reads via the memoized loader; falls back to TARGET_MARGIN constant
+    when the config file is missing. Exists so max_buy formulas stay
+    one-liners at the call site.
+    """
+    cfg = load_analyzer_config()
+    return cfg["margin"]["per_trade_target_margin_fraction"]
+
+
 def max_buy_nr(median: float) -> float:
     """MAX BUY for No Reserve account.
 
-    Formula: (median - 149) / 1.05, rounded to nearest $10.
+    Formula: (median - 149) / (1 + target_margin), rounded to nearest $10.
+    Target margin is sourced from analyzer_config.json (Phase A.2).
     """
-    return round((median - NR_FIXED) / (1 + TARGET_MARGIN), -1)
+    return round((median - NR_FIXED) / (1 + _target_margin()), -1)
 
 
 def max_buy_reserve(median: float) -> float:
     """MAX BUY for Reserve account.
 
-    Formula: (median - 199) / 1.05, rounded to nearest $10.
+    Formula: (median - 199) / (1 + target_margin), rounded to nearest $10.
+    Target margin is sourced from analyzer_config.json (Phase A.2).
     """
-    return round((median - RES_FIXED) / (1 + TARGET_MARGIN), -1)
+    return round((median - RES_FIXED) / (1 + _target_margin()), -1)
 
 
 def breakeven_nr(max_buy: float) -> float:
@@ -123,9 +193,10 @@ def adjusted_max_buy(median: float, fixed_cost: float,
 
     Used when the ledger has accumulated enough trades to prove a
     presentation premium above +8% average. See Section 5.5 of plan.
+    Target margin is sourced from analyzer_config.json (Phase A.2).
     """
     adjusted_median = median * (1 + premium_adjustment_pct / 100)
-    return round((adjusted_median - fixed_cost) / (1 + TARGET_MARGIN), -1)
+    return round((adjusted_median - fixed_cost) / (1 + _target_margin()), -1)
 
 
 def get_ad_budget(median_price: float) -> str:
@@ -438,6 +509,173 @@ def cycle_id_from_csv(csv_path: str) -> str:
         y, mo, d = m.group(1).split("-")
         return cycle_id_from_date(date(int(y), int(mo), int(d)))
     return cycle_id_from_date(date.today())
+
+
+# ─── Config file resolution + analyzer_config cache ──────────────────
+
+
+def config_path(name: str) -> str:
+    """Resolve a config file name to its absolute path under the
+    workspace ``state/`` directory.
+
+    Single source of truth for locating the strategy-writable config
+    files introduced in Phase A (analyzer_config.json, brand_floors.json,
+    sourcing_rules.json, cycle_focus.json, monthly_goals.json,
+    quarterly_allocation.json, capacity_context.json). These files ship
+    with the repo (unlike data files on Drive) so they resolve against
+    WORKSPACE_STATE_PATH, not the Drive-backed STATE_PATH. Callers that
+    need a custom root (tests, dry-runs) should not use this helper and
+    should pass their paths explicitly.
+
+    Strips leading/trailing slashes from ``name`` to protect against
+    accidental absolute paths. Raises ValueError on empty name.
+    """
+    if not isinstance(name, str):
+        raise ValueError(
+            f"config_path: name must be str, got {type(name).__name__}"
+        )
+    stripped = name.strip().strip("/")
+    if not stripped:
+        raise ValueError("config_path: name must be a non-empty string")
+    if ".." in stripped.split("/"):
+        raise ValueError(
+            f"config_path: name {name!r} contains '..' "
+            f"(would escape the state directory)"
+        )
+    return f"{WORKSPACE_STATE_PATH}/{stripped}"
+
+
+# Module-level cache for analyzer_config. First call reads from disk;
+# subsequent calls return the cached dict. A process is expected to
+# live no longer than a single analyzer run, so a cached read matches
+# the cycle-boundary change-propagation rule from schema design v1
+# Section 5: config edits apply on the next analyzer run. Tests that
+# need fresh reads call ``_reset_analyzer_config_cache()``.
+_analyzer_config_cache: dict | None = None
+_analyzer_config_source: str = "uninitialized"
+
+
+def _reset_analyzer_config_cache() -> None:
+    """Test helper: clear the memoized analyzer_config.
+
+    Production code must not call this; it exists so tests can switch
+    between file-present and file-absent conditions in a single process.
+    """
+    global _analyzer_config_cache, _analyzer_config_source
+    _analyzer_config_cache = None
+    _analyzer_config_source = "uninitialized"
+
+
+def analyzer_config_source() -> str:
+    """Return where the last load_analyzer_config() call got its data.
+
+    One of: 'uninitialized' (never loaded), 'file' (read from disk),
+    'fallback' (file missing or malformed; factory defaults used).
+    Exposed for span attribution.
+    """
+    return _analyzer_config_source
+
+
+def load_analyzer_config(path: Optional[str] = None) -> dict:
+    """Return the live analyzer_config dict, memoized for the process.
+
+    Read-once semantics are intentional. The cache-once-per-process
+    pattern matches the change-propagation rule from grailzee schema
+    design v1 Section 5: analyzer_config edits take effect at the next
+    cycle boundary (i.e. the next analyzer run), not mid-run. A single
+    process represents one cycle's evaluation, so caching the first
+    read is correct — re-reading mid-run would let a concurrent
+    strategy edit flip thresholds underneath the scoring loop.
+
+    Tests that need to exercise both file-present and file-absent
+    paths in one process call ``_reset_analyzer_config_cache()``
+    between scenarios.
+
+    Args:
+        path: Override the default ``STATE_PATH/analyzer_config.json``.
+              First call after a reset wins; subsequent calls return
+              the cached dict regardless of their ``path`` argument.
+
+    Returns:
+        The parsed config dict with the full §2.1 shape. Always returns
+        a complete dict: missing keys are backfilled from
+        ``ANALYZER_CONFIG_FACTORY_DEFAULTS`` so consumers can safely
+        access nested paths without guards. A fallback read (file
+        absent or malformed) returns a deep copy of the factory
+        defaults, matching today's hardcoded constants exactly.
+
+    Fallback behavior:
+        A missing file, unreadable JSON, or schema_version > 1 is
+        logged to stderr once and falls back to factory defaults. The
+        analyzer proceeds with identical behavior to the pre-A.2 code.
+        Downstream phases may tighten this to fail-loud once A.2-A.5
+        are stable.
+    """
+    global _analyzer_config_cache, _analyzer_config_source
+    if _analyzer_config_cache is not None:
+        return _analyzer_config_cache
+
+    resolved = path or config_path(ANALYZER_CONFIG_NAME)
+    fallback = _deep_copy_factory_defaults()
+
+    if not os.path.exists(resolved):
+        _analyzer_config_cache = fallback
+        _analyzer_config_source = "fallback"
+        return _analyzer_config_cache
+
+    try:
+        # Local import: config_helper imports grailzee_common for
+        # get_tracer, so a top-level import would be circular.
+        from scripts.config_helper import (
+            read_config,
+            schema_version_or_fail,
+        )
+        parsed = read_config(resolved)
+        schema_version_or_fail(parsed, ANALYZER_CONFIG_SCHEMA_VERSION)
+    except Exception as exc:
+        print(
+            f"[grailzee_common] analyzer_config read failed ({exc}); "
+            f"falling back to factory defaults",
+            file=sys.stderr,
+        )
+        _analyzer_config_cache = fallback
+        _analyzer_config_source = "fallback"
+        return _analyzer_config_cache
+
+    _analyzer_config_cache = _merge_onto_defaults(parsed, fallback)
+    _analyzer_config_source = "file"
+    return _analyzer_config_cache
+
+
+def _deep_copy_factory_defaults() -> dict:
+    """Return a fresh deep copy of ANALYZER_CONFIG_FACTORY_DEFAULTS.
+
+    Callers mutate their copy freely without leaking state back into
+    the module-level constant.
+    """
+    return json.loads(json.dumps(ANALYZER_CONFIG_FACTORY_DEFAULTS))
+
+
+def _merge_onto_defaults(overlay: dict, base: dict) -> dict:
+    """Deep-merge ``overlay`` onto ``base``. Overlay values win.
+
+    Used so a config file that omits a section inherits the factory
+    default for that section rather than crashing a consumer. Only
+    dicts recurse; other types replace wholesale.
+    """
+    merged = json.loads(json.dumps(base))
+    for key, value in overlay.items():
+        if (
+            isinstance(value, dict)
+            and isinstance(merged.get(key), dict)
+        ):
+            merged[key] = _merge_onto_defaults(value, merged[key])
+        else:
+            merged[key] = value
+    return merged
+
+
+# ─── Premium adjustment (read by run_analysis) ────────────────────────
 
 
 def apply_premium_adjustment(all_results: dict, adjustment_pct: float) -> None:

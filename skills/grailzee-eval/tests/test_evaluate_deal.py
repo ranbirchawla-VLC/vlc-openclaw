@@ -1005,6 +1005,120 @@ class TestScoreDecision:
         assert d["reserve_price"] is None
 
 
+class TestRiskReserveThresholdParity:
+    """Phase A.2: _score_decision reads risk_reserve_threshold_fraction
+    from analyzer_config. Output must be identical whether the config
+    file is present (factory defaults) or absent (fallback path).
+
+    Covers two branches where the threshold changes the decision tree:
+    the Careful/Reserve MAYBE branch and the implicit signal=Pass branch.
+    """
+
+    def setup_method(self) -> None:
+        from scripts.grailzee_common import _reset_analyzer_config_cache
+        _reset_analyzer_config_cache()
+
+    def teardown_method(self) -> None:
+        from scripts.grailzee_common import _reset_analyzer_config_cache
+        _reset_analyzer_config_cache()
+
+    def _decide(self, entry, price, config_path=None):
+        from scripts.grailzee_common import (
+            _reset_analyzer_config_cache,
+            load_analyzer_config,
+        )
+        _reset_analyzer_config_cache()
+        load_analyzer_config(
+            path=(str(config_path) if config_path else "/tmp/__absent_for_eval__")
+        )
+        return _score_decision(entry, price)
+
+    def test_reserve_in_band_parity(self, tmp_path):
+        """Reserve signal risk=25% -> MAYBE branch; identical both ways."""
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import ANALYZER_CONFIG_FACTORY_DEFAULTS
+
+        cfg = tmp_path / "analyzer_config.json"
+        write_config(
+            cfg,
+            json.loads(json.dumps(ANALYZER_CONFIG_FACTORY_DEFAULTS)),
+            [], "test",
+        )
+        entry = _make_ref(
+            signal="Reserve", risk_nr=25.0,
+            max_buy_nr=2910, max_buy_res=2860,
+        )
+
+        absent = self._decide(entry, 2700, config_path=None)
+        present = self._decide(entry, 2700, config_path=cfg)
+        assert absent == present
+
+    def test_careful_above_threshold_parity(self, tmp_path):
+        """Careful signal risk=45% -> YES (recommend_reserve=True)."""
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import ANALYZER_CONFIG_FACTORY_DEFAULTS
+
+        cfg = tmp_path / "analyzer_config.json"
+        write_config(
+            cfg,
+            json.loads(json.dumps(ANALYZER_CONFIG_FACTORY_DEFAULTS)),
+            [], "test",
+        )
+        entry = _make_ref(
+            signal="Careful", risk_nr=45.0,
+            max_buy_nr=2910, max_buy_res=2860,
+        )
+
+        absent = self._decide(entry, 2700, config_path=None)
+        present = self._decide(entry, 2700, config_path=cfg)
+        assert absent == present
+
+    def test_pass_signal_parity(self, tmp_path):
+        """signal='Pass' -> NO (independent of threshold, but still must match)."""
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import ANALYZER_CONFIG_FACTORY_DEFAULTS
+
+        cfg = tmp_path / "analyzer_config.json"
+        write_config(
+            cfg,
+            json.loads(json.dumps(ANALYZER_CONFIG_FACTORY_DEFAULTS)),
+            [], "test",
+        )
+        entry = _make_ref(
+            signal="Pass", risk_nr=65.0,
+            max_buy_nr=2910, max_buy_res=2860,
+        )
+
+        absent = self._decide(entry, 2700, config_path=None)
+        present = self._decide(entry, 2700, config_path=cfg)
+        assert absent == present
+        assert absent["grailzee"] == "NO"
+
+    def test_threshold_change_shifts_decision(self, tmp_path):
+        """Discriminative power: lowering threshold to 20% flips a
+        risk=30% Reserve entry from MAYBE to YES-on-Reserve."""
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import ANALYZER_CONFIG_FACTORY_DEFAULTS
+
+        cfg = tmp_path / "analyzer_config.json"
+        content = json.loads(json.dumps(ANALYZER_CONFIG_FACTORY_DEFAULTS))
+        content["scoring"]["risk_reserve_threshold_fraction"] = 0.20
+        write_config(cfg, content, [], "test")
+
+        entry = _make_ref(
+            signal="Reserve", risk_nr=30.0,
+            max_buy_nr=2910, max_buy_res=2860,
+        )
+
+        absent = self._decide(entry, 2700, config_path=None)
+        tightened = self._decide(entry, 2700, config_path=cfg)
+        # With factory default (40%): risk=30 < 40 -> recommend_reserve=False
+        # -> MAYBE branch. With tightened (20%): risk=30 > 20 ->
+        # recommend_reserve=True -> YES.
+        assert absent["grailzee"] == "MAYBE"
+        assert tightened["grailzee"] == "YES"
+
+
 class TestAdBudget:
     """Verify ad_budget appears correctly in response."""
 
