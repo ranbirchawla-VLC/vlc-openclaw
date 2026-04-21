@@ -2,9 +2,10 @@
 
 These tests exercise bundle-format compatibility end-to-end. They confirm
 that the manifest schema is stable between the two sides, that the
-OUTBOUND ``cycle_focus_current`` role translates cleanly into the INBOUND
-``cycle_focus`` role, and that validation + atomic write commit the Chat
-session's edits into state/ without corrupting unrelated files.
+OUTBOUND ``cycle_focus`` role (Phase A.5: previously ``cycle_focus_current``)
+round-trips to the INBOUND ``cycle_focus`` role, and that validation +
+atomic write commit the Chat session's edits into state/ without
+corrupting unrelated files.
 """
 
 from __future__ import annotations
@@ -49,8 +50,8 @@ def _build_chat_inbound_zip(
 ) -> Path:
     """Simulate what a Chat strategy session would hand back: the same three
     role files from the outbound bundle, possibly edited, rewrapped under
-    the INBOUND manifest shape (note role name change: cycle_focus_current
-    → cycle_focus)."""
+    the INBOUND manifest shape. A.5 aligned the OUTBOUND role name with
+    INBOUND (both sides now speak ``cycle_focus``)."""
     payloads = [
         ("cycle_focus", "cycle_focus.json", cycle_focus_bytes),
         ("monthly_goals", "monthly_goals.json", monthly_goals_bytes),
@@ -99,7 +100,8 @@ def test_unchanged_round_trip_is_byte_equivalent(tmp_path):
 
     outbound = build_outbound_bundle(tmp_path)
 
-    cycle_focus_bytes = _extract_role_bytes(outbound, "cycle_focus_current")
+    # A.5: role renamed cycle_focus_current -> cycle_focus.
+    cycle_focus_bytes = _extract_role_bytes(outbound, "cycle_focus")
     monthly_bytes = _extract_role_bytes(outbound, "monthly_goals")
     quarterly_bytes = _extract_role_bytes(outbound, "quarterly_allocation")
 
@@ -137,7 +139,7 @@ def test_edited_round_trip_commits_chat_edits(tmp_path):
 
     # Pull the three outbound role payloads, edit each to represent a
     # strategy-session decision.
-    cf = json.loads(_extract_role_bytes(outbound, "cycle_focus_current"))
+    cf = json.loads(_extract_role_bytes(outbound, "cycle_focus"))
     cf["focus_refs"] = ["79830RB", "210.30", "NEW_FROM_CHAT"]
     cf["chat_commentary"] = "Added SMD Ceramic blue dial based on Q2 momentum"
 

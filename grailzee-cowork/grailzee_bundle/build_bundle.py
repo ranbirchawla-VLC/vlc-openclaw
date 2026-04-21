@@ -10,22 +10,39 @@ filenames).
 
 Roles included
 --------------
-================  ========  ========================================
-role              required  source
-================  ========  ========================================
-analysis_cache    yes       state/analysis_cache.json
-cycle_focus_      yes       state/cycle_focus.json
-  current
-monthly_goals     yes       state/monthly_goals.json
-quarterly_        yes       state/quarterly_allocation.json
-  allocation
-trade_ledger      yes       state/trade_ledger.csv, the FULL ledger
-                            (every historical trade, no cycle
-                            filtering)
-sourcing_brief    yes       output/briefs/sourcing_brief_<cycle>.json
-latest_report_    yes       reports_csv/grailzee_YYYY-MM-DD.csv,
-  csv                       most recent by lexical-desc sort
-================  ========  ========================================
+=======================  ========  ==========  ==========================================
+role                     required  source      notes
+=======================  ========  ==========  ==========================================
+analysis_cache           yes       Drive       state/analysis_cache.json
+cycle_focus              yes       Drive       state/cycle_focus.json
+monthly_goals            yes       Drive       state/monthly_goals.json
+quarterly_allocation     yes       Drive       state/quarterly_allocation.json
+trade_ledger             yes       Drive       state/trade_ledger.csv (FULL)
+sourcing_brief           yes       Drive       output/briefs/sourcing_brief_<cycle>.json
+latest_report_csv        yes       Drive       reports_csv/grailzee_YYYY-MM-DD.csv
+analyzer_config          yes       workspace   state/analyzer_config.json (A.5)
+brand_floors             yes       workspace   state/brand_floors.json (A.5)
+sourcing_rules           yes       workspace   state/sourcing_rules.json (A.5)
+previous_cycle_outcome   no        Drive       only when a prior cycle had trade data
+previous_cycle_outcome_  yes       Drive       meta always bundled (A.7)
+  meta
+=======================  ========  ==========  ==========================================
+
+Phase A.5 migration
+-------------------
+Role ``cycle_focus_current`` renamed to ``cycle_focus`` with archive name
+``cycle_focus.json`` (previously ``cycle_focus_current.json``). The bundle
+also writes a transitional alias archive entry at the legacy archive name
+``cycle_focus_current.json`` carrying identical bytes; it is NOT a manifest
+role. Strategy-side consumers reading the legacy name keep working for one
+task cycle while strategy-skill docs migrate. Follow-up task removes the
+alias.
+
+Three workspace-state configs (analyzer_config, brand_floors, sourcing_rules)
+join the bundle. They live under the repo-backed ``WORKSPACE_STATE_PATH``;
+``workspace_state_dir`` defaults to auto-discovery via the cross-skill sys.path
+pattern already used for grailzee-eval imports. Pass ``--workspace-state-dir``
+to override.
 
 Boundary detection
 ------------------
@@ -75,6 +92,27 @@ MAX_PREVIOUS_CYCLE_LOOKBACK = 26
 
 PREVIOUS_OUTCOME_ARCNAME = "cycle_outcome_previous.json"
 PREVIOUS_OUTCOME_META_ARCNAME = "cycle_outcome_previous.meta.json"
+
+# Phase A.5 transitional alias: legacy archive name for cycle_focus.json.
+# Same bytes as the canonical ``cycle_focus.json`` entry; not a manifest
+# role. Strategy-side docs still reference ``cycle_focus_current.json``
+# as of A.5; this alias keeps the legacy name resolvable for one cycle
+# while the rename propagates. Follow-up task drops the alias.
+CYCLE_FOCUS_LEGACY_ARCNAME = "cycle_focus_current.json"
+
+# Phase A.5: workspace-state configs bundled alongside Drive-backed files.
+# Sources live under the grailzee-eval repo's ``state/`` directory,
+# discovered via the cross-skill sys.path pattern used for grailzee_common
+# imports. Each tuple is (role_name, archive_name, source_filename).
+WORKSPACE_CONFIG_FILES = (
+    ("analyzer_config", "analyzer_config.json", "analyzer_config.json"),
+    ("brand_floors", "brand_floors.json", "brand_floors.json"),
+    ("sourcing_rules", "sourcing_rules.json", "sourcing_rules.json"),
+)
+
+# Default workspace_state_dir: ``<workspace_root>/state``, same root the
+# grailzee-eval sys.path prefix above is anchored on.
+DEFAULT_WORKSPACE_STATE_DIR = _WORKSPACE_ROOT / "state"
 
 
 def _sha256(data: bytes) -> str:
@@ -266,6 +304,7 @@ def build_outbound_bundle(
     *,
     output_dir: Path | None = None,
     now: datetime | None = None,
+    workspace_state_dir: Path | None = None,
 ) -> Path:
     """Build an OUTBOUND bundle. Return path to the created ``.zip``.
 
@@ -273,19 +312,30 @@ def build_outbound_bundle(
     ----------
     grailzee_root:
         Path to the GrailzeeData tree (parent of ``state/``, ``output/``,
-        ``reports_csv/``, and ``bundles/``).
+        ``reports_csv/``, and ``bundles/``). Drive-backed in production.
     output_dir:
         Override for the bundle output directory. Defaults to
         ``grailzee_root / "bundles"`` and is created if absent.
     now:
         Override for the bundle timestamp. Defaults to
         ``datetime.now(timezone.utc)``.
+    workspace_state_dir:
+        Phase A.5: directory holding the repo-backed config files
+        (analyzer_config.json, brand_floors.json, sourcing_rules.json).
+        Defaults to ``DEFAULT_WORKSPACE_STATE_DIR``, auto-discovered via
+        the same cross-skill root already in use for grailzee-eval
+        imports. Tests pass a tmp path here.
     """
     grailzee_root = Path(grailzee_root)
     state = grailzee_root / "state"
     briefs = grailzee_root / "output" / "briefs"
     reports_csv = grailzee_root / "reports_csv"
     bundles_dir = output_dir or (grailzee_root / "bundles")
+    workspace_state = (
+        Path(workspace_state_dir)
+        if workspace_state_dir is not None
+        else DEFAULT_WORKSPACE_STATE_DIR
+    )
 
     cache = _load_cache(state / "analysis_cache.json")
     cycle_id = cache["cycle_id"]
@@ -299,13 +349,11 @@ def build_outbound_bundle(
             (state / "analysis_cache.json").read_bytes(),
         )
     )
-    payloads.append(
-        (
-            "cycle_focus_current",
-            "cycle_focus_current.json",
-            _read_required(state / "cycle_focus.json", "cycle_focus"),
-        )
-    )
+    # Phase A.5: role renamed cycle_focus_current -> cycle_focus; archive
+    # name follows. Legacy archive name `cycle_focus_current.json` is
+    # still emitted below as a non-role alias for one cycle.
+    cycle_focus_bytes = _read_required(state / "cycle_focus.json", "cycle_focus")
+    payloads.append(("cycle_focus", "cycle_focus.json", cycle_focus_bytes))
     payloads.append(
         (
             "monthly_goals",
@@ -322,6 +370,17 @@ def build_outbound_bundle(
             ),
         )
     )
+    # Phase A.5: workspace-state configs. Fail loud with a descriptive
+    # label if any is absent; strategy sessions assume all three are
+    # present.
+    for role, arcname, source_name in WORKSPACE_CONFIG_FILES:
+        payloads.append(
+            (
+                role,
+                arcname,
+                _read_required(workspace_state / source_name, role),
+            )
+        )
     payloads.append(
         (
             "trade_ledger",
@@ -403,6 +462,12 @@ def build_outbound_bundle(
             zf.writestr("manifest.json", json.dumps(manifest, indent=2))
             for _role, arcname, data in payloads:
                 zf.writestr(arcname, data)
+            # Phase A.5 transitional alias: legacy `cycle_focus_current.json`
+            # archive entry carries the same bytes as the canonical
+            # `cycle_focus.json`. No manifest role; strategy-side consumers
+            # reading the legacy archive name keep working during the
+            # rename migration.
+            zf.writestr(CYCLE_FOCUS_LEGACY_ARCNAME, cycle_focus_bytes)
         tmp_path.replace(bundle_path)
     except Exception:
         if tmp_path.exists():
@@ -426,11 +491,25 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Override the bundle output directory (default: <root>/bundles).",
     )
+    parser.add_argument(
+        "--workspace-state-dir",
+        default=None,
+        help=(
+            "Phase A.5: override the workspace state directory holding "
+            "analyzer_config.json, brand_floors.json, sourcing_rules.json. "
+            "Defaults to <workspace_root>/state via cross-skill discovery."
+        ),
+    )
     args = parser.parse_args(argv)
     try:
         path = build_outbound_bundle(
             Path(args.grailzee_root),
             output_dir=Path(args.output_dir) if args.output_dir else None,
+            workspace_state_dir=(
+                Path(args.workspace_state_dir)
+                if args.workspace_state_dir
+                else None
+            ),
         )
     except (FileNotFoundError, ValueError) as exc:
         print(f"Bundle build failed: {exc}", file=sys.stderr)

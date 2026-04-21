@@ -55,12 +55,19 @@ def test_happy_path_builds_bundle_with_all_roles(tmp_path):
         roles = {f["role"] for f in manifest["files"]}
         assert roles == {
             "analysis_cache",
-            "cycle_focus_current",
+            # A.5: renamed from cycle_focus_current to match analyzer-native
+            # naming; archive name is cycle_focus.json.
+            "cycle_focus",
             "monthly_goals",
             "quarterly_allocation",
             "trade_ledger",
             "sourcing_brief",
             "latest_report_csv",
+            # A.5: three workspace-state configs bundled alongside Drive
+            # files so strategy sessions see the full config surface.
+            "analyzer_config",
+            "brand_floors",
+            "sourcing_rules",
             # A.7: meta file is always bundled — carries source_cycle_id:null
             # when no prior cycle has trade data, as in this fixture's tree.
             "previous_cycle_outcome_meta",
@@ -544,3 +551,260 @@ def test_bundle_skipped_cycles_surfaced_in_meta(tmp_path):
         meta = json.loads(zf.read(PREVIOUS_OUTCOME_META_ARCNAME))
         assert meta["source_cycle_id"] == "cycle_2026-03"
         assert meta["skipped_cycles"] == ["cycle_2026-04"]
+
+
+# ─── Phase A.5: config-file inclusion ──────────────────────────────
+
+
+from grailzee_bundle.build_bundle import (  # noqa: E402
+    CYCLE_FOCUS_LEGACY_ARCNAME,
+    WORKSPACE_CONFIG_FILES,
+)
+
+
+def _seed_workspace_configs(workspace_state_dir: Path) -> dict[str, bytes]:
+    """Write minimum-viable A.5 workspace configs to `workspace_state_dir`.
+
+    Returns a dict mapping source filename → bytes written, for
+    byte-faithful assertions downstream.
+    """
+    workspace_state_dir.mkdir(parents=True, exist_ok=True)
+    blobs: dict[str, bytes] = {}
+    fixtures = {
+        "analyzer_config.json": {
+            "schema_version": 1,
+            "last_updated": "2026-04-21T00:00:00Z",
+            "updated_by": "phase_a_install",
+            "defaulted_fields": ["margin.per_trade_target_margin_fraction"],
+            "windows": {"pricing_reports": 2, "trend_reports": 6},
+            "margin": {
+                "per_trade_target_margin_fraction": 0.05,
+                "monthly_return_target_fraction": 0.10,
+            },
+            "labor": {"hours_per_piece": 1.5},
+            "premium_model": {
+                "lookback_days": 30,
+                "close_count_floor": 5,
+                "recent_weighted": True,
+            },
+            "scoring": {
+                "min_sales_for_scoring": 3,
+                "risk_reserve_threshold_fraction": 0.40,
+                "signal_thresholds": {
+                    "strong_max_risk_pct": 10,
+                    "normal_max_risk_pct": 20,
+                    "reserve_max_risk_pct": 30,
+                    "careful_max_risk_pct": 50,
+                },
+            },
+        },
+        "brand_floors.json": {
+            "schema_version": 1,
+            "last_updated": "2026-04-21T00:00:00Z",
+            "updated_by": "phase_a_install",
+            "defaulted_fields": [
+                "brands.Rolex.floor_pct",
+                "brands.Tudor.floor_pct",
+            ],
+            "brands": {
+                "Rolex": {"floor_pct": 5.0, "tradeable": True, "asset_class": "watch"},
+                "Tudor": {"floor_pct": 10.0, "tradeable": True, "asset_class": "watch"},
+            },
+        },
+        "sourcing_rules.json": {
+            "schema_version": 1,
+            "last_updated": "2026-04-21T00:00:00Z",
+            "updated_by": "phase_a_install",
+            "defaulted_fields": [
+                "condition_minimum",
+                "keyword_filters.exclude",
+                "keyword_filters.include",
+                "papers_required",
+            ],
+            "condition_minimum": "Very Good",
+            "papers_required": True,
+            "keyword_filters": {"include": ["full set"], "exclude": ["for parts"]},
+        },
+    }
+    for name, payload in fixtures.items():
+        blob = json.dumps(payload).encode("utf-8")
+        (workspace_state_dir / name).write_bytes(blob)
+        blobs[name] = blob
+    return blobs
+
+
+class TestPhaseA5ConfigInclusion:
+    """Phase A.5: the six strategy-writable configs land in the bundle.
+
+    Three from Drive state (cycle_focus, monthly_goals, quarterly_allocation)
+    and three from workspace state (analyzer_config, brand_floors,
+    sourcing_rules). Tests use an explicit tmp workspace_state_dir so
+    they're hermetic — no coupling to repo state.
+    """
+
+    def test_six_config_roles_present(self, tmp_path):
+        build_fake_grailzee_tree(tmp_path)
+        workspace_state = tmp_path / "workspace_state"
+        _seed_workspace_configs(workspace_state)
+
+        bundle = build_outbound_bundle(tmp_path, workspace_state_dir=workspace_state)
+
+        with zipfile.ZipFile(bundle, "r") as zf:
+            manifest = json.loads(zf.read("manifest.json"))
+        roles = {f["role"] for f in manifest["files"]}
+        assert "cycle_focus" in roles
+        assert "monthly_goals" in roles
+        assert "quarterly_allocation" in roles
+        assert "analyzer_config" in roles
+        assert "brand_floors" in roles
+        assert "sourcing_rules" in roles
+
+    def test_six_config_archives_have_analyzer_native_names(self, tmp_path):
+        """No ``_current`` suffix anywhere in the manifest for the six
+        strategy-writable configs."""
+        build_fake_grailzee_tree(tmp_path)
+        workspace_state = tmp_path / "workspace_state"
+        _seed_workspace_configs(workspace_state)
+
+        bundle = build_outbound_bundle(tmp_path, workspace_state_dir=workspace_state)
+
+        with zipfile.ZipFile(bundle, "r") as zf:
+            manifest = json.loads(zf.read("manifest.json"))
+        role_to_arcname = {f["role"]: f["path"] for f in manifest["files"]}
+        assert role_to_arcname["cycle_focus"] == "cycle_focus.json"
+        assert role_to_arcname["monthly_goals"] == "monthly_goals.json"
+        assert (
+            role_to_arcname["quarterly_allocation"] == "quarterly_allocation.json"
+        )
+        assert role_to_arcname["analyzer_config"] == "analyzer_config.json"
+        assert role_to_arcname["brand_floors"] == "brand_floors.json"
+        assert role_to_arcname["sourcing_rules"] == "sourcing_rules.json"
+        # Confirm no manifest role uses the legacy _current archive name.
+        for entry in manifest["files"]:
+            assert entry["path"] != "cycle_focus_current.json"
+
+    def test_workspace_config_bytes_preserved_verbatim(self, tmp_path):
+        """Bundle contents match workspace-state file bytes exactly —
+        schema_version, defaulted_fields, last_updated, updated_by all
+        carry through without transformation."""
+        build_fake_grailzee_tree(tmp_path)
+        workspace_state = tmp_path / "workspace_state"
+        blobs = _seed_workspace_configs(workspace_state)
+
+        bundle = build_outbound_bundle(tmp_path, workspace_state_dir=workspace_state)
+
+        with zipfile.ZipFile(bundle, "r") as zf:
+            for role, arcname, source_name in WORKSPACE_CONFIG_FILES:
+                bundled = zf.read(arcname)
+                assert bundled == blobs[source_name], (
+                    f"{role} bytes diverged from source {source_name}"
+                )
+                # Parsing the bytes returns the full metadata envelope.
+                parsed = json.loads(bundled)
+                assert "schema_version" in parsed
+                assert "defaulted_fields" in parsed
+                assert "last_updated" in parsed
+                assert "updated_by" in parsed
+
+    def test_drive_config_bytes_preserved_verbatim(self, tmp_path):
+        """cycle_focus/monthly_goals/quarterly_allocation bytes from Drive
+        state land byte-faithful in the bundle."""
+        paths = build_fake_grailzee_tree(tmp_path)
+        workspace_state = tmp_path / "workspace_state"
+        _seed_workspace_configs(workspace_state)
+
+        bundle = build_outbound_bundle(tmp_path, workspace_state_dir=workspace_state)
+
+        with zipfile.ZipFile(bundle, "r") as zf:
+            assert zf.read("cycle_focus.json") == paths["cycle_focus"].read_bytes()
+            assert zf.read("monthly_goals.json") == paths["monthly_goals"].read_bytes()
+            assert (
+                zf.read("quarterly_allocation.json")
+                == paths["quarterly_allocation"].read_bytes()
+            )
+
+    def test_cycle_focus_legacy_alias_present(self, tmp_path):
+        """Phase A.5 transitional alias: cycle_focus_current.json archive
+        entry carries identical bytes to cycle_focus.json but is NOT a
+        manifest role."""
+        paths = build_fake_grailzee_tree(tmp_path)
+        workspace_state = tmp_path / "workspace_state"
+        _seed_workspace_configs(workspace_state)
+
+        bundle = build_outbound_bundle(tmp_path, workspace_state_dir=workspace_state)
+
+        with zipfile.ZipFile(bundle, "r") as zf:
+            names = set(zf.namelist())
+            assert CYCLE_FOCUS_LEGACY_ARCNAME in names
+            legacy_bytes = zf.read(CYCLE_FOCUS_LEGACY_ARCNAME)
+            canonical_bytes = zf.read("cycle_focus.json")
+            assert legacy_bytes == canonical_bytes
+            assert legacy_bytes == paths["cycle_focus"].read_bytes()
+
+            manifest = json.loads(zf.read("manifest.json"))
+            archive_paths = {f["path"] for f in manifest["files"]}
+            assert CYCLE_FOCUS_LEGACY_ARCNAME not in archive_paths
+            roles = {f["role"] for f in manifest["files"]}
+            assert "cycle_focus_current" not in roles
+            assert "cycle_focus" in roles
+
+    @pytest.mark.parametrize(
+        "missing_name,role_label",
+        [
+            ("analyzer_config.json", "analyzer_config"),
+            ("brand_floors.json", "brand_floors"),
+            ("sourcing_rules.json", "sourcing_rules"),
+        ],
+    )
+    def test_missing_workspace_config_fails_loud(
+        self, tmp_path, missing_name, role_label
+    ):
+        """Each workspace config is required; absence raises
+        FileNotFoundError with the role label in the message."""
+        build_fake_grailzee_tree(tmp_path)
+        workspace_state = tmp_path / "workspace_state"
+        _seed_workspace_configs(workspace_state)
+        (workspace_state / missing_name).unlink()
+
+        with pytest.raises(FileNotFoundError, match=role_label):
+            build_outbound_bundle(tmp_path, workspace_state_dir=workspace_state)
+
+    def test_missing_workspace_dir_fails_loud(self, tmp_path):
+        """Pointing at a non-existent workspace_state_dir surfaces the
+        first missing config path as FileNotFoundError."""
+        build_fake_grailzee_tree(tmp_path)
+        nonexistent = tmp_path / "no_such_workspace_state"
+        with pytest.raises(FileNotFoundError):
+            build_outbound_bundle(tmp_path, workspace_state_dir=nonexistent)
+
+    def test_default_workspace_state_dir_resolves(self):
+        """DEFAULT_WORKSPACE_STATE_DIR points at the repo-backed state
+        directory, not a Drive path."""
+        from grailzee_bundle.build_bundle import DEFAULT_WORKSPACE_STATE_DIR
+
+        assert DEFAULT_WORKSPACE_STATE_DIR.name == "state"
+        # Must not resolve into GrailzeeData (the Drive-backed root).
+        assert "GrailzeeData" not in str(DEFAULT_WORKSPACE_STATE_DIR)
+
+    def test_config_files_included_count(self, tmp_path):
+        """Six strategy-writable configs land in the manifest on a
+        successful build (three from Drive, three from workspace)."""
+        build_fake_grailzee_tree(tmp_path)
+        workspace_state = tmp_path / "workspace_state"
+        _seed_workspace_configs(workspace_state)
+
+        bundle = build_outbound_bundle(tmp_path, workspace_state_dir=workspace_state)
+
+        with zipfile.ZipFile(bundle, "r") as zf:
+            manifest = json.loads(zf.read("manifest.json"))
+        config_roles = {
+            "cycle_focus",
+            "monthly_goals",
+            "quarterly_allocation",
+            "analyzer_config",
+            "brand_floors",
+            "sourcing_rules",
+        }
+        bundled = {f["role"] for f in manifest["files"]} & config_roles
+        assert bundled == config_roles
+        assert len(bundled) == 6
