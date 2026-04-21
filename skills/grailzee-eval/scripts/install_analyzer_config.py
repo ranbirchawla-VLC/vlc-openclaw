@@ -18,7 +18,7 @@ Usage:
     python3 scripts/install_analyzer_config.py --dry-run       # no write
 
 Exit codes:
-    0  installed (or dry-run preview ok, or file already present)
+    0  installed (or dry-run preview ok)
     1  target exists and --force was not passed
     2  filesystem error during atomic write
 """
