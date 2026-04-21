@@ -115,6 +115,36 @@ ANALYZER_CONFIG_FACTORY_DEFAULTS: dict = {
     },
 }
 
+# Phase A.4: sourcing_rules.json name + schema version + factory defaults.
+# Factory defaults mirror the strategy-tunable fields lifted from
+# build_brief.SOURCING_RULES — they are the ground truth that
+# load_sourcing_rules() falls back to when the file is missing or
+# malformed. After changing anything below, rerun the installer with
+# --force to regenerate state/sourcing_rules.json; the
+# ``test_values_match_factory_defaults`` test in test_sourcing_rules.py
+# catches drift.
+#
+# Scope: strategy-tunable fields only. build_brief.py keeps
+# platform_priority, us_inventory_only, never_exceed_max_buy as
+# internal hardcoded fields per schema v1 S2.
+SOURCING_RULES_NAME = "sourcing_rules.json"
+SOURCING_RULES_SCHEMA_VERSION = 1
+SOURCING_RULES_FACTORY_DEFAULTS: dict = {
+    "schema_version": SOURCING_RULES_SCHEMA_VERSION,
+    "condition_minimum": "Very Good",
+    "papers_required": True,
+    "keyword_filters": {
+        "include": [
+            "full set", "complete set", "box papers", "BNIB", "like new",
+            "excellent", "very good", "AD", "authorized",
+        ],
+        "exclude": [
+            "watch only", "no papers", "head only", "international",
+            "damaged", "for parts", "aftermarket", "rep", "homage",
+        ],
+    },
+}
+
 ACCOUNT_FEES = {"NR": NR_FIXED, "RES": RES_FIXED}
 
 VARDALUX_COLORS = {
@@ -616,23 +646,24 @@ def load_analyzer_config(path: Optional[str] = None) -> dict:
         return _analyzer_config_cache
 
     resolved = path or config_path(ANALYZER_CONFIG_NAME)
-    fallback = _deep_copy_factory_defaults()
+    fallback = _deep_copy(ANALYZER_CONFIG_FACTORY_DEFAULTS)
 
     if not os.path.exists(resolved):
         _analyzer_config_cache = fallback
         _analyzer_config_source = "fallback"
         return _analyzer_config_cache
 
+    # Local import: config_helper imports grailzee_common for
+    # get_tracer, so a top-level import would be circular.
+    from scripts.config_helper import (
+        SchemaVersionError,
+        read_config,
+        schema_version_or_fail,
+    )
     try:
-        # Local import: config_helper imports grailzee_common for
-        # get_tracer, so a top-level import would be circular.
-        from scripts.config_helper import (
-            read_config,
-            schema_version_or_fail,
-        )
         parsed = read_config(resolved)
         schema_version_or_fail(parsed, ANALYZER_CONFIG_SCHEMA_VERSION)
-    except Exception as exc:
+    except (OSError, json.JSONDecodeError, SchemaVersionError, ValueError) as exc:
         print(
             f"[grailzee_common] analyzer_config read failed ({exc}); "
             f"falling back to factory defaults",
@@ -647,13 +678,15 @@ def load_analyzer_config(path: Optional[str] = None) -> dict:
     return _analyzer_config_cache
 
 
-def _deep_copy_factory_defaults() -> dict:
-    """Return a fresh deep copy of ANALYZER_CONFIG_FACTORY_DEFAULTS.
+def _deep_copy(source: dict) -> dict:
+    """Return a fresh deep copy of ``source`` via JSON round-trip.
 
-    Callers mutate their copy freely without leaking state back into
-    the module-level constant.
+    Generic helper shared across Phase A loaders (analyzer_config,
+    sourcing_rules, …). JSON round-trip also guarantees the shape is
+    serializable, which is a reasonable safety check for config-shaped
+    dicts.
     """
-    return json.loads(json.dumps(ANALYZER_CONFIG_FACTORY_DEFAULTS))
+    return json.loads(json.dumps(source))
 
 
 def _merge_onto_defaults(overlay: dict, base: dict) -> dict:
@@ -673,6 +706,113 @@ def _merge_onto_defaults(overlay: dict, base: dict) -> dict:
         else:
             merged[key] = value
     return merged
+
+
+# ─── sourcing_rules cache (Phase A.4) ────────────────────────────────
+
+# Module-level cache mirroring the analyzer_config pattern. First call
+# reads from disk; subsequent calls return the cached dict. A process
+# is expected to live no longer than a single analyzer run, so a cached
+# read matches the cycle-boundary change-propagation rule from schema
+# design v1 Section 5: sourcing_rules edits apply on the next analyzer
+# run. Tests that need fresh reads call ``_reset_sourcing_rules_cache()``.
+_sourcing_rules_cache: dict | None = None
+_sourcing_rules_source: str = "uninitialized"
+
+
+def _reset_sourcing_rules_cache() -> None:
+    """Test helper: clear the memoized sourcing_rules.
+
+    Production code must not call this; it exists so tests can switch
+    between file-present and file-absent conditions in a single process.
+    """
+    global _sourcing_rules_cache, _sourcing_rules_source
+    _sourcing_rules_cache = None
+    _sourcing_rules_source = "uninitialized"
+
+
+def sourcing_rules_source() -> str:
+    """Return where the last load_sourcing_rules() call got its data.
+
+    One of: 'uninitialized' (never loaded), 'file' (read from disk),
+    'fallback' (file missing or malformed; factory defaults used).
+    Exposed for span attribution.
+    """
+    return _sourcing_rules_source
+
+
+def load_sourcing_rules(path: Optional[str] = None) -> dict:
+    """Return the live sourcing_rules dict, memoized for the process.
+
+    Read-once semantics are intentional. The cache-once-per-process
+    pattern matches the change-propagation rule from grailzee schema
+    design v1 Section 5: sourcing_rules edits take effect at the next
+    cycle boundary (i.e. the next analyzer run), not mid-run. A single
+    process represents one cycle's evaluation, so caching the first
+    read is correct — re-reading mid-run would let a concurrent
+    strategy edit change sourcing rules between the JSON brief write
+    and the markdown brief write.
+
+    Tests that need to exercise both file-present and file-absent
+    paths in one process call ``_reset_sourcing_rules_cache()``
+    between scenarios.
+
+    Args:
+        path: Override the default ``WORKSPACE_STATE_PATH/sourcing_rules.json``.
+              First call after a reset wins; subsequent calls return
+              the cached dict regardless of their ``path`` argument.
+
+    Returns:
+        The parsed config dict with the full §2.3 shape. Always returns
+        a complete dict: missing keys are backfilled from
+        ``SOURCING_RULES_FACTORY_DEFAULTS`` so consumers can safely
+        access nested paths without guards. A fallback read (file
+        absent or malformed) returns a deep copy of the factory
+        defaults, matching the historical build_brief.SOURCING_RULES
+        values exactly.
+
+    Fallback behavior:
+        A missing file, unreadable JSON, or schema_version > 1 is
+        logged to stderr once and falls back to factory defaults. The
+        analyzer proceeds with identical behavior to the pre-A.4 code.
+        Downstream phases may tighten this to fail-loud once A.2-A.5
+        are stable.
+    """
+    global _sourcing_rules_cache, _sourcing_rules_source
+    if _sourcing_rules_cache is not None:
+        return _sourcing_rules_cache
+
+    resolved = path or config_path(SOURCING_RULES_NAME)
+    fallback = _deep_copy(SOURCING_RULES_FACTORY_DEFAULTS)
+
+    if not os.path.exists(resolved):
+        _sourcing_rules_cache = fallback
+        _sourcing_rules_source = "fallback"
+        return _sourcing_rules_cache
+
+    # Local import avoids circular dependency (config_helper
+    # imports grailzee_common for get_tracer).
+    from scripts.config_helper import (
+        SchemaVersionError,
+        read_config,
+        schema_version_or_fail,
+    )
+    try:
+        parsed = read_config(resolved)
+        schema_version_or_fail(parsed, SOURCING_RULES_SCHEMA_VERSION)
+    except (OSError, json.JSONDecodeError, SchemaVersionError, ValueError) as exc:
+        print(
+            f"[grailzee_common] sourcing_rules read failed ({exc}); "
+            f"falling back to factory defaults",
+            file=sys.stderr,
+        )
+        _sourcing_rules_cache = fallback
+        _sourcing_rules_source = "fallback"
+        return _sourcing_rules_cache
+
+    _sourcing_rules_cache = _merge_onto_defaults(parsed, fallback)
+    _sourcing_rules_source = "file"
+    return _sourcing_rules_cache
 
 
 # ─── Premium adjustment (read by run_analysis) ────────────────────────
@@ -852,4 +992,12 @@ class _NoOpSpan:
         pass
 
     def record_exception(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def add_event(
+        self,
+        name: str,
+        attributes: Any = None,
+        timestamp: Any = None,
+    ) -> None:
         pass

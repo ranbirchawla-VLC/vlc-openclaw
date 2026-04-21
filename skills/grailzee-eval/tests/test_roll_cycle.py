@@ -45,6 +45,7 @@ Cycle ID rollover:
 """
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -413,3 +414,33 @@ class TestCLI:
         assert "cycle_id" in data
         assert "trades" in data
         assert "summary" in data
+
+
+class TestAtomicWriteCleanup:
+    """A.cleanup.2 Item 10: port of config_helper._atomic_write_json's
+    try/except tmp cleanup pattern (re-raises after cleanup). A failure
+    between opening .tmp and os.replace must not leave orphan .tmp
+    files on disk.
+    """
+
+    def test_tmp_removed_when_replace_fails(self, tmp_path, monkeypatch):
+        from scripts import roll_cycle as rc
+        ledger = _write_ledger(tmp_path, [
+            "2026-01-19,cycle_2026-02,Tudor,79830RB,NR,2750,3200",
+        ])
+        cache = _empty_cache(tmp_path)
+        out = str(tmp_path / "outcome.json")
+        tmp = out + ".tmp"
+
+        def _boom(_src, _dst):
+            raise OSError("synthetic replace failure")
+
+        monkeypatch.setattr(rc.os, "replace", _boom)
+        import pytest
+        with pytest.raises(OSError, match="synthetic replace failure"):
+            run("cycle_2026-02", ledger, cache, output_path=out)
+
+        assert not os.path.exists(tmp), f"orphan .tmp left at {tmp}"
+        assert not os.path.exists(out), (
+            f"target appeared despite replace failure at {out}"
+        )

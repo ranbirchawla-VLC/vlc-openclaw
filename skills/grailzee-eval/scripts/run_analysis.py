@@ -38,7 +38,9 @@ from scripts.grailzee_common import (
     get_tracer,
     load_analyzer_config,
     load_name_cache,
+    load_sourcing_rules,
     prev_cycle,
+    sourcing_rules_source,
 )
 
 from scripts import analyze_references
@@ -285,6 +287,14 @@ def main() -> int:
         span.set_attribute("analyzer_config_source", analyzer_config_source())
         span.set_attribute("windows.pricing_reports", cfg["windows"]["pricing_reports"])
         span.set_attribute("windows.trend_reports", cfg["windows"]["trend_reports"])
+
+        # Prime the sourcing_rules cache so the outer span can report
+        # the source. First-call-wins: any in-process test code that
+        # imports run_analysis must call _reset_sourcing_rules_cache()
+        # before its own load_sourcing_rules(path=...) to avoid the
+        # cached default leaking across test boundaries.
+        load_sourcing_rules()
+        span.set_attribute("sourcing_rules_source", sourcing_rules_source())
 
         try:
             result = run_analysis(

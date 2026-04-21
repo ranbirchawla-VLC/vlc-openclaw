@@ -26,7 +26,7 @@ import sys
 from collections import Counter
 from datetime import date, datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 V2_ROOT = SCRIPT_DIR.parent
@@ -450,7 +450,9 @@ def write_ledger_atomic(rows: list[dict], ledger_path: str) -> None:
     If the ledger file is missing or empty (no header), writes the header
     before the new rows. If the file already has a header (or rows), the
     existing content is preserved and new rows are appended.
-    Raises OSError on any filesystem failure.
+
+    On any OSError during write or replace, the .tmp file is removed so
+    no orphan files linger. Raises OSError to the caller after cleanup.
     """
     tmp_path = ledger_path + ".tmp"
     existing = ""
@@ -461,55 +463,108 @@ def write_ledger_atomic(rows: list[dict], ledger_path: str) -> None:
     parent = os.path.dirname(ledger_path) or "."
     os.makedirs(parent, exist_ok=True)
 
-    with open(tmp_path, "w", encoding="utf-8", newline="") as dst:
-        if existing.strip():
-            dst.write(existing)
-            if not existing.endswith("\n"):
-                dst.write("\n")
-        else:
+    try:
+        with open(tmp_path, "w", encoding="utf-8", newline="") as dst:
+            if existing.strip():
+                dst.write(existing)
+                if not existing.endswith("\n"):
+                    dst.write("\n")
+            else:
+                writer = csv.writer(dst)
+                writer.writerow(OUTPUT_COLUMNS)
             writer = csv.writer(dst)
-            writer.writerow(OUTPUT_COLUMNS)
-        writer = csv.writer(dst)
-        for r in rows:
-            writer.writerow([
-                r["date_closed"],
-                r["cycle_id"],
-                r["brand"],
-                r["reference"],
-                r["account"],
-                _fmt_price(r["buy_price"]),
-                _fmt_price(r["sell_price"]),
-            ])
-    os.replace(tmp_path, ledger_path)
+            for r in rows:
+                writer.writerow([
+                    r["date_closed"],
+                    r["cycle_id"],
+                    r["brand"],
+                    r["reference"],
+                    r["account"],
+                    _fmt_price(r["buy_price"]),
+                    _fmt_price(r["sell_price"]),
+                ])
+        os.replace(tmp_path, ledger_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        raise
 
 
 # ─── Post-write sibling calls ─────────────────────────────────────────
 
 
-def _run_subcmd(cmd: list[str], label: str) -> None:
-    """Invoke a sibling script via subprocess; print label + stdout/stderr."""
+def _run_subcmd(cmd: list[str], label: str, span: Any = None) -> bool:
+    """Invoke a sibling script via subprocess; print label + stdout/stderr.
+
+    Returns True on success (returncode == 0), False otherwise. On
+    non-zero exit or OSError, prints an ERROR line to stderr and sets
+    ``hook_failed=True`` on ``span`` if provided. Does not raise —
+    post-write hooks are best-effort and must not abort a successful
+    primary write.
+    """
     print(f"\n── {label} ──")
     try:
         r = subprocess.run(cmd, capture_output=True, text=True)
     except OSError as e:
         print(f"ERROR invoking {label}: {e}", file=sys.stderr)
-        return
+        if span is not None:
+            span.set_attribute("hook_failed", True)
+        return False
     if r.stdout:
         print(r.stdout.rstrip())
     if r.stderr:
         print(r.stderr.rstrip(), file=sys.stderr)
+    if r.returncode != 0:
+        print(
+            f"ERROR: {label} exited with code {r.returncode}",
+            file=sys.stderr,
+        )
+        if span is not None:
+            span.set_attribute("hook_failed", True)
+        return False
+    return True
 
 
 def post_write_hooks(
     rows: list[dict],
     skip_roll: bool,
+    ledger_path: Optional[str] = None,
+    span: Any = None,
 ) -> None:
+    """Invoke sibling scripts after a successful ledger write.
+
+    ``ledger_path`` (when set) is forwarded to the subprocesses via
+    ``--ledger`` so tests and overrides don't leak to the production
+    ledger. ``span`` (when set) receives a ``hook_failed=True`` attribute
+    if any hook exits non-zero or fails to invoke.
+
+    Hook failures do not abort; the primary ledger write has already
+    succeeded. Failures are visible via stderr and span attribute.
+    """
     python = sys.executable
     ledger_mgr = str(SCRIPT_DIR / "ledger_manager.py")
     roll_script = str(SCRIPT_DIR / "roll_cycle.py")
 
-    _run_subcmd([python, ledger_mgr, "summary"], "ledger_manager summary")
-    _run_subcmd([python, ledger_mgr, "premium"], "ledger_manager premium")
+    # ledger_manager.py declares --ledger on the parent parser, so it
+    # must precede the subcommand name ("summary" / "premium") or
+    # argparse rejects it as an unrecognized argument. roll_cycle.py
+    # has no subcommands, so position is irrelevant there, but we keep
+    # the same prefix-flag order for uniformity.
+    ledger_args = ["--ledger", ledger_path] if ledger_path else []
+
+    _run_subcmd(
+        [python, ledger_mgr, *ledger_args, "summary"],
+        "ledger_manager summary",
+        span=span,
+    )
+    _run_subcmd(
+        [python, ledger_mgr, *ledger_args, "premium"],
+        "ledger_manager premium",
+        span=span,
+    )
 
     if skip_roll:
         print("\n-- roll_cycle skipped (--no-roll) --")
@@ -517,7 +572,11 @@ def post_write_hooks(
 
     cycles = sorted({r["cycle_id"] for r in rows})
     for cid in cycles:
-        _run_subcmd([python, roll_script, cid], f"roll_cycle {cid}")
+        _run_subcmd(
+            [python, roll_script, *ledger_args, cid],
+            f"roll_cycle {cid}",
+            span=span,
+        )
 
 
 # ─── Main ─────────────────────────────────────────────────────────────
@@ -686,7 +745,17 @@ def main(argv: Optional[list[str]] = None) -> int:
             s_hk.set_attribute(
                 "cycles_rolled", 0 if args.no_roll else len(cycles)
             )
-            post_write_hooks(to_write, skip_roll=args.no_roll)
+            # Forward args.ledger (raw CLI value, may be None), not the
+            # earlier-resolved ledger_path variable. Only explicit user
+            # --ledger overrides should leak into subprocesses; a default
+            # production run forwards None and keeps subprocesses on
+            # their own defaults.
+            post_write_hooks(
+                to_write,
+                skip_roll=args.no_roll,
+                ledger_path=args.ledger,
+                span=s_hk,
+            )
 
         span.set_attribute("outcome", "written")
         return 0

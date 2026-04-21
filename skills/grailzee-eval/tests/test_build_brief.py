@@ -360,3 +360,131 @@ class TestAnalyzerConfigParity:
         b1.pop("generated_at", None)
         b2.pop("generated_at", None)
         assert b1 == b2
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Phase A.4 — sourcing_rules parity + discriminative power
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestSourcingRulesParity:
+    """build_brief reads condition_minimum, papers_required, and
+    keyword_filters from state/sourcing_rules.json via the memoized
+    loader. With the file present (factory values) vs. absent
+    (fallback), output must be identical. With a mutated file,
+    output must reflect the mutation — proving the config field
+    drives behavior rather than matching by coincidence."""
+
+    def setup_method(self) -> None:
+        from scripts.grailzee_common import _reset_sourcing_rules_cache
+        _reset_sourcing_rules_cache()
+
+    def teardown_method(self) -> None:
+        from scripts.grailzee_common import _reset_sourcing_rules_cache
+        _reset_sourcing_rules_cache()
+
+    def _build_brief(self, tmp_path, sourcing_path, refs=None):
+        from unittest.mock import patch
+        from scripts.build_brief import build_brief
+        from scripts.grailzee_common import (
+            _reset_sourcing_rules_cache,
+            load_sourcing_rules,
+        )
+
+        _reset_sourcing_rules_cache()
+        # Prime the cache with whatever path the caller wants.
+        load_sourcing_rules(path=str(sourcing_path))
+
+        all_results = {
+            "references": refs if refs is not None else {"79830RB": _ref()},
+            "dj_configs": {},
+        }
+        trends = {"trends": [], "momentum": {}}
+        out = tmp_path / f"out_{id(sourcing_path)}"
+        out.mkdir(exist_ok=True)
+        brief_json = str(out / "sourcing_brief.json")
+        with patch("scripts.build_brief.BRIEF_PATH", brief_json):
+            build_brief(all_results, trends, {}, {}, {}, str(out))
+        return out, json.loads(Path(brief_json).read_text())
+
+    def test_file_absent_equals_file_present_with_factory(self, tmp_path):
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import SOURCING_RULES_FACTORY_DEFAULTS
+
+        cfg_path = tmp_path / "sourcing_rules.json"
+        write_config(
+            cfg_path,
+            json.loads(json.dumps(SOURCING_RULES_FACTORY_DEFAULTS)),
+            [], "test",
+        )
+        missing = tmp_path / "__absent__.json"
+
+        _, absent = self._build_brief(tmp_path, missing)
+        _, present = self._build_brief(tmp_path, cfg_path)
+
+        absent.pop("generated_at", None)
+        present.pop("generated_at", None)
+        assert absent == present
+
+    def test_mutated_file_shifts_brief_output(self, tmp_path):
+        """Changing condition_minimum must propagate to the JSON brief's
+        sourcing_rules field and to the markdown keyword section."""
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import SOURCING_RULES_FACTORY_DEFAULTS
+
+        factory_path = tmp_path / "factory.json"
+        write_config(
+            factory_path,
+            json.loads(json.dumps(SOURCING_RULES_FACTORY_DEFAULTS)),
+            [], "test",
+        )
+
+        mutated_path = tmp_path / "mutated.json"
+        mutated_content = json.loads(json.dumps(SOURCING_RULES_FACTORY_DEFAULTS))
+        mutated_content["condition_minimum"] = "Excellent"
+        mutated_content["keyword_filters"]["include"].append("mint condition")
+        write_config(mutated_path, mutated_content, [], "test")
+
+        _, factory = self._build_brief(tmp_path, factory_path)
+        _, mutated = self._build_brief(tmp_path, mutated_path)
+
+        assert factory["sourcing_rules"]["condition_minimum"] == "Very Good"
+        assert mutated["sourcing_rules"]["condition_minimum"] == "Excellent"
+        assert "mint condition" not in factory["sourcing_rules"]["keyword_filters"]["include"]
+        assert "mint condition" in mutated["sourcing_rules"]["keyword_filters"]["include"]
+
+    def test_platform_priority_stays_hardcoded(self, tmp_path):
+        """Per schema v1 S2: platform_priority is build_brief-internal
+        and must remain invariant regardless of sourcing_rules.json."""
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import SOURCING_RULES_FACTORY_DEFAULTS
+
+        factory_path = tmp_path / "factory.json"
+        write_config(
+            factory_path,
+            json.loads(json.dumps(SOURCING_RULES_FACTORY_DEFAULTS)),
+            [], "test",
+        )
+        _, brief = self._build_brief(tmp_path, factory_path)
+
+        platforms = brief["sourcing_rules"]["platform_priority"]
+        assert any(p["platform"] == "facebook_groups" for p in platforms)
+        assert any(p["platform"] == "ebay" for p in platforms)
+        assert len(platforms) == 5
+
+    def test_build_brief_internal_fields_preserved(self, tmp_path):
+        """us_inventory_only and never_exceed_max_buy stay in the brief
+        output even though sourcing_rules.json doesn't carry them."""
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import SOURCING_RULES_FACTORY_DEFAULTS
+
+        factory_path = tmp_path / "factory.json"
+        write_config(
+            factory_path,
+            json.loads(json.dumps(SOURCING_RULES_FACTORY_DEFAULTS)),
+            [], "test",
+        )
+        _, brief = self._build_brief(tmp_path, factory_path)
+
+        assert brief["sourcing_rules"]["us_inventory_only"] is True
+        assert brief["sourcing_rules"]["never_exceed_max_buy"] is True

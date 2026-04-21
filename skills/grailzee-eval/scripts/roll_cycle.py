@@ -59,10 +59,18 @@ def run(
     out = output_path or cycle_outcome_path(previous_cycle_id)
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     tmp = out + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(outcome, f, indent=2, default=str)
-        f.write("\n")
-    os.replace(tmp, out)
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(outcome, f, indent=2, default=str)
+            f.write("\n")
+        os.replace(tmp, out)
+    except Exception:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        raise
 
     return outcome
 

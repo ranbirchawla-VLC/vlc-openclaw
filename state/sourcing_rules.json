@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "condition_minimum": "Very Good",
+  "papers_required": true,
+  "keyword_filters": {
+    "include": [
+      "full set",
+      "complete set",
+      "box papers",
+      "BNIB",
+      "like new",
+      "excellent",
+      "very good",
+      "AD",
+      "authorized"
+    ],
+    "exclude": [
+      "watch only",
+      "no papers",
+      "head only",
+      "international",
+      "damaged",
+      "for parts",
+      "aftermarket",
+      "rep",
+      "homage"
+    ]
+  },
+  "last_updated": "2026-04-21T20:24:43Z",
+  "updated_by": "phase_a_install",
+  "defaulted_fields": [
+    "condition_minimum",
+    "keyword_filters.exclude",
+    "keyword_filters.include",
+    "papers_required"
+  ]
+}

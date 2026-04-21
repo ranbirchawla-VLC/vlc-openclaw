@@ -557,6 +557,41 @@ class TestTracer:
             assert span is not None
 
 
+class TestNoOpSpan:
+    """A.cleanup.2 Item 11: _NoOpSpan implements add_event.
+
+    Future code that emits events on a span must not AttributeError
+    when opentelemetry is absent and the fallback _NoOpSpan is in use.
+    """
+
+    def test_add_event_no_args(self):
+        from scripts.grailzee_common import _NoOpSpan
+        span = _NoOpSpan()
+        span.add_event("something_happened")
+
+    def test_add_event_with_attributes(self):
+        from scripts.grailzee_common import _NoOpSpan
+        span = _NoOpSpan()
+        span.add_event(
+            "batch_flushed",
+            attributes={"count": 3, "bytes": 1024},
+        )
+
+    def test_add_event_with_timestamp(self):
+        from scripts.grailzee_common import _NoOpSpan
+        span = _NoOpSpan()
+        span.add_event(
+            "synthetic",
+            attributes={"k": "v"},
+            timestamp=1_700_000_000_000_000_000,
+        )
+
+    def test_add_event_positional_attributes(self):
+        from scripts.grailzee_common import _NoOpSpan
+        span = _NoOpSpan()
+        span.add_event("ok", {"k": "v"})
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Phase A.2 — config_path + load_analyzer_config
 # ═══════════════════════════════════════════════════════════════════════
@@ -824,6 +859,24 @@ class TestLoadAnalyzerConfig:
         cfg2 = load_analyzer_config(path=str(missing))
         assert cfg2["margin"]["per_trade_target_margin_fraction"] == 0.05
 
+    def test_unexpected_exception_propagates(self, tmp_path, monkeypatch):
+        """A.cleanup.2 Item 9: narrowed except tuple propagates types
+        the loader is not prepared to handle. TypeError from read_config
+        must reach the caller rather than being silently swallowed."""
+        import pytest
+        from scripts import config_helper
+        from scripts.grailzee_common import load_analyzer_config
+
+        p = tmp_path / "analyzer_config.json"
+        p.write_text('{"schema_version": 1}')
+
+        def _boom(_path):
+            raise TypeError("synthetic unexpected")
+
+        monkeypatch.setattr(config_helper, "read_config", _boom)
+        with pytest.raises(TypeError, match="synthetic unexpected"):
+            load_analyzer_config(path=str(p))
+
 
 class TestMaxBuyFormulaReadsFromConfig:
     """max_buy_nr/max_buy_reserve/adjusted_max_buy read target margin
@@ -859,3 +912,231 @@ class TestMaxBuyFormulaReadsFromConfig:
         from scripts.grailzee_common import max_buy_nr
         # Same input as original test: (3200 - 149) / 1.05 = 2905.71 -> 2910
         assert max_buy_nr(3200) == 2910
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Phase A.4 — load_sourcing_rules
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestLoadSourcingRules:
+    """Memoized loader mirroring load_analyzer_config. file-absent
+    fallback, cache-once-per-process, reset helper."""
+
+    def setup_method(self) -> None:
+        from scripts.grailzee_common import _reset_sourcing_rules_cache
+        _reset_sourcing_rules_cache()
+
+    def teardown_method(self) -> None:
+        from scripts.grailzee_common import _reset_sourcing_rules_cache
+        _reset_sourcing_rules_cache()
+
+    def test_file_present_path(self, tmp_path):
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import (
+            SOURCING_RULES_FACTORY_DEFAULTS,
+            load_sourcing_rules,
+            sourcing_rules_source,
+        )
+        p = tmp_path / "sourcing_rules.json"
+        content = json.loads(json.dumps(SOURCING_RULES_FACTORY_DEFAULTS))
+        content["condition_minimum"] = "Excellent"
+        write_config(p, content, [], "test")
+
+        cfg = load_sourcing_rules(path=str(p))
+        assert cfg["condition_minimum"] == "Excellent"
+        assert sourcing_rules_source() == "file"
+
+    def test_file_absent_falls_back_to_defaults(self, tmp_path):
+        from scripts.grailzee_common import (
+            SOURCING_RULES_FACTORY_DEFAULTS,
+            load_sourcing_rules,
+            sourcing_rules_source,
+        )
+        missing = tmp_path / "nope.json"
+
+        cfg = load_sourcing_rules(path=str(missing))
+        assert cfg["condition_minimum"] == SOURCING_RULES_FACTORY_DEFAULTS["condition_minimum"]
+        assert cfg["keyword_filters"] == SOURCING_RULES_FACTORY_DEFAULTS["keyword_filters"]
+        assert sourcing_rules_source() == "fallback"
+
+    def test_malformed_file_falls_back(self, tmp_path):
+        from scripts.grailzee_common import (
+            load_sourcing_rules,
+            sourcing_rules_source,
+        )
+        p = tmp_path / "sourcing_rules.json"
+        p.write_text("{not valid json")
+
+        cfg = load_sourcing_rules(path=str(p))
+        assert cfg["condition_minimum"] == "Very Good"
+        assert sourcing_rules_source() == "fallback"
+
+    def test_cache_returns_same_dict_across_calls(self, tmp_path):
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import (
+            SOURCING_RULES_FACTORY_DEFAULTS,
+            load_sourcing_rules,
+        )
+        p = tmp_path / "sourcing_rules.json"
+        content = json.loads(json.dumps(SOURCING_RULES_FACTORY_DEFAULTS))
+        write_config(p, content, [], "test")
+
+        first = load_sourcing_rules(path=str(p))
+        second = load_sourcing_rules(path=str(p))
+        assert first is second
+
+    def test_cache_ignores_path_after_first_call(self, tmp_path):
+        """First-call-wins. Documents the foot-gun for mid-process readers."""
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import (
+            SOURCING_RULES_FACTORY_DEFAULTS,
+            load_sourcing_rules,
+        )
+        p1 = tmp_path / "first.json"
+        p2 = tmp_path / "second.json"
+        c1 = json.loads(json.dumps(SOURCING_RULES_FACTORY_DEFAULTS))
+        c1["condition_minimum"] = "Like New"
+        write_config(p1, c1, [], "test")
+        c2 = json.loads(json.dumps(SOURCING_RULES_FACTORY_DEFAULTS))
+        c2["condition_minimum"] = "Fair"
+        write_config(p2, c2, [], "test")
+
+        cfg1 = load_sourcing_rules(path=str(p1))
+        cfg2 = load_sourcing_rules(path=str(p2))
+        assert cfg1["condition_minimum"] == "Like New"
+        assert cfg2["condition_minimum"] == "Like New"
+
+    def test_reset_allows_rereading(self, tmp_path):
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import (
+            SOURCING_RULES_FACTORY_DEFAULTS,
+            _reset_sourcing_rules_cache,
+            load_sourcing_rules,
+        )
+        p = tmp_path / "sourcing_rules.json"
+        c1 = json.loads(json.dumps(SOURCING_RULES_FACTORY_DEFAULTS))
+        c1["condition_minimum"] = "Like New"
+        write_config(p, c1, [], "test")
+
+        cfg1 = load_sourcing_rules(path=str(p))
+        assert cfg1["condition_minimum"] == "Like New"
+
+        c2 = json.loads(json.dumps(SOURCING_RULES_FACTORY_DEFAULTS))
+        c2["condition_minimum"] = "BNIB"
+        write_config(p, c2, [], "test")
+
+        _reset_sourcing_rules_cache()
+        cfg2 = load_sourcing_rules(path=str(p))
+        assert cfg2["condition_minimum"] == "BNIB"
+
+    def test_missing_section_backfilled_from_defaults(self, tmp_path):
+        """A partial file gets unlisted sections backfilled."""
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import load_sourcing_rules
+        p = tmp_path / "sourcing_rules.json"
+        partial = {
+            "schema_version": 1,
+            "condition_minimum": "Excellent",
+            # papers_required + keyword_filters intentionally absent
+        }
+        write_config(p, partial, [], "test")
+
+        cfg = load_sourcing_rules(path=str(p))
+        assert cfg["condition_minimum"] == "Excellent"
+        # backfilled from factory defaults
+        assert cfg["papers_required"] is True
+        assert "full set" in cfg["keyword_filters"]["include"]
+
+    def test_newer_schema_version_falls_back(self, tmp_path):
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import (
+            SOURCING_RULES_FACTORY_DEFAULTS,
+            load_sourcing_rules,
+            sourcing_rules_source,
+        )
+        p = tmp_path / "sourcing_rules.json"
+        content = json.loads(json.dumps(SOURCING_RULES_FACTORY_DEFAULTS))
+        content["schema_version"] = 99
+        write_config(p, content, [], "test")
+
+        cfg = load_sourcing_rules(path=str(p))
+        assert cfg["schema_version"] == 1
+        assert sourcing_rules_source() == "fallback"
+
+    def test_fallback_has_same_shape_as_factory(self, tmp_path):
+        from scripts.grailzee_common import (
+            SOURCING_RULES_FACTORY_DEFAULTS,
+            load_sourcing_rules,
+        )
+        cfg = load_sourcing_rules(path=str(tmp_path / "nope.json"))
+
+        def shape(d, prefix=""):
+            out = set()
+            for k, v in d.items():
+                p = f"{prefix}.{k}" if prefix else k
+                if isinstance(v, dict):
+                    out |= shape(v, p)
+                else:
+                    out.add(p)
+            return out
+
+        assert shape(cfg) == shape(SOURCING_RULES_FACTORY_DEFAULTS)
+
+    def test_fallback_does_not_leak_mutations(self, tmp_path):
+        """Mutating the returned dict must not poison the next fallback."""
+        from scripts.grailzee_common import (
+            _reset_sourcing_rules_cache,
+            load_sourcing_rules,
+        )
+        missing = tmp_path / "nope.json"
+        cfg1 = load_sourcing_rules(path=str(missing))
+        cfg1["condition_minimum"] = "CLOBBERED"
+
+        _reset_sourcing_rules_cache()
+        cfg2 = load_sourcing_rules(path=str(missing))
+        assert cfg2["condition_minimum"] == "Very Good"
+
+    def test_mid_run_disk_edit_is_ignored(self, tmp_path):
+        """Documents the cycle-boundary semantic: a strategy edit
+        landing mid-run does not flip thresholds underneath the brief
+        build loop. First call wins; re-read requires explicit reset."""
+        from scripts.config_helper import write_config
+        from scripts.grailzee_common import (
+            SOURCING_RULES_FACTORY_DEFAULTS,
+            load_sourcing_rules,
+        )
+        p = tmp_path / "sourcing_rules.json"
+        original = json.loads(json.dumps(SOURCING_RULES_FACTORY_DEFAULTS))
+        write_config(p, original, [], "test")
+
+        first = load_sourcing_rules(path=str(p))
+        assert first["condition_minimum"] == "Very Good"
+
+        # Simulate a strategy commit landing mid-run.
+        mutated = json.loads(json.dumps(SOURCING_RULES_FACTORY_DEFAULTS))
+        mutated["condition_minimum"] = "Excellent"
+        write_config(p, mutated, [], "test")
+
+        # No reset: cached dict still wins.
+        second = load_sourcing_rules(path=str(p))
+        assert second["condition_minimum"] == "Very Good"
+        assert first is second
+
+    def test_unexpected_exception_propagates(self, tmp_path, monkeypatch):
+        """A.cleanup.2 Item 9: narrowed except tuple propagates types
+        the loader is not prepared to handle. TypeError from read_config
+        must reach the caller rather than being silently swallowed."""
+        import pytest
+        from scripts import config_helper
+        from scripts.grailzee_common import load_sourcing_rules
+
+        p = tmp_path / "sourcing_rules.json"
+        p.write_text('{"schema_version": 1}')
+
+        def _boom(_path):
+            raise TypeError("synthetic unexpected")
+
+        monkeypatch.setattr(config_helper, "read_config", _boom)
+        with pytest.raises(TypeError, match="synthetic unexpected"):
+            load_sourcing_rules(path=str(p))

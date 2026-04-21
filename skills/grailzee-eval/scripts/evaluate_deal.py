@@ -589,7 +589,7 @@ def evaluate(
         # Step 1: Load cache
         cache, error = _load_cache(cache_path)
         if error is not None:
-            span.set_attribute("status", "error")
+            span.set_attribute("outcome", "error")
             return error
 
         cache_meta = {
@@ -617,7 +617,7 @@ def evaluate(
                 cycle_alignment = _check_cycle_alignment(
                     reference, cycle_focus_path, cache_cycle_id,
                 )
-                span.set_attribute("status", "not_found")
+                span.set_attribute("outcome", "not_found")
                 return {
                     "status": "not_found",
                     "brand": brand,
@@ -684,7 +684,7 @@ def evaluate(
             cache_meta, data_source,
         )
 
-        span.set_attribute("status", "ok")
+        span.set_attribute("outcome", "ok")
         span.set_attribute("grailzee", decision["grailzee"])
         span.set_attribute("data_source", data_source)
         return result

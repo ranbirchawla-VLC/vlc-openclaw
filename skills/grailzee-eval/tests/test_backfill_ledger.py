@@ -595,7 +595,23 @@ class TestNoRoll:
         capsys.readouterr()
         assert rc == 0
         roll_calls = [c for c in calls if "roll_cycle.py" in " ".join(c)]
-        cycles_invoked = {c[-1] for c in roll_calls}
+        # cmd shape: [python, roll_script, "--ledger", ledger_path, cycle_id].
+        # cycle_id is the last arg after A.cleanup.2 Item 12; filter out the
+        # flag and its value explicitly so the test is robust to argv reorder.
+        def _extract_cycle_id(cmd):
+            skip_next = False
+            for tok in cmd[2:]:
+                if skip_next:
+                    skip_next = False
+                    continue
+                if tok == "--ledger":
+                    skip_next = True
+                    continue
+                if tok.startswith("cycle_"):
+                    return tok
+            return None
+
+        cycles_invoked = {_extract_cycle_id(c) for c in roll_calls}
         assert cycles_invoked == {
             "cycle_2026-03", "cycle_2026-04", "cycle_2026-05",
             "cycle_2026-06", "cycle_2026-08",
@@ -668,3 +684,184 @@ class TestSeedFile:
             "Seed includes 2026-04-19; if today is earlier, dates are 'future' "
             "and must be rejected. Update seed or today assumption."
         )
+
+
+class TestAtomicWriteCleanup:
+    """A.cleanup.2 Item 10: port of config_helper._atomic_write_json's
+    try/except tmp cleanup pattern (re-raises after cleanup)."""
+
+    def test_tmp_removed_when_replace_fails(self, tmp_path, monkeypatch):
+        ledger = str(tmp_path / "ledger.csv")
+        tmp = ledger + ".tmp"
+
+        def _boom(_src, _dst):
+            raise OSError("synthetic replace failure")
+
+        monkeypatch.setattr(bl.os, "replace", _boom)
+        rows = [{
+            "date_closed": "2026-01-19",
+            "cycle_id": "cycle_2026-02",
+            "brand": "Tudor",
+            "reference": "79830RB",
+            "account": "NR",
+            "buy_price": 2750,
+            "sell_price": 3200,
+        }]
+        with pytest.raises(OSError, match="synthetic replace failure"):
+            bl.write_ledger_atomic(rows, ledger)
+
+        assert not os.path.exists(tmp), f"orphan .tmp left at {tmp}"
+        assert not os.path.exists(ledger), (
+            f"target appeared despite replace failure at {ledger}"
+        )
+
+
+class TestRunSubcmdReturnCode:
+    """A.cleanup.2 Item 13: _run_subcmd surfaces non-zero hook exit
+    codes via stderr log and a hook_failed span attribute. Caller
+    continues (does not abort) since hooks are best-effort."""
+
+    def test_nonzero_rc_logs_and_flags_span(self, monkeypatch, capsys):
+        recorded: dict = {}
+
+        class _SpanProbe:
+            def set_attribute(self, key, value):
+                recorded[key] = value
+
+        def _fake_run(cmd, capture_output=False, text=False, **kwargs):
+            class _R:
+                returncode = 2
+                stdout = ""
+                stderr = "hook stderr payload"
+            return _R()
+
+        monkeypatch.setattr(bl.subprocess, "run", _fake_run)
+        ok = bl._run_subcmd(["x"], "test_label", span=_SpanProbe())
+
+        assert ok is False
+        assert recorded == {"hook_failed": True}
+        captured = capsys.readouterr()
+        assert "ERROR: test_label exited with code 2" in captured.err
+        assert "hook stderr payload" in captured.err
+
+    def test_oserror_logs_and_flags_span(self, monkeypatch, capsys):
+        recorded: dict = {}
+
+        class _SpanProbe:
+            def set_attribute(self, key, value):
+                recorded[key] = value
+
+        def _raises(*_args, **_kwargs):
+            raise OSError("command not found")
+
+        monkeypatch.setattr(bl.subprocess, "run", _raises)
+        ok = bl._run_subcmd(["x"], "test_label", span=_SpanProbe())
+
+        assert ok is False
+        assert recorded == {"hook_failed": True}
+        captured = capsys.readouterr()
+        assert "ERROR invoking test_label" in captured.err
+
+    def test_zero_rc_does_not_flag_span(self, monkeypatch, capsys):
+        recorded: dict = {}
+
+        class _SpanProbe:
+            def set_attribute(self, key, value):
+                recorded[key] = value
+
+        def _fake_run(cmd, capture_output=False, text=False, **kwargs):
+            class _R:
+                returncode = 0
+                stdout = "ok"
+                stderr = ""
+            return _R()
+
+        monkeypatch.setattr(bl.subprocess, "run", _fake_run)
+        ok = bl._run_subcmd(["x"], "test_label", span=_SpanProbe())
+
+        assert ok is True
+        assert recorded == {}
+
+
+class TestPostWriteHooksLedgerOverride:
+    """A.cleanup.2 Item 12: post_write_hooks threads --ledger PATH
+    through to subprocess invocations. Integration smoke tests against
+    a tmp ledger no longer silently leak to the production ledger."""
+
+    def test_ledger_override_forwarded_to_hooks(self, monkeypatch, capsys, tmp_path):
+        calls: list[list] = []
+
+        def _recorder(cmd, capture_output=False, text=False, **kwargs):
+            calls.append(list(cmd))
+
+            class _R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return _R()
+
+        monkeypatch.setattr(bl.subprocess, "run", _recorder)
+        ledger = str(tmp_path / "alt_ledger.csv")
+        rows = [{"cycle_id": "cycle_2026-02"}]
+
+        bl.post_write_hooks(rows, skip_roll=False, ledger_path=ledger)
+        capsys.readouterr()
+
+        assert calls, "expected at least one subprocess call"
+        for cmd in calls:
+            joined = " ".join(cmd)
+            assert "--ledger" in cmd, f"missing --ledger flag in {joined}"
+            idx = cmd.index("--ledger")
+            assert cmd[idx + 1] == ledger, (
+                f"--ledger forwarded as {cmd[idx + 1]!r}, expected {ledger!r}"
+            )
+
+    def test_no_override_means_no_ledger_flag(self, monkeypatch, capsys):
+        calls: list[list] = []
+
+        def _recorder(cmd, capture_output=False, text=False, **kwargs):
+            calls.append(list(cmd))
+
+            class _R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return _R()
+
+        monkeypatch.setattr(bl.subprocess, "run", _recorder)
+        rows = [{"cycle_id": "cycle_2026-02"}]
+        bl.post_write_hooks(rows, skip_roll=False, ledger_path=None)
+        capsys.readouterr()
+
+        assert calls, "expected at least one subprocess call"
+        for cmd in calls:
+            assert "--ledger" not in cmd, (
+                f"--ledger leaked despite no override: {' '.join(cmd)}"
+            )
+
+    def test_argv_order_accepted_by_ledger_manager(self, tmp_path, capsys):
+        """Real subprocess invocation: --ledger must be in a position
+        argparse on the subprocess side actually accepts. Mocked
+        recorder tests miss argv-ordering bugs because they assert the
+        flag appears, not that the subprocess accepts it."""
+        import subprocess as real_subprocess
+        import sys as real_sys
+        ledger = str(tmp_path / "real_ledger.csv")
+        # Create a minimal header-only ledger so ledger_manager summary
+        # has something to read without hitting production state.
+        from scripts.grailzee_common import LEDGER_COLUMNS
+        with open(ledger, "w", newline="") as f:
+            import csv as real_csv
+            real_csv.writer(f).writerow(LEDGER_COLUMNS)
+
+        script = str(Path(__file__).resolve().parent.parent
+                     / "scripts" / "ledger_manager.py")
+
+        # Mirror the exact argv shape that post_write_hooks builds.
+        for sub in ("summary", "premium"):
+            cmd = [real_sys.executable, script, "--ledger", ledger, sub]
+            r = real_subprocess.run(cmd, capture_output=True, text=True)
+            assert r.returncode == 0, (
+                f"ledger_manager {sub} rejected argv {cmd!r}; "
+                f"stderr={r.stderr!r}"
+            )

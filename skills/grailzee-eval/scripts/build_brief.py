@@ -27,14 +27,27 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 V2_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(V2_ROOT))
 
-from scripts.grailzee_common import BRIEF_PATH, OUTPUT_PATH, get_tracer
+from scripts.grailzee_common import (
+    BRIEF_PATH,
+    OUTPUT_PATH,
+    get_tracer,
+    load_sourcing_rules,
+    sourcing_rules_source,
+)
 
 tracer = get_tracer(__name__)
 
-SOURCING_RULES = {
+# Phase A.4: SOURCING_RULES is now assembled at build time by
+# _resolved_sourcing_rules(). The fields below are build_brief-internal
+# and remain hardcoded per schema v1 S2 and §2.3's scoping decisions:
+#   - platform_priority: sourcing behavior, not math tunable (S2).
+#   - us_inventory_only, never_exceed_max_buy: policy flags, not in §2.3.
+# The strategy-tunable fields (condition_minimum, papers_required,
+# keyword_filters) are sourced from state/sourcing_rules.json via the
+# memoized loader, with factory-default fallback when the file is
+# missing.
+_SOURCING_RULES_BUILD_BRIEF_INTERNAL = {
     "us_inventory_only": True,
-    "papers_required": True,
-    "condition_minimum": "Very Good",
     "never_exceed_max_buy": True,
     "platform_priority": [
         {"platform": "facebook_groups", "type": "private dealer groups", "check_frequency": "daily"},
@@ -43,17 +56,39 @@ SOURCING_RULES = {
         {"platform": "chrono24", "type": "US dealer listings", "check_frequency": "daily"},
         {"platform": "reddit", "type": "r/watchexchange", "check_frequency": "daily"},
     ],
-    "keyword_filters": {
-        "include": [
-            "full set", "complete set", "box papers", "BNIB", "like new",
-            "excellent", "very good", "AD", "authorized",
-        ],
-        "exclude": [
-            "watch only", "no papers", "head only", "international",
-            "damaged", "for parts", "aftermarket", "rep", "homage",
-        ],
-    },
 }
+
+
+def _resolved_sourcing_rules() -> dict:
+    """Build the composite sourcing_rules dict for brief emission.
+
+    Merges build_brief's hardcoded internal fields (platform_priority,
+    us_inventory_only, never_exceed_max_buy) with the strategy-tunable
+    fields sourced from state/sourcing_rules.json (condition_minimum,
+    papers_required, keyword_filters). The result matches the shape of
+    the pre-A.4 ``SOURCING_RULES`` module constant, so the JSON brief
+    output and the markdown keyword/platform sections see no structural
+    change.
+
+    ``load_sourcing_rules()`` is memoized at module level, so repeated
+    calls within a single brief build cost one dict lookup.
+
+    Returned dict shares ``keyword_filters`` by reference with the
+    memoized loader cache; all current downstream consumers are
+    read-only (JSON-serialize, ``", ".join(...)`` in markdown). Do not
+    mutate nested collections in callers or the memoized cache will
+    leak state into subsequent loads within the same process.
+    """
+    file_rules = load_sourcing_rules()
+    resolved = {
+        "us_inventory_only": _SOURCING_RULES_BUILD_BRIEF_INTERNAL["us_inventory_only"],
+        "papers_required": file_rules["papers_required"],
+        "condition_minimum": file_rules["condition_minimum"],
+        "never_exceed_max_buy": _SOURCING_RULES_BUILD_BRIEF_INTERNAL["never_exceed_max_buy"],
+        "platform_priority": _SOURCING_RULES_BUILD_BRIEF_INTERNAL["platform_priority"],
+        "keyword_filters": file_rules["keyword_filters"],
+    }
+    return resolved
 
 
 def _priority_score(ref_data: dict, trend_pct: float) -> int:
@@ -128,6 +163,7 @@ def build_brief(
     momentum_map = trends.get("momentum", {})
     trend_entries = trends.get("trends", [])
     now = datetime.now()
+    sourcing_rules = _resolved_sourcing_rules()
 
     # Build trend lookup by reference
     trend_by_ref: dict[str, dict] = {}
@@ -187,7 +223,7 @@ def build_brief(
         "schema_version": 2,
         "generated_at": now.isoformat(),
         "valid_until": "Next Grailzee Pro report (~2 weeks)",
-        "sourcing_rules": SOURCING_RULES,
+        "sourcing_rules": sourcing_rules,
         "targets": targets,
         "summary": {
             "total_targets": len(targets),
@@ -230,11 +266,11 @@ def build_brief(
 
     md.append("\n## Search Keywords\n")
     md.append("### Include (any match)")
-    md.append(", ".join(SOURCING_RULES["keyword_filters"]["include"]) + "\n")
+    md.append(", ".join(sourcing_rules["keyword_filters"]["include"]) + "\n")
     md.append("### Exclude (skip listing)")
-    md.append(", ".join(SOURCING_RULES["keyword_filters"]["exclude"]) + "\n")
+    md.append(", ".join(sourcing_rules["keyword_filters"]["exclude"]) + "\n")
     md.append("## Platform Scan Order\n")
-    for i, p in enumerate(SOURCING_RULES["platform_priority"], 1):
+    for i, p in enumerate(sourcing_rules["platform_priority"], 1):
         md.append(f"{i}. {p['platform'].replace('_', ' ').title()} ({p['check_frequency']})")
     md.append("\nUS inventory only. Never exceed MAX BUY. Papers required on every deal.\n")
     md.append(f"---\n*Generated {now.strftime('%B %d, %Y')}*")
@@ -271,6 +307,7 @@ def main() -> int:
     with tracer.start_as_current_span("build_brief.run") as span:
         result = run({}, {}, {}, {}, {}, args.output_folder)
         span.set_attribute("json_path", result["json_path"])
+        span.set_attribute("sourcing_rules_source", sourcing_rules_source())
         print(json.dumps(result, indent=2))
         return 0
 
