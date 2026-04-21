@@ -59,12 +59,30 @@ from scripts.grailzee_common import prev_cycle
 from scripts.roll_cycle import run
 
 
-LEDGER_HEADER = "date_closed,cycle_id,brand,reference,account,buy_price,sell_price"
+LEDGER_HEADER = (
+    "buy_date,sell_date,buy_cycle_id,sell_cycle_id,"
+    "brand,reference,account,buy_price,sell_price"
+)
 
 
 def _write_ledger(tmp_path: Path, rows: list[str]) -> str:
+    """Write a ledger file with rows in legacy 7-col shape.
+
+    Each row string is the old v1 layout
+    ``<sell_date>,<sell_cycle_id>,<brand>,<ref>,<account>,<buy>,<sell>``
+    (what today's analyzer data looks like: no buy_date yet).
+    The helper prepends blank buy_date / buy_cycle_id columns so the
+    on-disk file is v2-shaped — schema-valid for the v2 parser while
+    keeping test rows terse.
+    """
     path = tmp_path / "trade_ledger.csv"
-    path.write_text(LEDGER_HEADER + "\n" + "\n".join(rows) + "\n")
+    v2_rows: list[str] = []
+    for r in rows:
+        parts = r.split(",", 1)
+        # parts[0] = sell_date; parts[1] = rest = sell_cycle_id + the
+        # other five columns unchanged.
+        v2_rows.append(f",{parts[0]},," + parts[1])
+    path.write_text(LEDGER_HEADER + "\n" + "\n".join(v2_rows) + "\n")
     return str(path)
 
 

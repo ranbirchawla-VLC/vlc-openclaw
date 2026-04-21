@@ -26,7 +26,8 @@ Extract from the message:
 - **buy_price** (required)
 - **sell_price** (required)
 - **account** (NR or RES; default NR if not specified)
-- **date** (YYYY-MM-DD; default today if not specified)
+- **buy_date** (YYYY-MM-DD; required)
+- **sell_date** (YYYY-MM-DD; default today if not specified)
 
 ### Step 2: Present for confirmation
 
@@ -37,8 +38,8 @@ Recommended confirmation message:
 ```
 Got it. Logging this trade:
 
-{brand} {reference} | {account} | Bought ${buy_price} | Sold ${sell_price} | {date}
-Cycle: {cycle_id (auto from date)}
+{brand} {reference} | {account} | Bought ${buy_price} on {buy_date} | Sold ${sell_price} on {sell_date}
+Buy cycle: {buy_cycle_id (auto from buy_date)} | Sell cycle: {sell_cycle_id (auto from sell_date)}
 
 Confirm? (yes/no)
 ```
@@ -48,17 +49,17 @@ Confirm? (yes/no)
 **On "yes" (or "y", "confirm", "proceed"):** Call the log command:
 
 ```
-python3 scripts/ledger_manager.py log {brand} {reference} {account} {buy_price} {sell_price} --date {YYYY-MM-DD}
+python3 scripts/ledger_manager.py log {brand} {reference} {account} {buy_price} {sell_price} --buy-date {YYYY-MM-DD} [--sell-date {YYYY-MM-DD}]
 ```
 
-The script returns: `{"status": "ok", "trade": {date_closed, cycle_id, brand, reference, account, buy_price, sell_price}}`
+The script returns: `{"status": "ok", "trade": {buy_date, sell_date, buy_cycle_id, sell_cycle_id, brand, reference, account, buy_price, sell_price}}`
 
 Then query the current state for the response:
 
 ```
 python3 scripts/ledger_manager.py summary --reference {reference}
 python3 scripts/ledger_manager.py premium
-python3 scripts/ledger_manager.py summary --cycle {cycle_id}
+python3 scripts/ledger_manager.py summary --cycle {sell_cycle_id}
 ```
 
 Format the post-log summary (see Response Format below).

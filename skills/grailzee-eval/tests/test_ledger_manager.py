@@ -27,23 +27,47 @@ class TestLogCommand:
         ledger = str(tmp_path / "ledger.csv")
         r = run_cli("--ledger", ledger, "--cache", NO_CACHE,
                      "log", "Tudor", "79830RB", "NR", "2750", "3200",
-                     "--date", "2026-04-16")
+                     "--buy-date", "2026-04-01", "--sell-date", "2026-04-16")
         assert r.returncode == 0, r.stderr
         data = json.loads(r.stdout)
         assert data["status"] == "ok"
         assert data["trade"]["brand"] == "Tudor"
-        assert data["trade"]["cycle_id"].startswith("cycle_2026-")
+        assert data["trade"]["buy_date"] == "2026-04-01"
+        assert data["trade"]["sell_date"] == "2026-04-16"
+        assert data["trade"]["buy_cycle_id"].startswith("cycle_2026-")
+        assert data["trade"]["sell_cycle_id"].startswith("cycle_2026-")
+
+    def test_log_requires_buy_date(self, tmp_path):
+        """A.6: --buy-date is required. Script-side fails loud."""
+        ledger = str(tmp_path / "ledger.csv")
+        r = run_cli("--ledger", ledger, "--cache", NO_CACHE,
+                     "log", "Tudor", "79830RB", "NR", "2750", "3200",
+                     "--sell-date", "2026-04-16")
+        assert r.returncode == 2
+        assert "buy-date" in r.stderr.lower() or "buy_date" in r.stderr.lower()
+
+    def test_log_sell_date_defaults_to_today(self, tmp_path):
+        """A.6: --sell-date omitted -> today. Must succeed."""
+        ledger = str(tmp_path / "ledger.csv")
+        r = run_cli("--ledger", ledger, "--cache", NO_CACHE,
+                     "log", "Tudor", "79830RB", "NR", "2750", "3200",
+                     "--buy-date", "2026-04-01")
+        assert r.returncode == 0, r.stderr
+        data = json.loads(r.stdout)
+        assert data["trade"]["sell_date"]  # truthy ISO string
 
     def test_log_invalid_account_exits_2(self, tmp_path):
         ledger = str(tmp_path / "ledger.csv")
         r = run_cli("--ledger", ledger, "log", "Tudor", "79830RB",
-                     "INVALID", "2750", "3200")
+                     "INVALID", "2750", "3200",
+                     "--buy-date", "2026-04-01")
         assert r.returncode == 2
 
     def test_log_invalid_price_exits_2(self, tmp_path):
         ledger = str(tmp_path / "ledger.csv")
         r = run_cli("--ledger", ledger, "log", "Tudor", "79830RB",
-                     "NR", "abc", "3200")
+                     "NR", "abc", "3200",
+                     "--buy-date", "2026-04-01")
         assert r.returncode == 2
 
     def test_log_preserves_existing_rows(self, tmp_path):
@@ -51,10 +75,10 @@ class TestLogCommand:
         # Log two trades
         run_cli("--ledger", ledger, "--cache", NO_CACHE,
                 "log", "Tudor", "79830RB", "NR", "2750", "3200",
-                "--date", "2026-04-01")
+                "--buy-date", "2026-03-20", "--sell-date", "2026-04-01")
         run_cli("--ledger", ledger, "--cache", NO_CACHE,
                 "log", "Omega", "21030422003001", "NR", "3000", "3500",
-                "--date", "2026-04-02")
+                "--buy-date", "2026-03-25", "--sell-date", "2026-04-02")
         # Summary should show 2
         r = run_cli("--ledger", ledger, "--cache", NO_CACHE, "summary")
         data = json.loads(r.stdout)
@@ -63,13 +87,15 @@ class TestLogCommand:
     def test_log_negative_price_exits_2(self, tmp_path):
         ledger = str(tmp_path / "ledger.csv")
         r = run_cli("--ledger", ledger, "log", "Tudor", "79830RB",
-                     "NR", "-100", "3200")
+                     "NR", "-100", "3200",
+                     "--buy-date", "2026-04-01")
         assert r.returncode == 2
 
     def test_log_invalid_date_exits_2(self, tmp_path):
         ledger = str(tmp_path / "ledger.csv")
         r = run_cli("--ledger", ledger, "log", "Tudor", "79830RB",
-                     "NR", "2750", "3200", "--date", "not-a-date")
+                     "NR", "2750", "3200",
+                     "--buy-date", "not-a-date")
         assert r.returncode == 2
 
 

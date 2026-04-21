@@ -531,26 +531,52 @@ class TestLedgerIO:
     def test_append_and_read_roundtrip(self, tmp_path):
         path = str(tmp_path / "ledger.csv")
         row = LedgerRow(
-            date_closed=date(2026, 4, 16),
-            cycle_id="cycle_2026-08",
+            sell_date=date(2026, 4, 16),
+            sell_cycle_id="cycle_2026-08",
             brand="Tudor",
             reference="79830RB",
             account="NR",
             buy_price=2750,
             sell_price=3200,
+            buy_date=date(2026, 4, 1),
+            buy_cycle_id="cycle_2026-07",
         )
         append_ledger_row(row, path)
         loaded = parse_ledger_csv(path)
         assert len(loaded) == 1
         assert loaded[0].brand == "Tudor"
         assert loaded[0].buy_price == 2750
+        assert loaded[0].sell_date == date(2026, 4, 16)
+        assert loaded[0].buy_date == date(2026, 4, 1)
+        assert loaded[0].buy_cycle_id == "cycle_2026-07"
+
+    def test_legacy_row_with_blank_buy_date_roundtrips(self, tmp_path):
+        """Phase A.6 / S6: rows migrated from v1 have buy_date=None and
+        buy_cycle_id=None. parse_ledger_csv must accept blank values in
+        those columns and surface them as None."""
+        path = str(tmp_path / "ledger.csv")
+        row = LedgerRow(
+            sell_date=date(2026, 2, 5),
+            sell_cycle_id="cycle_2026-03",
+            brand="Rolex",
+            reference="216570",
+            account="RES",
+            buy_price=9550,
+            sell_price=10000,
+        )
+        append_ledger_row(row, path)
+        loaded = parse_ledger_csv(path)
+        assert len(loaded) == 1
+        assert loaded[0].buy_date is None
+        assert loaded[0].buy_cycle_id is None
+        assert loaded[0].sell_cycle_id == "cycle_2026-03"
 
     def test_sequential_writes_preserved(self, tmp_path):
         path = str(tmp_path / "ledger.csv")
         for i in range(3):
             append_ledger_row(LedgerRow(
-                date_closed=date(2026, 1, 5 + i),
-                cycle_id="cycle_2026-01",
+                sell_date=date(2026, 1, 5 + i),
+                sell_cycle_id="cycle_2026-01",
                 brand="Tudor",
                 reference="79830RB",
                 account="NR",
@@ -565,8 +591,8 @@ class TestLedgerIO:
     def test_append_creates_parent_directory(self, tmp_path):
         path = str(tmp_path / "subdir" / "ledger.csv")
         append_ledger_row(LedgerRow(
-            date_closed=date(2026, 4, 16),
-            cycle_id="cycle_2026-08",
+            sell_date=date(2026, 4, 16),
+            sell_cycle_id="cycle_2026-08",
             brand="Tudor",
             reference="79830RB",
             account="NR",
@@ -579,9 +605,20 @@ class TestLedgerIO:
         path = str(tmp_path / "bad.csv")
         with open(path, "w") as f:
             f.write(",".join(LEDGER_COLUMNS) + "\n")
-            f.write("not-a-date,cycle,brand,ref,NR,abc,3200\n")
+            f.write(",not-a-date,,cycle,brand,ref,NR,abc,3200\n")
         import pytest
         with pytest.raises(ValueError, match="Malformed row"):
+            parse_ledger_csv(path)
+
+    def test_v1_header_rejected_hard_cutover(self, tmp_path):
+        """Phase A.6: feeding a v1-shape CSV to the v2 parser raises
+        instead of silently misreading. Hard cutover, no compat path."""
+        path = str(tmp_path / "v1.csv")
+        with open(path, "w") as f:
+            f.write("date_closed,cycle_id,brand,reference,account,buy_price,sell_price\n")
+            f.write("2026-02-05,cycle_2026-03,Rolex,216570,RES,9550,10000\n")
+        import pytest
+        with pytest.raises(ValueError, match="v2 columns"):
             parse_ledger_csv(path)
 
 

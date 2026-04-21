@@ -112,19 +112,21 @@ def run(
         brand_lower = brand.lower()
         rows = [r for r in rows if r.brand.lower() == brand_lower]
     if since:
-        rows = [r for r in rows if r.date_closed >= since]
+        rows = [r for r in rows if r.sell_date >= since]
     if reference:
         rows = [r for r in rows if r.reference == reference]
     if cycle_id:
-        rows = [r for r in rows if r.cycle_id == cycle_id]
+        rows = [r for r in rows if r.sell_cycle_id == cycle_id]
 
     # Compute derived fields
     enriched = []
     for row in rows:
         derived = _compute_derived_fields(row, cache)
         enriched.append({
-            "date_closed": row.date_closed.isoformat(),
-            "cycle_id": row.cycle_id,
+            "sell_date": row.sell_date.isoformat(),
+            "sell_cycle_id": row.sell_cycle_id,
+            "buy_date": row.buy_date.isoformat() if row.buy_date else None,
+            "buy_cycle_id": row.buy_cycle_id,
             "brand": row.brand,
             "reference": row.reference,
             "account": row.account,
@@ -191,7 +193,7 @@ def reference_confidence(
         "win_rate": round(profitable / len(trades) * 100, 1),
         "avg_roi": round(statistics.mean(rois), 1),
         "avg_premium": round(statistics.mean(premiums), 1) if premiums else None,
-        "last_trade": max(t.date_closed for t in trades).isoformat(),
+        "last_trade": max(t.sell_date for t in trades).isoformat(),
     }
 
 
@@ -205,7 +207,9 @@ def cycle_rollup(
     rows = parse_ledger_csv(ledger_path)
     cache = _load_cache(cache_path)
 
-    cycle_rows = [r for r in rows if r.cycle_id == cycle_id]
+    # A.6: group by sell_cycle_id. Legacy rows with null buy_cycle_id
+    # still enter rollups via sell_cycle_id (per schema v1 §4 S6).
+    cycle_rows = [r for r in rows if r.sell_cycle_id == cycle_id]
 
     start, end = cycle_date_range(cycle_id)
     focus_refs = set()
@@ -233,7 +237,9 @@ def cycle_rollup(
         rois.append(derived["roi_pct"])
         deployed.append(row.buy_price)
         trade_entries.append({
-            "date": row.date_closed.isoformat(),
+            "date": row.sell_date.isoformat(),
+            "buy_date": row.buy_date.isoformat() if row.buy_date else None,
+            "buy_cycle_id": row.buy_cycle_id,
             "brand": row.brand,
             "reference": row.reference,
             "account": row.account,

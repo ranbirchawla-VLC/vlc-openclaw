@@ -35,20 +35,29 @@ from scripts.grailzee_common import cycle_id_from_csv, cycle_id_from_date
 from scripts.run_analysis import run_analysis
 
 
+V2_LEDGER_HEADER = (
+    "buy_date,sell_date,buy_cycle_id,sell_cycle_id,"
+    "brand,reference,account,buy_price,sell_price\n"
+)
+
+
 def _empty_ledger(tmp_path: Path) -> str:
     path = tmp_path / "trade_ledger.csv"
-    path.write_text("date_closed,cycle_id,brand,reference,account,buy_price,sell_price\n")
+    path.write_text(V2_LEDGER_HEADER)
     return str(path)
 
 
 def _premium_ledger(tmp_path: Path) -> str:
     """Ledger with 12 trades at ~10% premium to trigger threshold."""
     path = tmp_path / "trade_ledger.csv"
-    header = "date_closed,cycle_id,brand,reference,account,buy_price,sell_price\n"
     rows = []
     for i in range(12):
-        rows.append(f"2026-03-{i+1:02d},cycle_2026-05,Tudor,79830RB,NR,2750,3200")
-    path.write_text(header + "\n".join(rows) + "\n")
+        # Legacy-shape rows (no buy_date); matches post-A.6-migration
+        # state for trades that predate the prediction system.
+        rows.append(
+            f",2026-03-{i+1:02d},,cycle_2026-05,Tudor,79830RB,NR,2750,3200"
+        )
+    path.write_text(V2_LEDGER_HEADER + "\n".join(rows) + "\n")
     return str(path)
 
 
@@ -184,9 +193,9 @@ class TestPremiumAdjustment:
         tmp2.mkdir()
         # Build a premium-triggering ledger with cache providing median_at_trade
         ledger_path = str(tmp2 / "ledger.csv")
-        header = "date_closed,cycle_id,brand,reference,account,buy_price,sell_price\n"
+        header = V2_LEDGER_HEADER
         rows = "\n".join(
-            f"2026-03-{i+1:02d},cycle_2026-05,Tudor,79830RB,NR,2750,3200"
+            f",2026-03-{i+1:02d},,cycle_2026-05,Tudor,79830RB,NR,2750,3200"
             for i in range(12)
         )
         Path(ledger_path).write_text(header + rows + "\n")

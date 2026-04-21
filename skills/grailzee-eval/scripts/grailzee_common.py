@@ -161,8 +161,8 @@ QUALITY_CONDITIONS = {"very good", "like new", "new", "excellent"}
 # ─── Ledger schema ────────────────────────────────────────────────────
 
 LEDGER_COLUMNS = [
-    "date_closed", "cycle_id", "brand", "reference",
-    "account", "buy_price", "sell_price",
+    "buy_date", "sell_date", "buy_cycle_id", "sell_cycle_id",
+    "brand", "reference", "account", "buy_price", "sell_price",
 ]
 VALID_ACCOUNTS = {"NR", "RES"}
 
@@ -396,21 +396,35 @@ def append_name_cache_entry(
 @dataclass
 class LedgerRow:
     """One trade in the ledger. Stored fields only; derived fields live
-    in read_ledger.py."""
-    date_closed: date
-    cycle_id: str
+    in read_ledger.py.
+
+    Phase A.6 / schema v1 §4: buy_date/sell_date split (from the old
+    single ``date_closed``) and both cycle ids stored explicitly. Legacy
+    rows migrated at A.6 cutover carry buy_date=None, buy_cycle_id=None.
+    """
+    sell_date: date
+    sell_cycle_id: str
     brand: str
     reference: str
     account: str
     buy_price: float
     sell_price: float
+    buy_date: Optional[date] = None
+    buy_cycle_id: Optional[str] = None
+
+
+def _parse_iso_date(raw: str) -> date:
+    y, m, d = raw.split("-")
+    return date(int(y), int(m), int(d))
 
 
 def parse_ledger_csv(ledger_path: Optional[str] = None) -> list[LedgerRow]:
-    """Read trade_ledger.csv and return a list of LedgerRow.
+    """Read trade_ledger.csv and return a list of LedgerRow (v2 schema).
 
     Returns empty list if file is missing or empty (header-only).
-    Raises ValueError on malformed rows.
+    Raises ValueError on malformed rows OR when the file header does
+    not match LEDGER_COLUMNS — hard cutover means a v1-shape file feeds
+    through this function as an error, not a silent misread.
     """
     path = ledger_path or LEDGER_PATH
     if not os.path.exists(path):
@@ -418,17 +432,34 @@ def parse_ledger_csv(ledger_path: Optional[str] = None) -> list[LedgerRow]:
     rows: list[LedgerRow] = []
     with open(path, "r", newline="") as f:
         reader = csv.DictReader(f)
+        header = reader.fieldnames or []
+        required = {"sell_date", "sell_cycle_id"}
+        missing = required - set(header)
+        if missing:
+            raise ValueError(
+                f"Ledger {path} missing required v2 columns {sorted(missing)}; "
+                f"header was {header}. Phase A.6 migrated the schema — "
+                f"run migrate_ledger_v2.py on any v1 file before reading."
+            )
         for i, raw in enumerate(reader, start=2):
             try:
-                y, m, d = raw["date_closed"].split("-")
+                sell_date = _parse_iso_date(raw["sell_date"])
+                buy_raw = (raw.get("buy_date") or "").strip()
+                buy_date: Optional[date] = (
+                    _parse_iso_date(buy_raw) if buy_raw else None
+                )
+                buy_cycle_raw = (raw.get("buy_cycle_id") or "").strip()
+                buy_cycle_id: Optional[str] = buy_cycle_raw or None
                 rows.append(LedgerRow(
-                    date_closed=date(int(y), int(m), int(d)),
-                    cycle_id=raw["cycle_id"],
+                    sell_date=sell_date,
+                    sell_cycle_id=raw["sell_cycle_id"],
                     brand=raw["brand"],
                     reference=raw["reference"],
                     account=raw["account"],
                     buy_price=float(raw["buy_price"]),
                     sell_price=float(raw["sell_price"]),
+                    buy_date=buy_date,
+                    buy_cycle_id=buy_cycle_id,
                 ))
             except (KeyError, ValueError, TypeError) as exc:
                 raise ValueError(
@@ -453,13 +484,23 @@ def ensure_ledger_exists(ledger_path: Optional[str] = None) -> str:
 
 
 def append_ledger_row(row: LedgerRow, ledger_path: Optional[str] = None) -> None:
-    """Append one trade to trade_ledger.csv. Creates file if missing."""
+    """Append one trade to trade_ledger.csv. Creates file if missing.
+
+    Writes the v2 column order defined in LEDGER_COLUMNS:
+    buy_date, sell_date, buy_cycle_id, sell_cycle_id, brand, reference,
+    account, buy_price, sell_price. buy_date / buy_cycle_id render as
+    empty strings when None (legacy-row convention from A.6 migration).
+    """
     path = ensure_ledger_exists(ledger_path)
+    buy_date_str = row.buy_date.isoformat() if row.buy_date else ""
+    buy_cycle_str = row.buy_cycle_id or ""
     with open(path, "a", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
-            row.date_closed.isoformat(),
-            row.cycle_id,
+            buy_date_str,
+            row.sell_date.isoformat(),
+            buy_cycle_str,
+            row.sell_cycle_id,
             row.brand,
             row.reference,
             row.account,

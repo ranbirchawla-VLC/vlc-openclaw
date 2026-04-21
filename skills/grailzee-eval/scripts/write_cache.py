@@ -77,7 +77,7 @@ def _confidence_from_trades(
         "win_rate": round(profitable / len(matching) * 100, 1),
         "avg_roi": round(statistics.mean(rois), 1),
         "avg_premium": round(statistics.mean(premiums), 1) if premiums else None,
-        "last_trade": max(t["date_closed"] for t in matching),
+        "last_trade": max(t["sell_date"] for t in matching),
     }
 
 

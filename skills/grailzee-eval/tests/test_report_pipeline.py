@@ -40,7 +40,10 @@ def _common_kwargs(tmp_path: Path, csv_dir: Path) -> dict:
     output = tmp_path / "output"
     output.mkdir()
     ledger = tmp_path / "trade_ledger.csv"
-    ledger.write_text("date_closed,cycle_id,brand,reference,account,buy_price,sell_price\n")
+    ledger.write_text(
+        "buy_date,sell_date,buy_cycle_id,sell_cycle_id,"
+        "brand,reference,account,buy_price,sell_price\n"
+    )
     return {
         "output_folder": str(output),
         "csv_dir": str(csv_dir),

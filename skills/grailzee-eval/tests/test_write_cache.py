@@ -53,7 +53,8 @@ def _ref(brand="Tudor", model="BB GMT", reference="79830RB",
 def _trade(brand="Tudor", reference="79830RB", buy=2750, sell=3200,
            account="NR", net=301, roi=10.95, premium=None) -> dict:
     return {
-        "date_closed": "2026-03-15", "cycle_id": "cycle_2026-06",
+        "sell_date": "2026-03-15", "sell_cycle_id": "cycle_2026-06",
+        "buy_date": None, "buy_cycle_id": None,
         "brand": brand, "reference": reference,
         "account": account, "buy_price": buy, "sell_price": sell,
         "platform_fees": 149 if account == "NR" else 199,

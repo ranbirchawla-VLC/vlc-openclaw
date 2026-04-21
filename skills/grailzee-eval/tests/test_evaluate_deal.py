@@ -102,13 +102,22 @@ def _write_cache(tmp_path, cache_dict):
 
 
 def _write_ledger(tmp_path, rows):
-    """Write trade_ledger.csv from list of dicts; return path string."""
+    """Write trade_ledger.csv (v2 shape) from list of dicts; return path.
+
+    Row dicts use the legacy keys ``date_closed``/``cycle_id`` (the
+    test code was authored pre-A.6). This helper maps them to the v2
+    schema: date_closed -> sell_date, cycle_id -> sell_cycle_id, with
+    buy_date / buy_cycle_id left blank (legacy-row convention per S6).
+    """
     p = tmp_path / "trade_ledger.csv"
-    header = "date_closed,cycle_id,brand,reference,account,buy_price,sell_price\n"
+    header = (
+        "buy_date,sell_date,buy_cycle_id,sell_cycle_id,"
+        "brand,reference,account,buy_price,sell_price\n"
+    )
     lines = [header]
     for r in rows:
         lines.append(
-            f"{r['date_closed']},{r['cycle_id']},{r['brand']},"
+            f",{r['date_closed']},,{r['cycle_id']},{r['brand']},"
             f"{r['reference']},{r['account']},{r['buy_price']},"
             f"{r['sell_price']}\n"
         )

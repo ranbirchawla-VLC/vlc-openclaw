@@ -1,7 +1,7 @@
-date_closed,cycle_id,brand,reference,account,buy_price,sell_price
-2025-10-10,cycle_2025-20,Tudor,79830RB,NR,2750,3200
-2025-11-15,cycle_2025-23,Tudor,91650,NR,1500,1675
-2025-12-01,cycle_2025-24,Tudor,79230R,NR,2800,3150
-2026-01-05,cycle_2026-01,Tudor,28600,RES,4200,4750
-2026-02-14,cycle_2026-03,Tudor,79830RB,NR,1900,2100
-2026-03-01,cycle_2026-04,Breitling,A17320,NR,2100,2350
+buy_date,sell_date,buy_cycle_id,sell_cycle_id,brand,reference,account,buy_price,sell_price
+,2025-10-10,,cycle_2025-20,Tudor,79830RB,NR,2750,3200
+,2025-11-15,,cycle_2025-23,Tudor,91650,NR,1500,1675
+,2025-12-01,,cycle_2025-24,Tudor,79230R,NR,2800,3150
+,2026-01-05,,cycle_2026-01,Tudor,28600,RES,4200,4750
+,2026-02-14,,cycle_2026-03,Tudor,79830RB,NR,1900,2100
+,2026-03-01,,cycle_2026-04,Breitling,A17320,NR,2100,2350

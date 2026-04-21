@@ -64,12 +64,15 @@ def _write_bytes(tmp_path: Path, name: str, data: bytes) -> str:
     return str(p)
 
 
+V2_LEDGER_HEADER = (
+    "buy_date,sell_date,buy_cycle_id,sell_cycle_id,"
+    "brand,reference,account,buy_price,sell_price\n"
+)
+
+
 def _empty_ledger(tmp_path: Path, name: str = "ledger.csv") -> str:
     p = tmp_path / name
-    p.write_text(
-        "date_closed,cycle_id,brand,reference,account,buy_price,sell_price\n",
-        encoding="utf-8",
-    )
+    p.write_text(V2_LEDGER_HEADER, encoding="utf-8")
     return str(p)
 
 
@@ -370,8 +373,8 @@ class TestDedup:
     def test_existing_row_skipped(self, tmp_path, empty_name_cache, capsys):
         ledger = tmp_path / "ledger.csv"
         ledger.write_text(
-            "date_closed,cycle_id,brand,reference,account,buy_price,sell_price\n"
-            "2026-03-03,cycle_2026-05,Rolex,116900,NR,7399,7501\n",
+            V2_LEDGER_HEADER
+            + ",2026-03-03,,cycle_2026-05,Rolex,116900,NR,7399,7501\n",
             encoding="utf-8",
         )
         inp = _write(
@@ -467,7 +470,7 @@ class TestRealWriteAtomicity:
         lines = [ln for ln in content.splitlines() if ln.strip()]
         # header + 14 rows
         assert len(lines) == 15
-        assert lines[0].startswith("date_closed,cycle_id,")
+        assert lines[0].startswith("buy_date,sell_date,buy_cycle_id,sell_cycle_id,")
         assert "cycle_2026-08" in content
         assert "116900" in content
 
@@ -699,8 +702,8 @@ class TestAtomicWriteCleanup:
 
         monkeypatch.setattr(bl.os, "replace", _boom)
         rows = [{
-            "date_closed": "2026-01-19",
-            "cycle_id": "cycle_2026-02",
+            "sell_date": "2026-01-19",
+            "sell_cycle_id": "cycle_2026-02",
             "brand": "Tudor",
             "reference": "79830RB",
             "account": "NR",
@@ -802,7 +805,7 @@ class TestPostWriteHooksLedgerOverride:
 
         monkeypatch.setattr(bl.subprocess, "run", _recorder)
         ledger = str(tmp_path / "alt_ledger.csv")
-        rows = [{"cycle_id": "cycle_2026-02"}]
+        rows = [{"sell_cycle_id": "cycle_2026-02"}]
 
         bl.post_write_hooks(rows, skip_roll=False, ledger_path=ledger)
         capsys.readouterr()
@@ -829,7 +832,7 @@ class TestPostWriteHooksLedgerOverride:
             return _R()
 
         monkeypatch.setattr(bl.subprocess, "run", _recorder)
-        rows = [{"cycle_id": "cycle_2026-02"}]
+        rows = [{"sell_cycle_id": "cycle_2026-02"}]
         bl.post_write_hooks(rows, skip_roll=False, ledger_path=None)
         capsys.readouterr()
 

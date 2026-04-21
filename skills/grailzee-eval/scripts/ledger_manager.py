@@ -5,10 +5,14 @@ All output is JSON on stdout. Errors to stderr.
 Exit codes: 0 success, 2 bad input, 1 other errors.
 
 Usage:
-    ledger_manager.py log <brand> <ref> <account> <buy> <sell> [--date YYYY-MM-DD] [--ledger PATH] [--cache PATH]
+    ledger_manager.py log <brand> <ref> <account> <buy> <sell> --buy-date YYYY-MM-DD [--sell-date YYYY-MM-DD] [--ledger PATH] [--cache PATH]
     ledger_manager.py summary [--brand NAME] [--since YYYY-MM-DD] [--reference REF] [--cycle ID] [--ledger PATH] [--cache PATH]
     ledger_manager.py premium [--ledger PATH] [--cache PATH]
     ledger_manager.py cycle_rollup <cycle_id> [--ledger PATH] [--cache PATH] [--focus PATH]
+
+Phase A.6 / schema v1 §4.3: --date split into --buy-date and --sell-date.
+--buy-date is required on the script path (bot-side will prompt when
+integration lands in a B-phase task). --sell-date defaults to today.
 """
 
 from __future__ import annotations
@@ -79,29 +83,56 @@ def cmd_log(args: argparse.Namespace) -> int:
             }), file=sys.stderr)
             return 2
 
-        # Date
-        if args.date:
+        # A.6: buy_date is required on the script path; sell_date defaults
+        # to today when omitted. See schema v1 §4.3.
+        if not args.buy_date:
+            print(json.dumps({
+                "status": "error",
+                "error": "missing_buy_date",
+                "message": (
+                    "--buy-date is required (YYYY-MM-DD). "
+                    "Schema v1 §4.3; script-side fails loud when absent."
+                ),
+            }), file=sys.stderr)
+            return 2
+        try:
+            y, m, d = args.buy_date.split("-")
+            buy_date = date(int(y), int(m), int(d))
+        except (ValueError, TypeError):
+            print(json.dumps({
+                "status": "error",
+                "error": "invalid_date",
+                "message": f"Cannot parse --buy-date: {args.buy_date}. Use YYYY-MM-DD.",
+            }), file=sys.stderr)
+            return 2
+
+        if args.sell_date:
             try:
-                y, m, d = args.date.split("-")
-                trade_date = date(int(y), int(m), int(d))
+                y, m, d = args.sell_date.split("-")
+                sell_date = date(int(y), int(m), int(d))
             except (ValueError, TypeError):
                 print(json.dumps({
                     "status": "error",
                     "error": "invalid_date",
-                    "message": f"Cannot parse date: {args.date}. Use YYYY-MM-DD.",
+                    "message": f"Cannot parse --sell-date: {args.sell_date}. Use YYYY-MM-DD.",
                 }), file=sys.stderr)
                 return 2
         else:
-            trade_date = date.today()
+            sell_date = date.today()
 
-        cid = cycle_id_from_date(trade_date)
-        span.set_attribute("cycle_id", cid)
+        buy_cycle_id = cycle_id_from_date(buy_date)
+        sell_cycle_id = cycle_id_from_date(sell_date)
+        span.set_attribute("buy_date_present", True)
+        span.set_attribute("buy_cycle_id", buy_cycle_id)
+        span.set_attribute("sell_cycle_id", sell_cycle_id)
         span.set_attribute("buy_price", buy)
         span.set_attribute("sell_price", sell)
 
         row = LedgerRow(
-            date_closed=trade_date,
-            cycle_id=cid,
+            sell_date=sell_date,
+            sell_cycle_id=sell_cycle_id,
+            buy_date=buy_date,
+            buy_cycle_id=buy_cycle_id,
             brand=args.brand,
             reference=args.reference,
             account=account,
@@ -113,8 +144,10 @@ def cmd_log(args: argparse.Namespace) -> int:
         print(json.dumps({
             "status": "ok",
             "trade": {
-                "date_closed": trade_date.isoformat(),
-                "cycle_id": cid,
+                "buy_date": buy_date.isoformat(),
+                "sell_date": sell_date.isoformat(),
+                "buy_cycle_id": buy_cycle_id,
+                "sell_cycle_id": sell_cycle_id,
                 "brand": args.brand,
                 "reference": args.reference,
                 "account": account,
@@ -221,7 +254,14 @@ def main() -> int:
     p_log.add_argument("account")
     p_log.add_argument("buy_price")
     p_log.add_argument("sell_price")
-    p_log.add_argument("--date", default=None, help="YYYY-MM-DD (default: today)")
+    p_log.add_argument(
+        "--buy-date", dest="buy_date", default=None,
+        help="YYYY-MM-DD. Required (A.6 / schema v1 §4.3).",
+    )
+    p_log.add_argument(
+        "--sell-date", dest="sell_date", default=None,
+        help="YYYY-MM-DD. Defaults to today when omitted.",
+    )
 
     # summary
     p_sum = sub.add_parser("summary", help="Query ledger summary")

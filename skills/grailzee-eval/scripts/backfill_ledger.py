@@ -1,7 +1,14 @@
 """Backfill historical trades into the Grailzee trade ledger.
 
 Reads a hand-curated CSV of historical trades, validates each row,
-derives cycle_id from date_closed, and appends to trade_ledger.csv.
+derives sell_cycle_id from sell_date, and appends to trade_ledger.csv.
+
+Phase A.6 / schema v1 §4: input CSV column ``date_closed`` maps to the
+v2 ``sell_date`` in the output ledger, ``cycle_id`` (derived) maps to
+``sell_cycle_id``. Backfill rows do NOT carry a buy_date — per S6, rows
+backfilled from legacy inputs leave buy_date/buy_cycle_id blank. The
+input schema stays unchanged; operators with historical one-off CSVs
+don't need to regenerate them.
 
 Usage:
     backfill_ledger.py <input.csv> [--dry-run] [--force] [--no-roll]
@@ -52,9 +59,13 @@ INPUT_COLUMNS: list[str] = [
     "buy_price", "sell_price", "notes",
 ]
 
+# Phase A.6: output is the v2 ledger schema. ``date_closed`` from input
+# maps to ``sell_date``; derived cycle becomes ``sell_cycle_id``.
+# ``buy_date`` / ``buy_cycle_id`` are left blank for backfill rows per
+# schema v1 §4 S6 (legacy rows predate the prediction system).
 OUTPUT_COLUMNS: list[str] = [
-    "date_closed", "cycle_id", "brand", "reference",
-    "account", "buy_price", "sell_price",
+    "buy_date", "sell_date", "buy_cycle_id", "sell_cycle_id",
+    "brand", "reference", "account", "buy_price", "sell_price",
 ]
 
 VALID_ACCOUNTS: set[str] = {"NR", "RES"}
@@ -225,10 +236,12 @@ def validate_row(row: dict, today: date) -> tuple[Optional[dict], list[str]]:
 
     if errors or dt is None or buy is None or sell is None:
         return None, errors
+    # A.6: input ``date_closed`` normalizes to the v2 ``sell_date`` field.
+    # Backfill rows do not carry a buy_date (S6).
     return {
         "_line_num": ln,
         "_date_obj": dt,
-        "date_closed": dt.isoformat(),
+        "sell_date": dt.isoformat(),
         "brand": brand,
         "reference": reference,
         "account": account,
@@ -313,10 +326,14 @@ def brand_mismatch_warnings(
 def derive_cycle_ids(
     valid_rows: list[dict],
 ) -> tuple[list[dict], Optional[str]]:
-    """Inject cycle_id on every valid row. Return (rows, error_msg_or_None).
+    """Inject sell_cycle_id on every valid row. Return (rows, error_msg_or_None).
 
-    If cycle_id_from_date raises or produces an empty string, abort with a
-    descriptive error. Callers should exit 3 in that case.
+    Phase A.6: derived cycle comes from the row's sell_date (the input's
+    ``date_closed`` column, normalized during validation). buy_cycle_id
+    is NOT derived here — backfill rows have no buy_date per S6.
+
+    If cycle_id_from_date raises or produces an empty string, abort with
+    a descriptive error. Callers should exit 3 in that case.
     """
     fn = gc.cycle_id_from_date
     out: list[dict] = []
@@ -326,15 +343,15 @@ def derive_cycle_ids(
         except Exception as e:
             return out, (
                 f"cycle_id_from_date failed on line {r['_line_num']} "
-                f"(date {r['date_closed']}): {e}"
+                f"(date {r['sell_date']}): {e}"
             )
         if not cid:
             return out, (
                 f"cycle_id_from_date returned empty on line {r['_line_num']} "
-                f"(date {r['date_closed']})"
+                f"(date {r['sell_date']})"
             )
         r2 = dict(r)
-        r2["cycle_id"] = cid
+        r2["sell_cycle_id"] = cid
         out.append(r2)
     return out, None
 
@@ -343,9 +360,11 @@ def derive_cycle_ids(
 
 
 def load_existing_ledger_keys(ledger_path: str) -> set[tuple]:
-    """Return set of dedup keys from existing ledger file.
+    """Return set of dedup keys from existing (v2) ledger file.
 
-    Key: (iso_date, normalized_ref, account, buy_price, sell_price).
+    Key: (sell_date_iso, normalized_ref, account, buy_price, sell_price).
+    Post-A.6 the column is ``sell_date``; pre-A.6 callers ran against
+    ``date_closed`` which is now migrated.
     """
     keys: set[tuple] = set()
     if not os.path.exists(ledger_path):
@@ -360,7 +379,7 @@ def load_existing_ledger_keys(ledger_path: str) -> set[tuple]:
                 except (ValueError, TypeError):
                     continue
                 keys.add((
-                    (row.get("date_closed", "") or "").strip(),
+                    (row.get("sell_date", "") or "").strip(),
                     gc.normalize_ref(row.get("reference", "") or ""),
                     (row.get("account", "") or "").strip(),
                     buy,
@@ -380,7 +399,7 @@ def filter_duplicates(
     dupes: list[str] = []
     for r in valid_rows:
         key = (
-            r["date_closed"],
+            r["sell_date"],
             gc.normalize_ref(r["reference"]),
             r["account"],
             r["buy_price"],
@@ -389,7 +408,7 @@ def filter_duplicates(
         if key in seen:
             dupes.append(
                 f"line {r['_line_num']}: duplicate of existing ledger row "
-                f"({r['date_closed']} {r['reference']} {r['account']} "
+                f"({r['sell_date']} {r['reference']} {r['account']} "
                 f"buy={r['buy_price']} sell={r['sell_price']})"
             )
             continue
@@ -425,9 +444,9 @@ def print_summary(
     for d in dupes:
         print(f"  {d}")
     cycles = Counter(
-        r["cycle_id"] for r in rows_with_cycle if r.get("cycle_id")
+        r["sell_cycle_id"] for r in rows_with_cycle if r.get("sell_cycle_id")
     )
-    print("Cycle distribution:")
+    print("Cycle distribution (by sell_cycle_id):")
     if not cycles:
         print("  (none)")
     for cid in sorted(cycles):
@@ -474,9 +493,14 @@ def write_ledger_atomic(rows: list[dict], ledger_path: str) -> None:
                 writer.writerow(OUTPUT_COLUMNS)
             writer = csv.writer(dst)
             for r in rows:
+                # A.6: backfill rows emit blank buy_date / buy_cycle_id
+                # (legacy-row convention per schema v1 §4 S6). sell_date
+                # and sell_cycle_id populate from the input's date_closed.
                 writer.writerow([
-                    r["date_closed"],
-                    r["cycle_id"],
+                    "",              # buy_date
+                    r["sell_date"],
+                    "",              # buy_cycle_id
+                    r["sell_cycle_id"],
                     r["brand"],
                     r["reference"],
                     r["account"],
@@ -570,7 +594,7 @@ def post_write_hooks(
         print("\n-- roll_cycle skipped (--no-roll) --")
         return
 
-    cycles = sorted({r["cycle_id"] for r in rows})
+    cycles = sorted({r["sell_cycle_id"] for r in rows})
     for cid in cycles:
         _run_subcmd(
             [python, roll_script, *ledger_args, cid],
@@ -657,7 +681,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             else:
                 s_cyc.set_attribute(
                     "cycles_covered",
-                    len({r["cycle_id"] for r in with_cycle}),
+                    len({r["sell_cycle_id"] for r in with_cycle}),
                 )
 
         if cycle_err is not None:
@@ -685,7 +709,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         span.set_attribute("dupe_count", len(dupe_messages))
         span.set_attribute("warning_count", len(warnings))
         span.set_attribute(
-            "cycles_covered", len({r["cycle_id"] for r in to_write})
+            "cycles_covered", len({r["sell_cycle_id"] for r in to_write})
         )
         span.set_attribute(
             "brand_count", len({r["brand"] for r in to_write})
@@ -711,7 +735,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             print("\n── Dry run: rows that would be appended ──")
             for r in to_write:
                 print(
-                    f"  {r['date_closed']}  {r['cycle_id']}  {r['brand']:<12} "
+                    f"  {r['sell_date']}  {r['sell_cycle_id']}  {r['brand']:<12} "
                     f"{r['reference']:<20} {r['account']:<3} "
                     f"buy={_fmt_price(r['buy_price'])} "
                     f"sell={_fmt_price(r['sell_price'])}"
@@ -741,7 +765,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         with tracer.start_as_current_span("backfill_ledger.post_write_hooks") as s_hk:
             s_hk.set_attribute("skip_roll", args.no_roll)
-            cycles = sorted({r["cycle_id"] for r in to_write})
+            cycles = sorted({r["sell_cycle_id"] for r in to_write})
             s_hk.set_attribute(
                 "cycles_rolled", 0 if args.no_roll else len(cycles)
             )
