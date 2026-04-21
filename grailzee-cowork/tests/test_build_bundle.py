@@ -61,6 +61,9 @@ def test_happy_path_builds_bundle_with_all_roles(tmp_path):
             "trade_ledger",
             "sourcing_brief",
             "latest_report_csv",
+            # A.7: meta file is always bundled — carries source_cycle_id:null
+            # when no prior cycle has trade data, as in this fixture's tree.
+            "previous_cycle_outcome_meta",
         }
 
         # sha256 + size match each archived member
