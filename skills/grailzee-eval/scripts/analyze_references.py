@@ -30,6 +30,8 @@ sys.path.insert(0, str(V2_ROOT))
 
 from scripts.grailzee_common import (
     NR_FIXED,
+    PLATFORM_FEE_NR,
+    PLATFORM_FEE_RES,
     RES_FIXED,
     analyzer_config_source,
     classify_dj_config,
@@ -142,6 +144,14 @@ def analyze_reference(
     be_res = mb_res + RES_FIXED
     risk_res = calc_risk(quality_prices, be_res)
 
+    # B.5: per-channel capital and expected-net at platform-fee-only
+    # decomposition (no shipping, no cost-of-capital; strategist layers
+    # those).
+    capital_required_nr = float(mb_nr + PLATFORM_FEE_NR)
+    capital_required_res = float(mb_res + PLATFORM_FEE_RES)
+    expected_net_at_median_nr = float(median - capital_required_nr)
+    expected_net_at_median_res = float(median - capital_required_res)
+
     recommend_reserve = (
         risk_nr is not None and risk_nr > risk_reserve_threshold * 100
     )
@@ -179,6 +189,10 @@ def analyze_reference(
         "recommend_reserve": recommend_reserve,
         "signal": signal,
         "condition_mix": _condition_mix(sales),
+        "capital_required_nr": capital_required_nr,
+        "capital_required_res": capital_required_res,
+        "expected_net_at_median_nr": expected_net_at_median_nr,
+        "expected_net_at_median_res": expected_net_at_median_res,
     }
 
 

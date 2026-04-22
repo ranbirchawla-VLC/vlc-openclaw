@@ -61,6 +61,17 @@ RUN_HISTORY_PATH    = f"{STATE_PATH}/run_history.json"
 NR_FIXED = 149              # NR account: $49 Grailzee fee + $100 shipping
 RES_FIXED = 199             # Reserve account: $99 fee + $100 shipping
 
+# B.5: platform-fee-only decomposition. Used for capital_required_* and
+# expected_net_at_median_* per schema §3.1 (post-B.5 shipped shape).
+# Analyzer ships gross-of-shipping/cost-of-capital; strategist layers
+# those as separate inputs. Distinct from NR_FIXED/RES_FIXED above,
+# which roll in the $100 shipping component and feed profit_nr /
+# breakeven_nr. Platform fees are Grailzee-dictated, not a
+# Vardalux-tunable parameter; kept as module constants rather than in
+# analyzer_config.json.
+PLATFORM_FEE_NR = 49
+PLATFORM_FEE_RES = 99
+
 # Fallback defaults for values now sourced from analyzer_config.json
 # (v1.1 §2, Phase A.2 migration). The live value is read via
 # load_analyzer_config(); these constants remain as the in-process

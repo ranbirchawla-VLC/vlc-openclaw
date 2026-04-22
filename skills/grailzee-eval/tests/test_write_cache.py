@@ -141,7 +141,9 @@ class TestFullSchema:
             "market_window", "premium_status", "references", "dj_configs",
             "changes", "breakouts", "watchlist", "brands", "unnamed", "summary",
         }
-        assert set(cache.keys()) == expected_keys
+        actual_keys = set(cache.keys())
+        missing = expected_keys - actual_keys
+        assert not missing, f"Missing expected top-level keys: {missing}"
 
     def test_schema_version_is_2(self, tmp_path):
         path = write_cache(*_fixture(tmp_path))
@@ -187,9 +189,29 @@ class TestPerReferenceShape:
             "premium_vs_market_pct", "premium_vs_market_sale_count",
             "realized_premium_pct", "realized_premium_trade_count",
             "condition_mix",
+            "capital_required_nr", "capital_required_res",
+            "expected_net_at_median_nr", "expected_net_at_median_res",
             "trend_signal", "trend_median_change", "trend_median_pct",
         }
-        assert set(ref.keys()) == expected_keys
+        actual_keys = set(ref.keys())
+        missing = expected_keys - actual_keys
+        assert not missing, f"Missing expected per-reference keys: {missing}"
+
+    def test_extra_keys_tolerated(self, tmp_path):
+        """Subset assertion doesn't regress on additive-field additions.
+
+        Decorate a reference entry in-memory with an extra key and
+        re-run the shape check logic. Subset holds; strict equality
+        would have broken. Regression guard for the B.5 preamble flip.
+        """
+        path = write_cache(*_fixture(tmp_path))
+        cache = _load(path)
+        ref = dict(cache["references"]["79830RB"])
+        ref["hypothetical_future_field"] = 123
+        expected_keys = {"brand", "model", "reference", "median"}
+        actual_keys = set(ref.keys())
+        missing = expected_keys - actual_keys
+        assert not missing
 
     def test_fully_populated_reference(self, tmp_path):
         path = write_cache(*_fixture(tmp_path))

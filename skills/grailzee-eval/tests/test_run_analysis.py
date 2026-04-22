@@ -463,9 +463,13 @@ class TestSentinelValues:
             "premium_vs_market_pct", "premium_vs_market_sale_count",
             "realized_premium_pct", "realized_premium_trade_count",
             "condition_mix",
+            "capital_required_nr", "capital_required_res",
+            "expected_net_at_median_nr", "expected_net_at_median_res",
             "trend_signal", "trend_median_change", "trend_median_pct",
         }
-        assert set(ref_data.keys()) == expected_keys
+        actual_keys = set(ref_data.keys())
+        missing = expected_keys - actual_keys
+        assert not missing, f"Missing expected per-reference keys: {missing}"
 
 
 # ═══════════════════════════════════════════════════════════════════════

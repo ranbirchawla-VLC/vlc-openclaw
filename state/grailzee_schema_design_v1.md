@@ -208,7 +208,7 @@ Target entry fields:
 - `reference`, `brand`, `model` — identity
 - `max_buy_nr`, `max_buy_res` — cycle-locked, inherited from analyzer at commit time
 - `predicted_nr_clear_prob` — L6.2 binary prediction stamped at commit
-- `expected_net_at_median`, `dollar_per_hour`, `capital_required` — L5.3 ranking inputs carried through for bot's decision context
+- `expected_net_at_median`, `dollar_per_hour`, `capital_required` — L5.3 ranking inputs carried through for bot's decision context (B.5 removed `dollar_per_hour`; cycle_focus target shape reconciled at C.1 plan-review; see §7)
 - `notes` — strategic context for the target
 
 ### 2.5 `cycle_targets/cycle_<id>.json`
@@ -289,9 +289,10 @@ New fields (per locked levers):
 | `premium_vs_market_sale_count` | int, always present. Total Vardalux sales on the reference (all-time, no window). Distinguishes "zero because no data" from "zero because all clearings were at/below median". DJ configs inherit parent. | L2 edge |
 | `realized_premium_pct` | float or null. 30-day windowed (`sell_date` inclusive) version of `premium_vs_market_pct`: most-recent in-window sell vs current median, same formula. Null when no in-window sell (no close-count floor). Negative values permitted (no zero-floor; differs from B.2). DJ configs inherit parent. | L2.1 |
 | `realized_premium_trade_count` | int, always present. Count of Vardalux trades where `sell_date` is within the last 30 days (inclusive). DJ configs inherit parent. | L2.2 |
-| `dollar_per_hour` | number or null (expected_net_at_median / hours_per_piece, null if unfamiliar brand) | L5.3 |
-| `expected_net_at_median` | number or null | L5.3 |
-| `capital_required` | number (equals max_buy_nr when brand is tradeable, else null) | L5.4 |
+| `capital_required_nr` | float, always present on scored refs. `max_buy_nr + 49` (Grailzee NR platform fee only; no shipping, no cost-of-capital; strategist layers those). | L5.4 |
+| `capital_required_res` | float, always present on scored refs. `max_buy_res + 99` (Grailzee Res platform fee). | L5.4 |
+| `expected_net_at_median_nr` | float, always present on scored refs. `median - capital_required_nr`. Gross of shipping. Negative allowed. | L5.3 |
+| `expected_net_at_median_res` | float, always present on scored refs. `median - capital_required_res`. Gross of shipping. Negative allowed. | L5.3 |
 | `condition_mix` | object `{excellent: N, very_good: N, like_new: N, new: N, below_quality: N}` | L1.3 |
 | `capacity_observed` | object `{by_brand: {count, capital}, by_reference: {count, capital}}` read-through from capacity_context | L4 |
 
@@ -366,7 +367,7 @@ Shortlist gate logic:
 1. Reference must be in a brand listed in `brand_floors.json` with `tradeable: true`.
 2. Reference's signal must not be Pass or Low data.
 3. Reference's `realized_premium_pct` must be non-null AND >= `brand_floor_pct` (L3.1 floor), OR `realized_premium_pct` is null (no recent in-window sell) AND `premium_vs_market_pct` >= `brand_floor_pct` (L2 edge fallback when own-ledger has no recent clearing).
-4. If more than 30 references pass, rank by `dollar_per_hour` DESC, take top 30. If fewer than 30 pass, ship what passes.
+4. If more than 30 references pass, rank by `dollar_per_hour` DESC, take top 30. If fewer than 30 pass, ship what passes. (B.5 removed `dollar_per_hour`; ranking field reconciled at B.7 plan-review; see §7.)
 
 See skill call S4 for rule 3 fallback semantics.
 
@@ -478,6 +479,8 @@ At this phase, nothing breaks. Analyzer reads new configs but produces identical
 6. Add new cache fields: `brand_floor_cleared`, `premium_vs_market_pct`, `realized_premium_pct`, `realized_premium_trade_count`, `dollar_per_hour`, `expected_net_at_median`, `capital_required`, `condition_mix`, `capacity_observed`. All null for first run where the inputs don't yet exist.
 
    *Shipped 2026-04-21 (B.2, B.3, + normalization follow-up): `premium_vs_market_pct` is always-present float, zero-floored; sibling field `premium_vs_market_sale_count` added for null-vs-zero disambiguation; `realized_premium_pct` null means no in-window (30-day) sell — no close-count floor. Ledger-to-cache joins route through `resolve_to_cache_ref` for Tudor per-piece inventory IDs. §3.1 table is authoritative for current shape.*
+
+   *Shipped 2026-04-22 (B.5, amended): four per-channel capital/net fields: `capital_required_{nr,res}`, `expected_net_at_median_{nr,res}`. Originally specced with a fifth field `dollar_per_hour`; removed pre-commit because `hours_per_piece` is operationally constant across references, making the divisor a rank-invariant scalar carrying no information beyond `expected_net_at_median_nr` alone. All four fields are floats, always present on scored refs (nullability deferred to B.6 brand-floor gate). `capital_required_*` uses platform-fee-only decomposition (`PLATFORM_FEE_NR=49`, `PLATFORM_FEE_RES=99`), gross of shipping; contrast with `profit_nr` / `breakeven_nr` which roll in shipping. Shipping, cost-of-capital, and other transaction costs are strategist-owned. `analyzer_config.labor.hours_per_piece` kept as dormant config pending post-Phase-B decision. §3.1 table is authoritative.*
 7. Implement `build_shortlist` replacing `build_brief` JSON output. Markdown stays unchanged for now.
 8. Gate `max_buy` on brand_floors: references in non-tradeable or unlisted brands get `max_buy: null`.
 

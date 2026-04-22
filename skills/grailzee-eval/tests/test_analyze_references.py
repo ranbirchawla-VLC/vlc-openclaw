@@ -466,6 +466,126 @@ class TestScoreAllReferences:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# B.5: capital_required_*, expected_net_at_median_* (4 fields)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestB5Fields:
+    """Four new per-reference fields (B.5): ``capital_required_{nr,res}``
+    and ``expected_net_at_median_{nr,res}``.
+
+    Hand-computed against 79830RB fixture (median=3200, max_buy_nr=2910,
+    max_buy_res=2860):
+
+      capital_required_nr        = 2910 + 49  = 2959
+      capital_required_res       = 2860 + 99  = 2959  (coincidence at this median)
+      expected_net_at_median_nr  = 3200 - 2959 = 241
+      expected_net_at_median_res = 3200 - 2959 = 241
+    """
+
+    FOUR_FIELDS = (
+        "capital_required_nr",
+        "capital_required_res",
+        "expected_net_at_median_nr",
+        "expected_net_at_median_res",
+    )
+
+    def _sales_79830(self):
+        return _make_sales([3000, 3100, 3200, 3300, 3400])
+
+    def test_all_four_fields_present(self):
+        r = analyze_reference(self._sales_79830())
+        for k in self.FOUR_FIELDS:
+            assert k in r, f"missing {k}"
+
+    def test_all_four_are_floats(self):
+        r = analyze_reference(self._sales_79830())
+        for k in self.FOUR_FIELDS:
+            assert isinstance(r[k], float), f"{k} is {type(r[k]).__name__}, not float"
+
+    def test_capital_required_nr_formula(self):
+        r = analyze_reference(self._sales_79830())
+        assert r["capital_required_nr"] == r["max_buy_nr"] + 49
+
+    def test_capital_required_res_formula(self):
+        r = analyze_reference(self._sales_79830())
+        assert r["capital_required_res"] == r["max_buy_res"] + 99
+
+    def test_expected_net_at_median_nr_formula(self):
+        r = analyze_reference(self._sales_79830())
+        assert r["expected_net_at_median_nr"] == r["median"] - r["capital_required_nr"]
+
+    def test_expected_net_at_median_res_formula(self):
+        r = analyze_reference(self._sales_79830())
+        assert r["expected_net_at_median_res"] == r["median"] - r["capital_required_res"]
+
+    def test_hand_computed_79830_values(self):
+        r = analyze_reference(self._sales_79830())
+        assert r["capital_required_nr"] == 2959.0
+        assert r["capital_required_res"] == 2959.0
+        assert r["expected_net_at_median_nr"] == 241.0
+        assert r["expected_net_at_median_res"] == 241.0
+
+    def test_nr_res_channel_divergence(self):
+        """Per-channel split is operationally meaningful: find a median
+        where rounding puts cap_nr != cap_res.
+
+        Structural math: (NR_FIXED - PLATFORM_FEE_NR) == (RES_FIXED -
+        PLATFORM_FEE_RES) == $100, so max_buy_nr - max_buy_res ≈ $47.62
+        before rounding, which collapses to either 40 or 50 after
+        round-to-tens. When it's 40, capital_required_nr - cap_res = -10
+        (NR channel is cheaper); when 50, they're equal.
+
+        median=4700 triggers the non-equal case.
+        """
+        sales = _make_sales([4500, 4600, 4700, 4800, 4900])
+        r = analyze_reference(sales)
+        # max_buy_nr = round((4700-149)/1.05, -1) = round(4334.29, -1) = 4330
+        # max_buy_res = round((4700-199)/1.05, -1) = round(4286.67, -1) = 4290
+        # cap_nr = 4379; cap_res = 4389
+        # net_nr = 4700 - 4379 = 321; net_res = 4700 - 4389 = 311
+        assert r["capital_required_nr"] == 4379.0
+        assert r["capital_required_res"] == 4389.0
+        assert r["expected_net_at_median_nr"] == 321.0
+        assert r["expected_net_at_median_res"] == 311.0
+        assert r["expected_net_at_median_nr"] > r["expected_net_at_median_res"]
+
+    def test_formula_reconciles_across_medians(self):
+        """Parametric sanity: whatever median, the four fields reconcile
+        by the locked formulas. Catches any drift if someone edits the
+        field-assignment block without updating the reconciliation."""
+        for base in (1000, 2500, 5000, 9650, 15000):
+            sales = _make_sales([base - 200, base - 100, base, base + 100, base + 200])
+            r = analyze_reference(sales)
+            assert r["capital_required_nr"] == r["max_buy_nr"] + 49
+            assert r["capital_required_res"] == r["max_buy_res"] + 99
+            assert r["expected_net_at_median_nr"] == r["median"] - r["capital_required_nr"]
+            assert r["expected_net_at_median_res"] == r["median"] - r["capital_required_res"]
+
+    def test_dj_configs_compute_b5_independently(self):
+        """B.5 fields compute per DJ config from pooled sales, not
+        inherited from parent 126300. Mirrors the B.4 independence
+        test for the four fields."""
+        sales = []
+        for p in (10000, 10200, 10400):
+            sales.append({
+                "price": p, "condition": "Very Good", "papers": "Yes",
+                "title": "Rolex Datejust 41 126300 Blue Dial Jubilee Bracelet",
+            })
+        for p in (8800, 9000, 9200):
+            sales.append({
+                "price": p, "condition": "Excellent", "papers": "Yes",
+                "title": "Rolex Datejust 41 126300 Slate Dial Oyster Bracelet",
+            })
+        result = score_dj_configs(sales)
+        blue = result["Blue/Jubilee"]
+        slate = result["Slate/Oyster"]
+        assert blue["median"] != slate["median"]
+        assert blue["capital_required_nr"] != slate["capital_required_nr"]
+        assert blue["expected_net_at_median_nr"] != slate["expected_net_at_median_nr"]
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # CLI integration
 # ═══════════════════════════════════════════════════════════════════════
 

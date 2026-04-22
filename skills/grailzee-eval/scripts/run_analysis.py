@@ -101,6 +101,18 @@ def run_analysis(
                     if sum(1 for v in (e.get("condition_mix") or {}).values() if v > 0) == 1
                 ),
             )
+            # B.5: calibration canary. References (+ DJ configs) where
+            # the analyzer's max_buy_nr recommendation clears at a loss
+            # on the dominant channel before any brand-floor gate. Zero
+            # today under the current max_buy formula; non-zero flags
+            # drift in the margin/fee assumptions.
+            span.set_attribute(
+                "negative_expected_net_nr_count",
+                sum(
+                    1 for e in all_entries
+                    if (e.get("expected_net_at_median_nr") or 0) < 0
+                ),
+            )
         except Exception as exc:
             span.record_exception(exc)
             span.set_status(StatusCode.ERROR, str(exc))
