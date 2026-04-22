@@ -176,36 +176,33 @@ class TestCycleId:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Premium adjustment
+# Premium status block + B.1 max_buy regression
 # ═══════════════════════════════════════════════════════════════════════
 
 
-class TestPremiumAdjustment:
-    def test_premium_applied_when_threshold_met(self, tmp_path):
-        """Ledger with 12 trades -> premium threshold met -> max_buy adjusted."""
-        # First run without premium
-        kwargs_no_premium = _setup(tmp_path, csvs=[CSV_APR])
-        result_no = run_analysis(**kwargs_no_premium)
-        cache_no = json.loads(Path(kwargs_no_premium["cache_path"]).read_text())
+class TestPremiumStatusInCache:
+    """Post-B.1: apply_premium_adjustment is no longer called by the
+    pipeline. The premium_status observational block still lands in the
+    cache via write_cache._build_premium_status, but max_buy_nr /
+    max_buy_res stay at their plain-median values regardless of ledger
+    premium history. Class named distinctly from TestPremiumStatus in
+    test_write_cache.py and test_evaluate_deal.py to keep grep
+    unambiguous."""
 
-        # Second run with premium ledger (fresh tmp_path needed)
-        tmp2 = tmp_path / "run2"
+    def test_premium_status_block_in_cache(self, tmp_path):
+        """A ledger with 12 trades lands a premium_status block in the
+        cache with the expected shape. The block is surfaced by
+        write_cache, not by the removed adjustment call."""
+        tmp2 = tmp_path / "run"
         tmp2.mkdir()
-        # Build a premium-triggering ledger with cache providing median_at_trade
         ledger_path = str(tmp2 / "ledger.csv")
-        header = V2_LEDGER_HEADER
         rows = "\n".join(
             f",2026-03-{i+1:02d},,cycle_2026-05,Tudor,79830RB,NR,2750,3200"
             for i in range(12)
         )
-        Path(ledger_path).write_text(header + rows + "\n")
+        Path(ledger_path).write_text(V2_LEDGER_HEADER + rows + "\n")
 
-        # The premium depends on premium_vs_median which requires cache with median.
-        # With no existing cache, premium_vs_median will be None, so
-        # calculate_presentation_premium sees 0 valid trades.
-        # To properly test, we need a cache that has the reference.
-        # Use the cache from the first run as the old cache for the second run.
-        kwargs_premium = {
+        kwargs = {
             "csv_paths": [CSV_APR],
             "output_folder": str(tmp2 / "output"),
             "ledger_path": ledger_path,
@@ -216,22 +213,59 @@ class TestPremiumAdjustment:
         }
         os.makedirs(str(tmp2 / "output"), exist_ok=True)
 
-        # Without a pre-existing cache with median data, premium won't trigger
-        # because premium_vs_median requires median_at_trade from cache.
-        # This is a correct behavior: premium needs historical cache.
-        result_p = run_analysis(**kwargs_premium)
-        cache_p = json.loads(Path(kwargs_premium["cache_path"]).read_text())
-        # Verify premium status is in cache (even if not triggered)
-        assert "premium_status" in cache_p
-        assert isinstance(cache_p["premium_status"]["threshold_met"], bool)
+        run_analysis(**kwargs)
+        cache = json.loads(Path(kwargs["cache_path"]).read_text())
+        assert "premium_status" in cache
+        assert isinstance(cache["premium_status"]["threshold_met"], bool)
 
     def test_premium_not_met(self, tmp_path):
-        """Empty ledger -> no premium adjustment."""
+        """Empty ledger -> premium_status records threshold_met False
+        and adjustment 0. Same observational shape as pre-B.1; only
+        difference is that the shape is never consumed to modify
+        max_buy in the pipeline."""
         kwargs = _setup(tmp_path)
         run_analysis(**kwargs)
         cache = json.loads(Path(kwargs["cache_path"]).read_text())
         assert cache["premium_status"]["threshold_met"] is False
         assert cache["premium_status"]["adjustment"] == 0
+
+    def test_max_buy_stays_at_plain_median(self, tmp_path):
+        """B.1 regression guard: a ledger that would have triggered
+        apply_premium_adjustment pre-B.1 (12 trades at ~10% premium)
+        must leave max_buy_nr / max_buy_res at the plain-median formula
+        values. The adjusted_max_buy formula returns different numbers;
+        asserting inequality as well catches a silent re-add of the
+        adjustment call.
+        """
+        from scripts.grailzee_common import (
+            NR_FIXED,
+            RES_FIXED,
+            adjusted_max_buy,
+            max_buy_nr,
+            max_buy_reserve,
+        )
+
+        kwargs = _setup(tmp_path, csvs=[CSV_APR], ledger_fn=_premium_ledger)
+        run_analysis(**kwargs)
+        cache = json.loads(Path(kwargs["cache_path"]).read_text())
+
+        ref = cache["references"]["79830RB"]
+        median = ref["median"]
+        expected_nr = max_buy_nr(median)
+        expected_res = max_buy_reserve(median)
+
+        assert ref["max_buy_nr"] == expected_nr
+        assert ref["max_buy_res"] == expected_res
+
+        # Belt-and-suspenders: the values that apply_premium_adjustment
+        # would have produced for a +10% premium (half = 5% adjustment)
+        # are strictly greater than the plain-median values. If a silent
+        # re-add reintroduced the call, these assertions would fail.
+        if median is not None:
+            would_be_adjusted_nr = adjusted_max_buy(median, NR_FIXED, 5.0)
+            would_be_adjusted_res = adjusted_max_buy(median, RES_FIXED, 5.0)
+            assert ref["max_buy_nr"] != would_be_adjusted_nr
+            assert ref["max_buy_res"] != would_be_adjusted_res
 
 
 # ═══════════════════════════════════════════════════════════════════════

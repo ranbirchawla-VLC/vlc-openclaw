@@ -2,7 +2,7 @@
 
 Net-new in v2. Composes Phases 6-14: ingest (pre-done) -> score ->
 trends -> changes -> breakouts -> watchlist -> brands -> ledger ->
-premium adjustment -> cycle rollup -> output builders -> cache write.
+cycle rollup -> output builders -> cache write.
 
 Called by the report capability (Section 10.1):
     python3 scripts/run_analysis.py <csv> [<csv> ...] --output-dir DIR
@@ -32,8 +32,6 @@ from opentelemetry.trace import StatusCode
 from scripts.grailzee_common import (
     OUTPUT_PATH,
     analyzer_config_source,
-    apply_premium_adjustment,
-    calculate_presentation_premium,
     cycle_id_from_csv,
     get_tracer,
     load_analyzer_config,
@@ -161,13 +159,6 @@ def run_analysis(
             span.record_exception(exc)
             span.set_status(StatusCode.ERROR, str(exc))
             raise
-
-    # Step 11: Premium adjustment
-    premium = calculate_presentation_premium(ledger_stats.get("trades", []))
-    premium_applied = False
-    if premium["threshold_met"]:
-        apply_premium_adjustment(all_results, premium["adjustment"])
-        premium_applied = True
 
     # Step 12: Cycle rollup (fatal).
     # load_cycle_focus() returns None for missing files; parse_ledger_csv()
