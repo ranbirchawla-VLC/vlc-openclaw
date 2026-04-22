@@ -300,6 +300,7 @@ def write_cache(
             "premium_vs_market_sale_count": pvm_count,
             "realized_premium_pct": rp_pct,
             "realized_premium_trade_count": rp_count,
+            "condition_mix": rd.get("condition_mix"),
             "trend_signal": t_entry.get("signal_str", "No prior data"),
             "trend_median_change": t_entry.get("med_change", 0),
             "trend_median_pct": t_entry.get("med_pct", 0),

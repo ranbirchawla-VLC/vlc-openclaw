@@ -47,6 +47,53 @@ from scripts.grailzee_common import (
 tracer = get_tracer(__name__)
 
 
+# ─── Condition-mix bucketing (B.4) ────────────────────────────────────
+
+
+_CONDITION_PRIORITY: list[tuple[str, str]] = [
+    ("like new", "like_new"),
+    ("very good", "very_good"),
+    ("excellent", "excellent"),
+    ("new", "new"),
+]
+
+
+def _condition_bucket(condition: str) -> str:
+    """Classify a raw condition string into one of the 5 schema buckets.
+
+    Priority-ordered substring match, case-insensitive: ``like new`` is
+    checked before ``new`` so ``"Like New"`` lands in ``like_new`` and
+    does not fall through. Anything that doesn't match a quality label
+    (including blank/unknown) lands in ``below_quality`` — schema v1
+    §3.1's 5th bucket catches the non-quality tail.
+    """
+    cond = (condition or "").lower().strip()
+    for needle, bucket in _CONDITION_PRIORITY:
+        if needle in cond:
+            return bucket
+    return "below_quality"
+
+
+def _condition_mix(sales: list[dict]) -> dict:
+    """Distribution of condition grades across ``sales``.
+
+    Always returns the schema-fixed 5-key dict (``excellent``,
+    ``very_good``, ``like_new``, ``new``, ``below_quality``), each an
+    integer count. Per schema v1 §3.1, every key is present even when
+    the count is zero.
+    """
+    mix = {
+        "excellent": 0,
+        "very_good": 0,
+        "like_new": 0,
+        "new": 0,
+        "below_quality": 0,
+    }
+    for s in sales:
+        mix[_condition_bucket(s.get("condition", ""))] += 1
+    return mix
+
+
 # ─── Per-reference scoring (extracted from v1 analyze_report.py) ──────
 
 
@@ -131,6 +178,7 @@ def analyze_reference(
         "profit_res": median - mb_res - RES_FIXED,
         "recommend_reserve": recommend_reserve,
         "signal": signal,
+        "condition_mix": _condition_mix(sales),
     }
 
 

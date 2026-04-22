@@ -186,6 +186,7 @@ class TestPerReferenceShape:
             "volume", "st_pct", "momentum", "confidence",
             "premium_vs_market_pct", "premium_vs_market_sale_count",
             "realized_premium_pct", "realized_premium_trade_count",
+            "condition_mix",
             "trend_signal", "trend_median_change", "trend_median_pct",
         }
         assert set(ref.keys()) == expected_keys

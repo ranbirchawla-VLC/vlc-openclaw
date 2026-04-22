@@ -89,6 +89,18 @@ def run_analysis(
         try:
             all_results = analyze_references.run(pricing_csv_paths, name_cache_path)
             span.set_attribute("refs_count", len(all_results.get("references", {})))
+            # B.4: homogeneous-market indicator — references (+ DJ configs)
+            # whose sales all landed in a single condition bucket.
+            all_entries = list(all_results.get("references", {}).values()) + list(
+                all_results.get("dj_configs", {}).values()
+            )
+            span.set_attribute(
+                "condition_mix_single_bucket_count",
+                sum(
+                    1 for e in all_entries
+                    if sum(1 for v in (e.get("condition_mix") or {}).values() if v > 0) == 1
+                ),
+            )
         except Exception as exc:
             span.record_exception(exc)
             span.set_status(StatusCode.ERROR, str(exc))

@@ -37,6 +37,8 @@ NAME_CACHE = str(FIXTURES / "name_cache_seed.json")
 NO_CACHE = "/tmp/_grailzee_test_no_name_cache.json"
 
 from scripts.analyze_references import (
+    _condition_bucket,
+    _condition_mix,
     analyze_reference,
     calc_risk,
     group_sales_by_reference,
@@ -188,6 +190,163 @@ class TestAnalyzeReference:
         # Actually calc_risk tests this more directly. Let me test
         # recommend_reserve via a targeted approach: inject known risk.
         pass  # Tested via calc_risk + threshold logic separately
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# condition_mix (B.4)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestConditionBucket:
+    """Priority-ordered substring classifier for condition_mix."""
+
+    def test_excellent(self):
+        assert _condition_bucket("Excellent") == "excellent"
+
+    def test_excellent_plus(self):
+        """'Excellent+' and similar qualifiers still match excellent."""
+        assert _condition_bucket("Excellent+") == "excellent"
+
+    def test_very_good(self):
+        assert _condition_bucket("Very Good") == "very_good"
+
+    def test_like_new(self):
+        """'Like New' must land in like_new, NOT fall through to new
+        (which is also a substring of 'like new')."""
+        assert _condition_bucket("Like New") == "like_new"
+
+    def test_new(self):
+        """Plain 'New' lands in new (like_new didn't match)."""
+        assert _condition_bucket("New") == "new"
+
+    def test_good_below_quality(self):
+        """'Good' (not 'very good') → below_quality tail."""
+        assert _condition_bucket("Good") == "below_quality"
+
+    def test_fair_below_quality(self):
+        assert _condition_bucket("Fair") == "below_quality"
+
+    def test_blank_below_quality(self):
+        """Empty / None condition strings land in below_quality."""
+        assert _condition_bucket("") == "below_quality"
+        assert _condition_bucket("   ") == "below_quality"
+
+    def test_case_insensitive(self):
+        assert _condition_bucket("EXCELLENT") == "excellent"
+        assert _condition_bucket("very good") == "very_good"
+        assert _condition_bucket("LIKE NEW") == "like_new"
+
+
+class TestConditionMix:
+    """Schema-fixed 5-key dict-of-counts per §3.1."""
+
+    EXPECTED_KEYS = {
+        "excellent", "very_good", "like_new", "new", "below_quality",
+    }
+
+    def test_empty_sales_all_zeros(self):
+        """Empty input -> all 5 keys present with zero counts (shape
+        invariant). Note: analyze_reference is gated upstream by
+        min_sales_for_scoring so this case is defensive only."""
+        mix = _condition_mix([])
+        assert set(mix.keys()) == self.EXPECTED_KEYS
+        assert all(v == 0 for v in mix.values())
+
+    def test_all_five_keys_always_present(self):
+        """Even with a single-condition sales list, all 5 keys are
+        present (most zero)."""
+        sales = [{"condition": "Very Good", "price": 3000},
+                 {"condition": "Very Good", "price": 3100},
+                 {"condition": "Very Good", "price": 3200}]
+        mix = _condition_mix(sales)
+        assert set(mix.keys()) == self.EXPECTED_KEYS
+        assert mix["very_good"] == 3
+        assert mix["excellent"] == 0
+        assert mix["like_new"] == 0
+        assert mix["new"] == 0
+        assert mix["below_quality"] == 0
+
+    def test_mixed_distribution_hand_computed(self):
+        """Hand-computed: 3 excellent, 2 very_good, 1 like_new, 0 new,
+        2 below_quality."""
+        sales = [
+            {"condition": "Excellent"}, {"condition": "Excellent"},
+            {"condition": "Excellent"},
+            {"condition": "Very Good"}, {"condition": "Very Good"},
+            {"condition": "Like New"},
+            {"condition": "Good"}, {"condition": "Fair"},
+        ]
+        mix = _condition_mix(sales)
+        assert mix == {
+            "excellent": 3,
+            "very_good": 2,
+            "like_new": 1,
+            "new": 0,
+            "below_quality": 2,
+        }
+
+    def test_like_new_does_not_leak_into_new(self):
+        """Regression guard: a sales list of 'Like New' only must
+        produce like_new=N, new=0."""
+        sales = [{"condition": "Like New"}] * 4
+        mix = _condition_mix(sales)
+        assert mix["like_new"] == 4
+        assert mix["new"] == 0
+
+    def test_unknown_condition_lands_in_below_quality(self):
+        """Labels outside the 4 quality buckets -> below_quality."""
+        sales = [{"condition": "Mint"}, {"condition": "Unknown"},
+                 {"condition": ""}]
+        mix = _condition_mix(sales)
+        assert mix["below_quality"] == 3
+        for k in ("excellent", "very_good", "like_new", "new"):
+            assert mix[k] == 0
+
+    def test_returned_by_analyze_reference(self):
+        """Integration with analyze_reference: the returned dict carries
+        condition_mix with the schema shape."""
+        sales = [
+            {"price": 3000, "condition": "Very Good", "papers": "Yes"},
+            {"price": 3100, "condition": "Very Good", "papers": "Yes"},
+            {"price": 3200, "condition": "Excellent", "papers": "Yes"},
+            {"price": 3300, "condition": "Like New", "papers": "Yes"},
+            {"price": 3400, "condition": "Good", "papers": "No"},
+        ]
+        result = analyze_reference(sales)
+        mix = result["condition_mix"]
+        assert set(mix.keys()) == self.EXPECTED_KEYS
+        assert mix == {
+            "excellent": 1, "very_good": 2, "like_new": 1,
+            "new": 0, "below_quality": 1,
+        }
+
+    def test_dj_configs_compute_independently(self):
+        """Two DJ configs under the same parent 126300 with distinct
+        condition distributions -> different condition_mix values.
+        Differs from B.2/B.3 which inherit: Grailzee Pro has per-DJ
+        sales data so per-config computation is supportable here."""
+        sales = []
+        # Blue/Jubilee config: all Very Good
+        for p in (10000, 10200, 10400):
+            sales.append({
+                "price": p, "condition": "Very Good", "papers": "Yes",
+                "title": "Rolex Datejust 41 126300 Blue Dial Jubilee Bracelet",
+            })
+        # Slate/Oyster config: all Excellent
+        for p in (9800, 9900, 10100):
+            sales.append({
+                "price": p, "condition": "Excellent", "papers": "Yes",
+                "title": "Rolex Datejust 41 126300 Slate Dial Oyster Bracelet",
+            })
+        result = score_dj_configs(sales)
+        blue = result.get("Blue/Jubilee")
+        slate = result.get("Slate/Oyster")
+        assert blue is not None
+        assert slate is not None
+        assert blue["condition_mix"]["very_good"] == 3
+        assert blue["condition_mix"]["excellent"] == 0
+        assert slate["condition_mix"]["very_good"] == 0
+        assert slate["condition_mix"]["excellent"] == 3
 
 
 class TestGroupSalesByReference:
