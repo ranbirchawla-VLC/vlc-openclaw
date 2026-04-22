@@ -272,7 +272,12 @@ def build_brief(
     md.append("## Platform Scan Order\n")
     for i, p in enumerate(sourcing_rules["platform_priority"], 1):
         md.append(f"{i}. {p['platform'].replace('_', ' ').title()} ({p['check_frequency']})")
-    md.append("\nUS inventory only. Never exceed MAX BUY. Papers required on every deal.\n")
+    papers_footer = (
+        "Papers required on every deal."
+        if sourcing_rules.get("papers_required", True)
+        else "Papers not required."
+    )
+    md.append(f"\nUS inventory only. Never exceed MAX BUY. {papers_footer}\n")
     md.append(f"---\n*Generated {now.strftime('%B %d, %Y')}*")
 
     os.makedirs(output_folder, exist_ok=True)

@@ -42,7 +42,8 @@ EXPECTED_FLOOR_PCT = {
     "Omega": 8.0,
 }
 EXPECTED_DEFAULTED_FIELDS = sorted(
-    f"brands.{b}.floor_pct" for b in EXPECTED_BRANDS
+    [f"brands.{b}.floor_pct" for b in EXPECTED_BRANDS]
+    + ["default.floor_pct"]  # B.7 Phase 0 (2026-04-22): default record added
 )
 
 
@@ -57,9 +58,14 @@ class TestInstalledBrandFloors:
             schema_version_or_fail(cfg, BRAND_FLOORS_SCHEMA_VERSION) == 1
         )
 
-    def test_updated_by_phase_a_install(self):
+    def test_updated_by_known_writer(self):
+        """``updated_by`` reflects the most recent writer. Initial install
+        sets ``phase_a_install``; B.7 Phase 0 (2026-04-22) sets
+        ``b7_section_7_close`` for the default-record edit. Future
+        strategy-session writes will set their own session id. The
+        assertion accepts any of the known authoritative writers."""
         cfg = read_config(INSTALLED_PATH)
-        assert cfg["updated_by"] == "phase_a_install"
+        assert cfg["updated_by"] in {"phase_a_install", "b7_section_7_close"}
 
     def test_last_updated_is_iso_utc(self):
         cfg = read_config(INSTALLED_PATH)

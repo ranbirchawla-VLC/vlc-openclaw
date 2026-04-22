@@ -35,7 +35,7 @@ The core split: Python does deterministic analysis, LLM does reading-partner con
 
 ### Git repo: `/Users/ranbirchawla/.openclaw/workspace`
 
-- **Code**: `skills/grailzee-eval-v2/scripts/` during parallel-build (per April 16 plan; migrates to `skills/grailzee-eval/` at Phase 22)
+- **Code**: `skills/grailzee-eval/scripts/` (Phase 22 migration completed 2026-04-21 commit `286d58b`; the `-v2` suffix from the parallel-build phase is no longer in the tree)
 - **Workspace-tracked config**: `state/brand_floors.json`, `state/analyzer_config.json`, schema design docs, other config per A.2
 - **This document**: repo root, `GRAILZEE_SYSTEM_STATE.md`
 
@@ -114,15 +114,15 @@ No B.6 fields in the cache. `brand_floor_cleared` removed by the 2026-04-23 reve
 
 **2026-04-23**: B.6 revert executed and verified. Eleven files restored to b5ab5fc (GRAILZEE_SYSTEM_STATE.md commit, parent 68d448e = B.5). Files reverted: `.claude/progress.md`, `skills/grailzee-eval/scripts/grailzee_common.py`, `skills/grailzee-eval/scripts/install_brand_floors.py`, `skills/grailzee-eval/scripts/write_cache.py`, four test files in `skills/grailzee-eval/tests/`, `state/brand_floors.json`, `state/grailzee_schema_design_v1.md`, `state/grailzee_schema_design_v1_1.md`. Test count 964 to 930 (B.5 baseline). All 930 passing on canonical Python 3.12.10. Cache regenerated on the two latest pricing-window CSVs; `brand_floor_cleared` absent, B.2 through B.5 fields intact.
 
+**2026-04-22**: B.7 Phase 0 ships the brand_floors default record. `state/brand_floors.json` gains a top-level `default` record with shape `{"floor_pct": 10.0, "tradeable": true, "asset_class": "watch"}`, sibling to `brands`. `last_updated` updated, `updated_by` set to `b7_section_7_close`, `defaulted_fields` gains `default.floor_pct`. Five named brand floors unchanged. Closes Section 7 verification item. Read by the deal evaluator at runtime per the 2026-04-23 strategy-config decision.
+
+**2026-04-22**: B.7 ships `build_shortlist.py` producing `cycle_shortlist_<cycle_id>.csv` in Drive STATE_PATH. 23-column CSV per locked spec; signal,volume_desc default sort; null ledger-derived fields write as empty strings; atomic write via tmp+fsync+os.replace; OTEL span `build_shortlist.run` with flat attrs `cycle_id`, `row_count`, `sort_key`, `output_path`. Wired as Step 16 of `run_analysis.py` after `write_cache.run`; orchestrator re-reads the just-written cache because `confidence`, `momentum`, B.2/B.3 enrichments are added by `write_cache` and never mutated back into the in-memory `all_results` dict. Sibling artifact to the cache; `schema_version` stays 2. CSV replaces `sourcing_brief.json` as the strategy reading-partner input per the 2026-04-23 decision; brief continues emitting during transition. Live regen on cycle_2026-06: 1,229 rows, all 23 columns; 10 of 1,229 refs have populated `confidence_*` fields (matches live ledger coverage). Spot-check Tudor 79830RB: confidence dict and B.5 fields match cache exactly.
+
+**2026-04-22**: `build_brief.py` markdown footer `papers_required` linkage fixed. Pre-fix the footer hardcoded "Papers required on every deal." regardless of `sourcing_rules.json`. Post-fix it reads from `sourcing_rules['papers_required']` and emits "Papers required on every deal." or "Papers not required." accordingly, matching the JSON brief's top-level `sourcing_rules.papers_required` value. Per-target hardcoded `papers_required: True` (`build_brief.py:214`) is out of fix scope; flagged as Phase D backlog. Test count 930 → 957 (+27 net).
+
 ---
 
 ## 5. Open work
-
-### B.7 (shortlist)
-
-Build `build_shortlist.py` producing a CSV for the strategy session. Per 2026-04-23 decision, this replaces `sourcing_brief.json` (JSON, priority-tiered) with a CSV suitable for the reading-partner flow.
-
-Tentative CSV columns (confirm at plan-review): brand, reference, model, signal, median, max_buy_nr, st_pct, volume, risk_nr, `premium_vs_market_pct`, `realized_premium_pct`, `realized_premium_trade_count`, `confidence.*` flattened, `keep`. Sort key configurable at strategy-session invocation.
 
 ### B.8 (watchlist rename)
 
@@ -158,9 +158,9 @@ From `Vardalux_Grailzee_Backlog.md` (April 21 baseline), updated for the 2026-04
 - **`analyzer_config.premium_model.*` subtree**: zero live consumers since A.2. Decision needed: wire the hardcoded constants in `calculate_presentation_premium` to read from the subtree, or remove the subtree. Decision previously blocked on B.3 lookback externalization; B.3 shipped without externalizing, so lean is remove.
 - **`premium_model.min_trade_count` hardcoded 10** in `calculate_presentation_premium`: resolves if the parent function gets removed in this cleanup sweep.
 
-### Triggers on B.7 build
+### Triggers on Phase D start (added during B.7)
 
-- **Markdown footer inconsistency in `build_brief.py:207`**: `papers_required` flag linkage is inconsistent with the rest of the footer generation. Fix as part of B.7's brief replacement.
+- **Per-target hardcoded `papers_required: True` in `build_brief.py:214`**: each target entry hardcodes True regardless of `sourcing_rules.papers_required`. The B.7 footer fix corrected the markdown footer (line 275); the per-target field is out of scope for that fix and lives inside the broader sourcing_brief surface that Phase D replaces. Fix or remove with the JSON brief deprecation.
 
 ### Triggers on Phase C start
 
@@ -198,7 +198,7 @@ From `Vardalux_Grailzee_Backlog.md` (April 21 baseline), updated for the 2026-04
 
 ### Resolved (for record)
 
-Phase A cleanup items (A.cleanup.1 through A.cleanup.3) all landed. M-prefix ledger reference normalization resolved. Schema doc staleness on B.2/B.3 resolved. Exhaustive-shape test anti-pattern addressed during B.5. B.6 shipped then reverted per 2026-04-23 kill.
+Phase A cleanup items (A.cleanup.1 through A.cleanup.3) all landed. M-prefix ledger reference normalization resolved. Schema doc staleness on B.2/B.3 resolved. Exhaustive-shape test anti-pattern addressed during B.5. B.6 shipped then reverted per 2026-04-23 kill. B.7 shortlist CSV shipped 2026-04-22 with brand_floors default record (Phase 0) and build_brief markdown footer `papers_required` linkage fix bundled.
 
 ---
 
@@ -206,7 +206,7 @@ Phase A cleanup items (A.cleanup.1 through A.cleanup.3) all landed. M-prefix led
 
 Remove entries as each is confirmed. Add new entries only for verifications needed before the next session can rely on a section.
 
-- **`state/brand_floors.json` contents post-revert**: the file was reverted as part of the B.6 revert. Verify it still carries the five named brand floors (Rolex 5%, Tudor 10%, Breitling 10%, Cartier 10%, Omega 8%) per 2026-04-21 operator policy, and confirm whether a `default_floor_pct` or equivalent key remains for unlisted brands. If the revert removed `default_floor_pct`, either restore it via a targeted commit or document the default in the strategy skill's config instead. First session to decide.
+(All prior verification items closed by B.7 Phase 0 on 2026-04-22: `state/brand_floors.json` carries the five named brand floors plus a top-level `default` record at 10% for unlisted brands.)
 
 ---
 

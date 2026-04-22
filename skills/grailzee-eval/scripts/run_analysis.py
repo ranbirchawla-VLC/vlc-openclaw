@@ -30,6 +30,7 @@ sys.path.insert(0, str(V2_ROOT))
 from opentelemetry.trace import StatusCode
 
 from scripts.grailzee_common import (
+    CACHE_PATH,
     OUTPUT_PATH,
     analyzer_config_source,
     cycle_id_from_csv,
@@ -52,6 +53,7 @@ from scripts import roll_cycle
 from scripts import build_spreadsheet
 from scripts import build_summary
 from scripts import build_brief
+from scripts import build_shortlist
 from scripts import write_cache
 
 tracer = get_tracer(__name__)
@@ -268,6 +270,31 @@ def run_analysis(
                 watchlist_result, brands, ledger_stats, current_cycle_id,
                 source_report=source_report, market_window=market_window,
                 cache_path=cache_path, backup_path=backup_path,
+            )
+        except Exception as exc:
+            span.record_exception(exc)
+            span.set_status(StatusCode.ERROR, str(exc))
+            raise
+
+    # Step 16: Shortlist CSV (B.7; strategy reading-partner input).
+    # Sibling artifact to the cache; writes to the cache's parent
+    # directory when --cache overrides the default. Reads ``references``
+    # from the just-written cache file, NOT from in-memory
+    # ``all_results``: write_cache adds ledger-derived (confidence,
+    # B.2/B.3 enrichments) and trend-derived (momentum) fields that
+    # never land back in all_results. The cache file is the canonical
+    # post-merge per-ref shape. Orchestrator always uses the default
+    # sort_key; alt sorts are a standalone-CLI concern.
+    resolved_cache_path = cache_path or CACHE_PATH
+    shortlist_state_path = str(Path(resolved_cache_path).parent)
+    with tracer.start_as_current_span("build_shortlist.run") as span:
+        try:
+            with open(resolved_cache_path, "r", encoding="utf-8") as f:
+                cache_dict = json.load(f)
+            shortlist_path = build_shortlist.run(
+                cache_dict.get("references", {}),
+                cycle_id=current_cycle_id,
+                state_path=shortlist_state_path,
             )
         except Exception as exc:
             span.record_exception(exc)

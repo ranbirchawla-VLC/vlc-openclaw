@@ -594,3 +594,32 @@ class TestReturnShape:
         kwargs = _setup(tmp_path, csvs=[CSV_APR])
         result = run_analysis(**kwargs)
         assert set(result.keys()) == {"summary_path", "unnamed", "cycle_id"}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# B.7 — shortlist CSV emitted by orchestrator
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestShortlistEmitted:
+    def test_shortlist_csv_written_after_cache(self, tmp_path):
+        """Step 16 lands a cycle_shortlist_<cycle_id>.csv next to the
+        cache. Filename uses the orchestrator's resolved cycle_id."""
+        kwargs = _setup(tmp_path)
+        result = run_analysis(**kwargs)
+        cache_dir = Path(kwargs["cache_path"]).parent
+        expected = cache_dir / f"cycle_shortlist_{result['cycle_id']}.csv"
+        assert expected.exists(), f"shortlist CSV missing at {expected}"
+
+    def test_shortlist_row_count_matches_cache_references(self, tmp_path):
+        """Every reference in the cache appears as exactly one shortlist row."""
+        import csv as _csv
+        kwargs = _setup(tmp_path)
+        result = run_analysis(**kwargs)
+        cache = json.loads(Path(kwargs["cache_path"]).read_text())
+        cache_dir = Path(kwargs["cache_path"]).parent
+        shortlist = cache_dir / f"cycle_shortlist_{result['cycle_id']}.csv"
+        with open(shortlist, "r", encoding="utf-8", newline="") as f:
+            reader = _csv.DictReader(f)
+            rows = list(reader)
+        assert len(rows) == len(cache["references"])
