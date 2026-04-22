@@ -260,6 +260,11 @@ def strip_ref(s: str) -> str:
     Extracted from v1 evaluate_deal.py (lines 53-62).
     Normalizes first, then strips Tudor M-prefix, trailing -XXXX suffixes,
     and all separators (hyphens, dots, spaces).
+
+    Use this for FUZZY matching only (e.g. evaluate_deal's user-input
+    lookup). For strict canonical-form joins (ledger-to-cache matching),
+    use ``canonical_reference`` instead — it preserves separators so
+    canonical Pro-report refs like ``5500V/110A-B148`` stay intact.
     """
     s = normalize_ref(s)
     # Strip leading M (Tudor convention)
@@ -269,6 +274,69 @@ def strip_ref(s: str) -> str:
     s = re.sub(r"-\d{4}$", "", s)
     # Remove all separators for comparison
     return s.replace("-", "").replace(".", "").replace(" ", "")
+
+
+def canonical_reference(s: str) -> str:
+    """Strip the per-piece inventory suffix from a reference.
+
+    Tudor per-piece inventory IDs append a ``-NNNN`` sequence to the
+    canonical reference (e.g. ``M28500-0005``, ``79470-0001``). This
+    helper strips that suffix only. The leading ``M`` is preserved
+    because the Grailzee Pro report legitimately carries distinct
+    canonical references with and without M-prefix as DIFFERENT
+    watches (observed live: ``79360N`` and ``M79360N`` are two
+    separate scored entries with different medians).
+
+    Rules, applied in order:
+      1. ``normalize_ref`` (upper, trim, strip trailing ``.0``)
+      2. Strip trailing ``-NNNN`` (exactly 4 digits; inventory sequence)
+
+    Separators elsewhere are preserved so Pro-report references like
+    ``5500V/110A-B148`` and ``26238CE.OO.1300CE.01`` pass through
+    unchanged. Idempotent on already-canonical inputs.
+
+    For the full ledger-to-cache join (suffix-strip PLUS M-prefix
+    fallback when the suffix-stripped form has no cache entry), see
+    ``resolve_to_cache_ref``. This helper is the string-shape layer;
+    the resolver is the cache-context layer.
+
+    Distinct from ``strip_ref``, which additionally removes all
+    separators for fuzzy substring matching.
+    """
+    s = normalize_ref(s)
+    s = re.sub(r"-\d{4}$", "", s)
+    return s
+
+
+def resolve_to_cache_ref(cache_keys: Any, ledger_ref: str) -> Optional[str]:
+    """Map a ledger reference to the matching cache key, if any.
+
+    Two-tier resolution avoids the false-positive collision when the
+    Pro-report data has both ``79360N`` and ``M79360N`` as distinct
+    canonical references:
+
+      1. Apply ``canonical_reference`` (suffix strip only). If the
+         result is a key in ``cache_keys``, return it.
+      2. Else, if the result starts with ``M`` followed by a digit,
+         strip the leading ``M`` and try again. Handles Tudor
+         per-piece inventory IDs like ``M28500-0005`` where the
+         canonical Pro-report reference is ``28500`` (no M-prefix
+         variant exists in cache).
+
+    Returns ``None`` if neither form is present in ``cache_keys``.
+
+    ``cache_keys`` can be any container supporting the ``in``
+    operator — typically ``set[str]`` or a ``dict`` with reference
+    keys.
+    """
+    canon = canonical_reference(ledger_ref)
+    if canon in cache_keys:
+        return canon
+    if len(canon) >= 2 and canon[0] == "M" and canon[1].isdigit():
+        stripped = canon[1:]
+        if stripped in cache_keys:
+            return stripped
+    return None
 
 
 def match_reference(sale_ref: str, target: str | list) -> bool:

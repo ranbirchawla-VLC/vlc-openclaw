@@ -19,6 +19,7 @@ from scripts.grailzee_common import (
     breakeven_nr,
     breakeven_reserve,
     calculate_presentation_premium,
+    canonical_reference,
     classify_dj_config,
     cycle_date_range,
     cycle_id_from_date,
@@ -35,6 +36,7 @@ from scripts.grailzee_common import (
     normalize_ref,
     parse_ledger_csv,
     prev_cycle,
+    resolve_to_cache_ref,
     save_name_cache,
     strip_ref,
 )
@@ -135,6 +137,153 @@ class TestStripRef:
     def test_omega_dots_removed(self):
         """Omega dot-separated refs have dots stripped."""
         assert strip_ref("210.30.42.20.03.001") == "21030422003001"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 3b. canonical_reference tests (suffix-strip for strict ledger join)
+#     Preserves separators AND the leading M-prefix: the Grailzee Pro
+#     report legitimately has both `79360N` and `M79360N` as distinct
+#     canonical references with different medians. The M-prefix
+#     fallback for per-piece inventory IDs lives in resolve_to_cache_ref.
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestCanonicalReference:
+    def test_idempotent_on_canonical_inputs(self):
+        """Already-canonical refs pass through unchanged."""
+        for ref in ["28500", "79230B", "79360N", "79830RB",
+                    "21010", "116900", "216570", "M79360N", "M79830RB"]:
+            assert canonical_reference(ref) == ref
+
+    def test_strips_four_digit_sequence_suffix(self):
+        """Trailing -NNNN inventory sequence is stripped regardless
+        of M-prefix (suffix is the reliable inventory-ID marker)."""
+        assert canonical_reference("79470-0001") == "79470"
+        assert canonical_reference("28500-0003") == "28500"
+        assert canonical_reference("M28500-0005") == "M28500"
+        assert canonical_reference("M79830RB-0001") == "M79830RB"
+
+    def test_preserves_m_prefix_without_suffix(self):
+        """Leading M is NOT stripped here: cache-side refs like
+        `M79360N` are distinct canonical Pro-report entries. The
+        M-stripped fallback for inventory-IDs whose cache entry has
+        no M-variant lives in resolve_to_cache_ref."""
+        assert canonical_reference("M28500") == "M28500"
+        assert canonical_reference("M79830RB") == "M79830RB"
+        assert canonical_reference("M79360N") == "M79360N"
+
+    def test_preserves_internal_separators(self):
+        """Canonical Pro-report refs carrying slashes, dots, or letter
+        suffixes after hyphens must not be over-stripped."""
+        assert (canonical_reference("5500V/110A-B148")
+                == "5500V/110A-B148")
+        assert (canonical_reference("26238CE.OO.1300CE.01")
+                == "26238CE.OO.1300CE.01")
+        assert canonical_reference("126715CHNR") == "126715CHNR"
+
+    def test_suffix_strip_requires_exactly_four_digits(self):
+        """-B148 is letter-prefixed, not an inventory sequence; -001
+        is only 3 digits. Neither should be stripped."""
+        assert canonical_reference("REF-B148") == "REF-B148"
+        assert canonical_reference("REF-001") == "REF-001"
+        assert canonical_reference("REF-00001") == "REF-00001"
+
+    def test_double_apply_idempotent(self):
+        """canonical(canonical(x)) == canonical(x) for every shape."""
+        for raw in ["M28500-0005", "M79830RB-0001", "79470-0001",
+                    "28500", "5500V/110A-B148", "MX123", "M79360N"]:
+            once = canonical_reference(raw)
+            twice = canonical_reference(once)
+            assert once == twice, f"not idempotent for {raw!r}"
+
+    def test_normalize_artifacts(self):
+        """Upper-cases, strips whitespace, and drops trailing .0 via
+        the normalize_ref leg."""
+        assert canonical_reference(" m28500-0005 ") == "M28500"
+        assert canonical_reference("m79830rb-0001") == "M79830RB"
+        assert canonical_reference("28500.0") == "28500"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 3c. resolve_to_cache_ref tests (two-tier cache lookup)
+#     Step 1: canonical_reference (suffix strip)
+#     Step 2: if not in cache, try stripping leading M-digit
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestResolveToCacheRef:
+    def test_direct_canonical_match(self):
+        """Suffix-stripped form directly present in cache."""
+        assert resolve_to_cache_ref({"28500"}, "28500") == "28500"
+        assert resolve_to_cache_ref({"28500"}, "28500-0003") == "28500"
+        assert resolve_to_cache_ref({"M79360N"}, "M79360N") == "M79360N"
+
+    def test_m_prefix_fallback_to_stripped(self):
+        """When cache has only the unstripped form, M-prefixed
+        inventory IDs fall back to the M-stripped form."""
+        assert resolve_to_cache_ref({"28500"}, "M28500-0005") == "28500"
+        assert resolve_to_cache_ref({"79830RB"}, "M79830RB-0001") == "79830RB"
+        assert resolve_to_cache_ref({"79000N"}, "M79000N-0002") == "79000N"
+
+    def test_m_prefix_preferred_when_both_present(self):
+        """When cache has BOTH M-prefixed and stripped forms, the
+        more-specific M-prefixed form wins. Prevents the 79360N /
+        M79360N false-positive collision observed on live data."""
+        cache = {"79360N", "M79360N"}
+        # Plain "79360N" stays on 79360N
+        assert resolve_to_cache_ref(cache, "79360N") == "79360N"
+        # M-prefixed form with inventory suffix stays on M79360N
+        assert resolve_to_cache_ref(cache, "M79360N-0008") == "M79360N"
+        # Plain M79360N (no suffix) stays on M79360N
+        assert resolve_to_cache_ref(cache, "M79360N") == "M79360N"
+
+    def test_no_match_returns_none(self):
+        """Neither form present in cache -> None."""
+        assert resolve_to_cache_ref({"28500"}, "99999-0001") is None
+        assert resolve_to_cache_ref(set(), "M28500-0005") is None
+
+    def test_m_prefix_no_digit_after_no_fallback(self):
+        """`MX123` doesn't trigger the M-digit fallback; only M+digit
+        inventory-ID shape qualifies."""
+        assert resolve_to_cache_ref({"X123"}, "MX123") is None
+
+    def test_every_live_ledger_row_resolves(self):
+        """Every live-ledger reference resolves correctly against a
+        simulated cache that contains both M-variants and non-M
+        canonicals as observed in the live April W1 Pro report."""
+        # Cache contains the scored canonical refs the April W1 Pro
+        # report produces, including distinct 79360N / M79360N and
+        # 79830RB / M79830RB pairs.
+        cache = {
+            "28500", "28600", "79000N", "79470", "M79470",
+            "79830RB", "M79830RB", "79360N", "M79360N",
+            "79230R", "79230B", "21010", "116900", "216570",
+        }
+        # Every live-ledger ref resolves to a cache key:
+        cases = [
+            ("M28500-0005", "28500"),     # no M28500 in cache -> fallback
+            ("M28600-0009", "28600"),     # no M28600 in cache -> fallback
+            ("M79000N-0002", "79000N"),   # no M79000N in cache -> fallback
+            ("79470-0001", "79470"),      # direct
+            ("M28500-0003", "28500"),     # fallback
+            ("M79830RB-0001", "M79830RB"),  # direct: M79830RB IS in cache
+            ("79830RB", "79830RB"),       # direct
+            ("28500", "28500"),           # direct
+            ("79360N", "79360N"),         # direct (not M79360N)
+            ("79230R", "79230R"),         # direct
+            ("79230B", "79230B"),         # direct
+            ("116900", "116900"),         # direct
+            ("216570", "216570"),         # direct
+        ]
+        for raw, expected in cases:
+            assert resolve_to_cache_ref(cache, raw) == expected, (
+                f"resolve({raw!r}) expected {expected!r}, got "
+                f"{resolve_to_cache_ref(cache, raw)!r}"
+            )
+        # 21010 isn't in the simulated cache (didn't clear min_sales)
+        # -> None, which is correct.
+        assert resolve_to_cache_ref(cache, "21010") == "21010"  # is in cache
+        assert resolve_to_cache_ref(cache, "FAKE99") is None
 
 
 # ═══════════════════════════════════════════════════════════════════════

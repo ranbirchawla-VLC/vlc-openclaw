@@ -32,7 +32,9 @@ from scripts.grailzee_common import (
     CACHE_SCHEMA_VERSION,
     RUN_HISTORY_PATH,
     calculate_presentation_premium,
+    canonical_reference,
     get_tracer,
+    resolve_to_cache_ref,
 )
 
 tracer = get_tracer(__name__)
@@ -60,14 +62,36 @@ def _backup_existing(cache_path: str, backup_dir: str) -> None:
         os.remove(os.path.join(backup_dir, old))
 
 
+def _trade_matches_cache_ref(trade: dict, reference: str) -> bool:
+    """Does ``trade`` join to cache entry ``reference``?
+
+    Uses ``resolved_cache_ref`` as the authoritative answer when
+    ``read_ledger._compute_derived_fields`` successfully stamped one
+    (requires the cache to have been loaded at read time). Falls back
+    to a single-key ``resolve_to_cache_ref`` when the field is absent
+    or null — the common case on the run_analysis first-pass, since
+    the cache file is written AFTER read_ledger has already run, so
+    read_ledger's call sees an empty cache and stamps ``None``.
+    """
+    resolved = trade.get("resolved_cache_ref")
+    if resolved is not None:
+        return resolved == reference
+    return resolve_to_cache_ref({reference}, trade.get("reference", "")) == reference
+
+
 def _confidence_from_trades(
     trades: list[dict], brand: str, reference: str,
 ) -> dict | None:
-    """Compute per-reference confidence from enriched ledger trades."""
+    """Compute per-reference confidence from enriched ledger trades.
+
+    Matches via ``_trade_matches_cache_ref`` so ledger rows logged with
+    per-piece inventory IDs (``M28500-0005``) join to the canonical
+    cache entry (``28500``).
+    """
     matching = [
         t for t in trades
         if t.get("brand", "").lower() == brand.lower()
-        and t.get("reference") == reference
+        and _trade_matches_cache_ref(t, reference)
     ]
     if not matching:
         return None
@@ -103,13 +127,14 @@ def _premium_vs_market_from_trades(
     ``sell_price``. New convention with B.2; no prior codebase precedent
     for most-recent-row tiebreak exists.
 
-    Brand+reference match mirrors ``_confidence_from_trades`` to avoid
-    cross-brand reference collisions.
+    Brand+reference match mirrors ``_confidence_from_trades`` and
+    uses ``_trade_matches_cache_ref`` so per-piece inventory IDs join
+    to the canonical cache entry.
     """
     matching = [
         t for t in trades
         if t.get("brand", "").lower() == brand.lower()
-        and t.get("reference") == reference
+        and _trade_matches_cache_ref(t, reference)
     ]
     sale_count = len(matching)
     if not matching or current_median is None or current_median <= 0:

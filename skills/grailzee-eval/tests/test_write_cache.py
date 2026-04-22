@@ -379,6 +379,68 @@ class TestPremiumVsMarket:
             assert cfg["premium_vs_market_pct"] == 10.0
             assert cfg["premium_vs_market_sale_count"] == 1
 
+    def test_m_prefix_ledger_row_joins_canonical_cache(self, tmp_path):
+        """A ledger row logged with the Tudor per-piece inventory ID
+        (M-prefix + 4-digit sequence) must join to the cache entry
+        keyed on the canonical reference. Regression guard for the
+        normalization gap that silenced 6 of 14 live ledger rows in B.2."""
+        inventory_trade = {
+            **_trade(reference="M28500-0005", sell=2400),
+            "sell_date": "2026-04-19",
+        }
+        args = list(self._build_args(tmp_path, 2025, [inventory_trade]))
+        args[0]["references"] = {"28500": _ref(
+            brand="Tudor", model="Black Bay 58", reference="28500",
+            median=2025, max_buy_nr=1790, max_buy_res=1740,
+            risk_nr=10.0, signal="Normal", volume=10, st_pct=0.5,
+        )}
+        path = write_cache(*tuple(args))
+        ref = _load(path)["references"]["28500"]
+        # (2400-2025)/2025*100 = 18.518... -> 18.5
+        assert ref["premium_vs_market_pct"] == 18.5
+        assert ref["premium_vs_market_sale_count"] == 1
+
+    def test_m_prefix_and_canonical_rows_coalesce(self, tmp_path):
+        """Two rows for the same reference — one canonical, one with
+        M-prefix inventory ID — must both land in the same cache
+        entry's sale_count. Most-recent by sell_date wins for pct."""
+        canonical_trade = {
+            **_trade(sell=2130, reference="28500"),
+            "sell_date": "2026-02-16",
+        }
+        inventory_trade = {
+            **_trade(sell=2400, reference="M28500-0005"),
+            "sell_date": "2026-04-19",
+        }
+        args = list(self._build_args(
+            tmp_path, 2025, [canonical_trade, inventory_trade]
+        ))
+        args[0]["references"] = {"28500": _ref(
+            brand="Tudor", model="Black Bay 58", reference="28500",
+            median=2025, max_buy_nr=1790, max_buy_res=1740,
+            risk_nr=10.0, signal="Normal", volume=10, st_pct=0.5,
+        )}
+        path = write_cache(*tuple(args))
+        ref = _load(path)["references"]["28500"]
+        # Most recent = Apr 19 inventory trade at 2400
+        assert ref["premium_vs_market_pct"] == 18.5
+        assert ref["premium_vs_market_sale_count"] == 2
+
+    def test_canonical_cache_m_prefix_lookup_negative(self, tmp_path):
+        """Cross-check: a canonical ref in the cache with no matching
+        ledger row (canonical or M-prefix) still produces zero signal.
+        No false positives from normalization."""
+        stray_trade = {
+            **_trade(reference="M99999-0001", sell=5000),
+            "sell_date": "2026-04-19",
+        }
+        args = list(self._build_args(tmp_path, 2025, [stray_trade]))
+        args[0]["references"] = {"28500": _ref(median=2025)}
+        path = write_cache(*tuple(args))
+        ref = _load(path)["references"]["28500"]
+        assert ref["premium_vs_market_pct"] == 0.0
+        assert ref["premium_vs_market_sale_count"] == 0
+
     def test_dj_configs_fall_back_when_parent_absent(self, tmp_path):
         """DJ configs without the parent 126300 in references get
         (0.0, 0) rather than crashing."""
