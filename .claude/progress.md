@@ -176,8 +176,16 @@ When a task spec says X and I plan Y for consistency with prior phase or codebas
 - **`Grailzee_Eval_v2_Implementation.md` rewrite.** Archival build plan referencing v1 ledger shape throughout. Out-of-date post-A.6; rewrite if a maintainable plan-doc is wanted.
 - **March 2026 closes — optional buy_date backfill.** The two March-closed trades (2026-03-24 M79830RB-0001; 2026-03-25 M28500-0003) could have their buy_date filled in by hand if Ranbir has the data. Until then they grade-skip under C.4.
 - **REVIEW_phase4.md fixture references.** Archival doc names 7 backfill sample fixtures that were deleted in A.cleanup.3. Harmless but may confuse future readers.
+- **`analyzer_config.premium_model.*` subtree has zero live consumers** (backlog #10, surfaced in B.1). Every path in the subtree (`min_trade_count`, `avg_premium_threshold_pct`, `lookback_days`, `close_count_floor`, `recent_weighted`) ships as a factory default and is never read by code. `calculate_presentation_premium` uses hardcoded `count >= 10` and `avg >= 8.0`; no other module reads the subtree. Distinct from backlog #4 (narrowly about the `count >= 10` hardcode inside the function). Decision: either wire the hardcoded constants to read from config, or rip the subtree out. Trigger: Phase B cleanup pass or schema-v2 hygiene work.
+- **Post-B.1 dead code in `grailzee_common.py`.** `apply_premium_adjustment` (line 862) has zero live callers; `adjusted_max_buy` (line 220) has zero production callers (only exercised by a direct unit test). Removable as a pair in a future cleanup pass. `calculate_presentation_premium` stays — two non-pipeline callers remain; see function docstring for the reminder.
 
-Cleared in A.cleanup.3 (2026-04-21): nested `.git` phantom, `/tmp/a5_drive_backup/*.pre_a5`, fsync drift, unreferenced backfill fixtures, installer main() CLI tests. Count 14 → 12 open items.
+Cleared in A.cleanup.3 (2026-04-21): nested `.git` phantom, `/tmp/a5_drive_backup/*.pre_a5`, fsync drift, unreferenced backfill fixtures, installer main() CLI tests. Count 14 → 12 → 13 (B.1 surfaced item #10 and post-B.1 dead code) open items.
+
+## Phase B sequencing note (reviewer input, 2026-04-21)
+
+B.1 disables `apply_premium_adjustment`; B.3 adds `realized_premium_pct` as the replacement observational signal strategy reads. Between B.1 shipping and B.3 shipping, references with realized-premium history get conservative max_buy values and the strategy layer loses the premium signal entirely — a tactical window of systematically under-bidding on premium-capable references. Reviewer recommendation: **pull B.3 forward in the B.2-B.6 interleave** rather than letting the gap persist. Not a block on committing B.1 (direction is locked per schema §3.1); captured here as a sequencing input for when B.2+ planning starts.
+
+Live-data check on the first post-B.1 day (2026-04-21): 79830RB ledger has 1 trade, ledger aggregate has 7 trades at 20.8% avg premium — threshold (10 trades) not yet met on live data, so the pre-B.1 adjustment pipeline had never fired in production. The "value shift on premium-capable references" is currently a theoretical shift, not a realized one. The tactical window still matters prospectively as volume accumulates.
 
 ## Session log (2026-04-21)
 

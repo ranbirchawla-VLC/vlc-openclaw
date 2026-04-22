@@ -901,8 +901,18 @@ def calculate_presentation_premium(ledger_rows: list) -> dict:
     Expects rows with premium_vs_median and median_at_trade attributes
     (or dict equivalent). See plan Section 5.5.
 
-    Threshold: 10 trades at +8% average or greater triggers automatic
-    MAX BUY adjustment. Adjustment = half the average premium.
+    Post-B.1: the returned ``adjustment`` field is observational only.
+    ``apply_premium_adjustment`` is no longer called by ``run_analysis``
+    (schema v1 §7/§3.1). Do not remove this function as dead code
+    without checking callers — two non-pipeline callers remain and
+    surface the stats block to the user:
+
+      * ``ledger_manager.cmd_premium``  — the `premium` CLI subcommand
+      * ``write_cache._build_premium_status`` — populates the cache's
+        ``premium_status`` block
+
+    Thresholds (count >= 10, avg >= 8.0) are hardcoded here and are
+    NOT sourced from ``analyzer_config.premium_model.*`` (backlog #4).
     """
     def get_premium(row):
         if hasattr(row, "premium_vs_median"):
