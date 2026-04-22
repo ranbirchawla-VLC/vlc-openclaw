@@ -99,6 +99,7 @@ def build_fake_grailzee_tree(
     ledger_rows: list[dict[str, Any]] | None = None,
     brief: dict[str, Any] | None = None,
     report_csv_contents: dict[str, str] | None = None,
+    shortlist_csv_contents: str | None = None,
 ) -> dict[str, Path]:
     """Create a fake GrailzeeData tree under `root`. Return map of key paths."""
     state = root / "state"
@@ -170,6 +171,15 @@ def build_fake_grailzee_tree(
     for name, contents in report_csv_contents.items():
         (reports_csv / name).write_text(contents)
 
+    shortlist_path = state / f"cycle_shortlist_{cycle_id}.csv"
+    if shortlist_csv_contents is None:
+        shortlist_csv_contents = (
+            "reference,brand,signal,median,max_buy_nr,volume,keep\n"
+            "79830RB,Tudor,Strong,3200,2910,12,\n"
+            "210.30,Omega,Normal,4400,4200,6,\n"
+        )
+    shortlist_path.write_text(shortlist_csv_contents)
+
     return {
         "root": root,
         "state": state,
@@ -184,6 +194,7 @@ def build_fake_grailzee_tree(
         "run_history": run_history_path,
         "ledger": ledger_path,
         "brief": brief_path,
+        "shortlist": shortlist_path,
     }
 
 

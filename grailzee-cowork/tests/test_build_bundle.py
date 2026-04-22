@@ -68,6 +68,8 @@ def test_happy_path_builds_bundle_with_all_roles(tmp_path):
             "analyzer_config",
             "brand_floors",
             "sourcing_rules",
+            # B.8: per-cycle shortlist CSV produced by build_shortlist.run.
+            "cycle_shortlist",
             # A.7: meta file is always bundled — carries source_cycle_id:null
             # when no prior cycle has trade data, as in this fixture's tree.
             "previous_cycle_outcome_meta",
@@ -962,3 +964,123 @@ class TestPhaseA5ConfigInclusion:
         bundled = {f["role"] for f in manifest["files"]} & config_roles
         assert bundled == config_roles
         assert len(bundled) == 6
+
+
+# ─── Phase B.8: cycle_shortlist inclusion ──────────────────────────
+
+
+class TestPhaseB8CycleShortlistInclusion:
+    """Phase B.8: the per-cycle shortlist CSV produced by build_shortlist.run
+    lands in the bundle as role ``cycle_shortlist`` with archive name
+    ``cycle_shortlist_<cycle_id>.csv``.
+    """
+
+    def test_shortlist_role_present_in_manifest(self, tmp_path):
+        build_fake_grailzee_tree(tmp_path)
+        bundle = build_outbound_bundle(tmp_path)
+        with zipfile.ZipFile(bundle, "r") as zf:
+            manifest = json.loads(zf.read("manifest.json"))
+        roles = {f["role"] for f in manifest["files"]}
+        assert "cycle_shortlist" in roles
+
+    def test_shortlist_archive_name_is_bare_cycle_shortlist(self, tmp_path):
+        """In-bundle arcname is bare ``cycle_shortlist.csv``, matching the
+        convention of every other in-bundle artifact (analysis_cache.json,
+        sourcing_brief.json, cycle_focus.json, trade_ledger.csv). Cycle
+        scope is carried by the bundle filename and the manifest's
+        ``cycle_id`` field, not stamped into every arcname."""
+        build_fake_grailzee_tree(tmp_path)
+        bundle = build_outbound_bundle(tmp_path)
+        with zipfile.ZipFile(bundle, "r") as zf:
+            manifest = json.loads(zf.read("manifest.json"))
+            names = set(zf.namelist())
+        entry = next(f for f in manifest["files"] if f["role"] == "cycle_shortlist")
+        assert entry["path"] == "cycle_shortlist.csv"
+        assert "cycle_shortlist.csv" in names
+        assert f"cycle_shortlist_{FAKE_CYCLE_ID}.csv" not in names
+
+    def test_shortlist_bytes_preserved_verbatim(self, tmp_path):
+        paths = build_fake_grailzee_tree(tmp_path)
+        bundle = build_outbound_bundle(tmp_path)
+        with zipfile.ZipFile(bundle, "r") as zf:
+            bundled = zf.read("cycle_shortlist.csv")
+        assert bundled == paths["shortlist"].read_bytes()
+
+    def test_shortlist_source_filename_is_cycle_keyed(self, tmp_path):
+        """Source filename on Drive remains
+        ``cycle_shortlist_<cycle_id>.csv``. Only the in-bundle arcname
+        is bare. Override cycle_id and confirm the bundle reads from the
+        cycle-keyed source path."""
+        custom_cycle = "cycle_2026-09"
+        paths = build_fake_grailzee_tree(tmp_path, cycle_id=custom_cycle)
+        expected_source = paths["state"] / f"cycle_shortlist_{custom_cycle}.csv"
+        assert expected_source.exists()
+        bundle = build_outbound_bundle(tmp_path)
+        with zipfile.ZipFile(bundle, "r") as zf:
+            bundled = zf.read("cycle_shortlist.csv")
+        assert bundled == expected_source.read_bytes()
+
+    def test_missing_shortlist_fails_loud(self, tmp_path):
+        """Loud failure at bundle-build time if the shortlist is missing.
+        Error message names the cycle_id and the full expected path."""
+        paths = build_fake_grailzee_tree(tmp_path)
+        paths["shortlist"].unlink()
+        with pytest.raises(
+            FileNotFoundError, match=f"cycle_shortlist for {FAKE_CYCLE_ID}"
+        ):
+            build_outbound_bundle(tmp_path)
+
+    def test_missing_shortlist_error_includes_full_path(self, tmp_path):
+        paths = build_fake_grailzee_tree(tmp_path)
+        expected_path = paths["shortlist"]
+        paths["shortlist"].unlink()
+        with pytest.raises(FileNotFoundError) as excinfo:
+            build_outbound_bundle(tmp_path)
+        assert str(expected_path) in str(excinfo.value)
+
+    def test_sourcing_brief_unchanged_by_role_11_addition(self, tmp_path):
+        """Role 9 regression: sourcing_brief still loads with its current
+        archive name and contents, unaffected by the role 11 insertion."""
+        paths = build_fake_grailzee_tree(tmp_path)
+        bundle = build_outbound_bundle(tmp_path)
+        with zipfile.ZipFile(bundle, "r") as zf:
+            manifest = json.loads(zf.read("manifest.json"))
+            entry = next(
+                f for f in manifest["files"] if f["role"] == "sourcing_brief"
+            )
+            assert entry["path"] == "sourcing_brief.json"
+            bundled = zf.read("sourcing_brief.json")
+        assert bundled == paths["brief"].read_bytes()
+
+    def test_shortlist_span_attribute_set_when_span_active(self, tmp_path):
+        """When a span is active around the bundle build, the
+        ``cycle_shortlist_loaded`` attribute is set. Mirrors the
+        build_shortlist.run pattern on the analyzer side; becomes
+        visible once the deferred cowork OTEL audit wraps build_outbound_bundle
+        in a span.
+        """
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+            InMemorySpanExporter,
+        )
+
+        provider = TracerProvider()
+        exporter = InMemorySpanExporter()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        tracer = provider.get_tracer("test")
+
+        build_fake_grailzee_tree(tmp_path)
+        with tracer.start_as_current_span("test_wrapper"):
+            build_outbound_bundle(tmp_path)
+
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+        assert spans[0].attributes.get("cycle_shortlist_loaded") is True
+
+    def test_shortlist_attribute_noop_outside_span(self, tmp_path):
+        """No active span → set_attribute is a silent no-op; bundle build
+        completes without error. This is the current production path."""
+        build_fake_grailzee_tree(tmp_path)
+        bundle = build_outbound_bundle(tmp_path)
+        assert bundle.exists()

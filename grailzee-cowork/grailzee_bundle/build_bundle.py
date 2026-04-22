@@ -23,6 +23,7 @@ latest_report_csv        yes       Drive       reports_csv/grailzee_YYYY-MM-DD.c
 analyzer_config          yes       workspace   state/analyzer_config.json (A.5)
 brand_floors             yes       workspace   state/brand_floors.json (A.5)
 sourcing_rules           yes       workspace   state/sourcing_rules.json (A.5)
+cycle_shortlist          yes       Drive       state/cycle_shortlist_<cycle>.csv (B.8)
 previous_cycle_outcome   no        Drive       only when a prior cycle had trade data
 previous_cycle_outcome_  yes       Drive       meta always bundled (A.7)
   meta
@@ -65,6 +66,8 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from opentelemetry.trace import get_current_span
 
 # ─── Cross-skill import (single source of truth for cycle math) ─────
 # grailzee-eval owns prev_cycle and cycle_outcome_path. Duplicating them
@@ -436,6 +439,27 @@ def build_outbound_bundle(
             latest_report.read_bytes(),
         )
     )
+
+    # Phase B.8: per-cycle shortlist CSV produced by the analyzer's
+    # build_shortlist step (Step 16 of run_analysis). Filename is keyed
+    # on the cache's cycle_id; using anything other than the cache's
+    # cycle_id risks a mismatch with what build_shortlist wrote.
+    shortlist_source = state / f"cycle_shortlist_{cycle_id}.csv"
+    shortlist_bytes = _read_required(
+        shortlist_source, f"cycle_shortlist for {cycle_id}"
+    )
+    payloads.append(
+        (
+            "cycle_shortlist",
+            "cycle_shortlist.csv",
+            shortlist_bytes,
+        )
+    )
+    # Diagnostic attribute on the caller's span (if any). Silent no-op
+    # outside a span context; matches the build_shortlist.run convention
+    # on the analyzer side. A future cowork OTEL audit will wrap this
+    # whole function in a span, at which point the attribute surfaces.
+    get_current_span().set_attribute("cycle_shortlist_loaded", True)
 
     # Phase A.7: previous cycle outcome. Resolve the most recent cycle
     # with real trade data; always bundle the meta (even when resolution
