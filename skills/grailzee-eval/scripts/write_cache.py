@@ -24,6 +24,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 V2_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(V2_ROOT))
 
+from opentelemetry.trace import get_current_span
+
 from scripts.grailzee_common import (
     BACKUP_PATH,
     CACHE_PATH,
@@ -34,6 +36,8 @@ from scripts.grailzee_common import (
 )
 
 tracer = get_tracer(__name__)
+
+DJ_PARENT_REFERENCE = "126300"
 
 MAX_BACKUPS = 10
 MAX_HISTORY = 50
@@ -79,6 +83,46 @@ def _confidence_from_trades(
         "avg_premium": round(statistics.mean(premiums), 1) if premiums else None,
         "last_trade": max(t["sell_date"] for t in matching),
     }
+
+
+def _premium_vs_market_from_trades(
+    trades: list[dict],
+    brand: str,
+    reference: str,
+    current_median: float | None,
+) -> tuple[float, int]:
+    """Compute (premium_vs_market_pct, premium_vs_market_sale_count) per B.2.
+
+    Most-recent Vardalux sale on the reference vs current market median.
+    Zero-floored: no matching trades, indeterminate median, or a most-
+    recent sale at-or-below the current median all collapse to 0.0.
+    The count reports total matching trades regardless of premium sign,
+    mirroring realized_premium_trade_count's precedent for B.3.
+
+    Tiebreak: two sales on the same ``sell_date`` resolve by highest
+    ``sell_price``. New convention with B.2; no prior codebase precedent
+    for most-recent-row tiebreak exists.
+
+    Brand+reference match mirrors ``_confidence_from_trades`` to avoid
+    cross-brand reference collisions.
+    """
+    matching = [
+        t for t in trades
+        if t.get("brand", "").lower() == brand.lower()
+        and t.get("reference") == reference
+    ]
+    sale_count = len(matching)
+    if not matching or current_median is None or current_median <= 0:
+        return 0.0, sale_count
+    most_recent = max(
+        matching,
+        key=lambda t: (t["sell_date"], t["sell_price"]),
+    )
+    sale_price = most_recent["sell_price"]
+    if sale_price <= current_median:
+        return 0.0, sale_count
+    pct = round((sale_price - current_median) / current_median * 100, 1)
+    return pct, sale_count
 
 
 def _build_premium_status(trades: list[dict]) -> dict:
@@ -136,6 +180,9 @@ def write_cache(
     cache_refs: dict[str, dict] = {}
     for ref, rd in refs.items():
         t_entry = trend_by_ref.get(ref, {})
+        pvm_pct, pvm_count = _premium_vs_market_from_trades(
+            ledger_trades, rd.get("brand", ""), ref, rd.get("median"),
+        )
         entry = {
             "brand": rd.get("brand", ""),
             "model": rd.get("model", ""),
@@ -152,11 +199,39 @@ def write_cache(
             "confidence": _confidence_from_trades(
                 ledger_trades, rd.get("brand", ""), ref,
             ),
+            "premium_vs_market_pct": pvm_pct,
+            "premium_vs_market_sale_count": pvm_count,
             "trend_signal": t_entry.get("signal_str", "No prior data"),
             "trend_median_change": t_entry.get("med_change", 0),
             "trend_median_pct": t_entry.get("med_pct", 0),
         }
         cache_refs[ref] = entry
+
+    # DJ configs inherit premium_vs_market_* from parent reference 126300
+    # per B.2 addendum: Grailzee Pro data lacks dial-color granularity so
+    # per-config computation isn't supportable from the source. If the
+    # parent isn't present in cache_refs (e.g. didn't meet min_sales this
+    # run), configs fall back to (0.0, 0).
+    parent_pvm_pct = cache_refs.get(
+        DJ_PARENT_REFERENCE, {}
+    ).get("premium_vs_market_pct", 0.0)
+    parent_pvm_count = cache_refs.get(
+        DJ_PARENT_REFERENCE, {}
+    ).get("premium_vs_market_sale_count", 0)
+    for cfg_entry in dj_configs.values():
+        cfg_entry["premium_vs_market_pct"] = parent_pvm_pct
+        cfg_entry["premium_vs_market_sale_count"] = parent_pvm_count
+
+    # Coverage signal on the active span (the caller's write_cache.run
+    # span in run_analysis.py, or write_cache.main()'s span). Silent
+    # no-op outside any span context.
+    nonzero_count = sum(
+        1 for e in list(cache_refs.values()) + list(dj_configs.values())
+        if (e.get("premium_vs_market_pct") or 0) > 0
+    )
+    get_current_span().set_attribute(
+        "premium_vs_market_pct_nonzero_count", nonzero_count,
+    )
 
     # Hot references: set union of emerged refs and breakout refs
     emerged_set = set(changes.get("emerged", []))

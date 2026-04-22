@@ -184,6 +184,7 @@ class TestPerReferenceShape:
             "brand", "model", "reference", "named", "median",
             "max_buy_nr", "max_buy_res", "risk_nr", "signal",
             "volume", "st_pct", "momentum", "confidence",
+            "premium_vs_market_pct", "premium_vs_market_sale_count",
             "trend_signal", "trend_median_change", "trend_median_pct",
         }
         assert set(ref.keys()) == expected_keys
@@ -220,6 +221,189 @@ class TestPerReferenceShape:
         assert conf["avg_roi"] == 10.9  # round(10.95, 1); float repr
         assert conf["avg_premium"] is None
         assert conf["last_trade"] == "2026-03-15"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# premium_vs_market_pct + premium_vs_market_sale_count (B.2)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestPremiumVsMarket:
+    """B.2: most-recent Vardalux sale on the reference vs current market
+    median. Zero-floored; sale count reports total matching trades
+    regardless of premium sign."""
+
+    def _build_args(self, tmp_path, ref_median, trades):
+        """Build write_cache args with a single reference at given median
+        and a custom trades list."""
+        args = list(_fixture(tmp_path))
+        args[0] = {
+            "references": {"79830RB": _ref(median=ref_median)},
+            "dj_configs": {},
+            "unnamed": [],
+        }
+        args[6] = {"trades": trades, "summary": {"total_trades": len(trades)}}
+        return tuple(args)
+
+    def test_no_sale_zero(self, tmp_path):
+        """Reference with no matching ledger trades -> 0.0, count 0."""
+        path = write_cache(*self._build_args(tmp_path, 3200, []))
+        ref = _load(path)["references"]["79830RB"]
+        assert ref["premium_vs_market_pct"] == 0.0
+        assert ref["premium_vs_market_sale_count"] == 0
+
+    def test_sale_above_median_positive_pct(self, tmp_path):
+        """Most recent sale at 3520 vs median 3200 -> (3520-3200)/3200*100
+        = 10.0."""
+        trades = [_trade(sell=3520)]
+        path = write_cache(*self._build_args(tmp_path, 3200, trades))
+        ref = _load(path)["references"]["79830RB"]
+        assert ref["premium_vs_market_pct"] == 10.0
+        assert ref["premium_vs_market_sale_count"] == 1
+
+    def test_sale_at_median_zero(self, tmp_path):
+        """Sale at exactly median -> 0.0 (floor)."""
+        trades = [_trade(sell=3200)]
+        path = write_cache(*self._build_args(tmp_path, 3200, trades))
+        ref = _load(path)["references"]["79830RB"]
+        assert ref["premium_vs_market_pct"] == 0.0
+        assert ref["premium_vs_market_sale_count"] == 1
+
+    def test_sale_below_median_zero(self, tmp_path):
+        """Sale below median -> 0.0 (floor); count still reports trade."""
+        trades = [_trade(sell=3000)]
+        path = write_cache(*self._build_args(tmp_path, 3200, trades))
+        ref = _load(path)["references"]["79830RB"]
+        assert ref["premium_vs_market_pct"] == 0.0
+        assert ref["premium_vs_market_sale_count"] == 1
+
+    def test_only_most_recent_contributes(self, tmp_path):
+        """Older sale above median + newer sale below median -> 0.0.
+        Older sale must not leak into the value."""
+        old_high = {**_trade(sell=4000), "sell_date": "2026-01-05"}
+        recent_low = {**_trade(sell=3000), "sell_date": "2026-03-15"}
+        trades = [old_high, recent_low]
+        path = write_cache(*self._build_args(tmp_path, 3200, trades))
+        ref = _load(path)["references"]["79830RB"]
+        assert ref["premium_vs_market_pct"] == 0.0
+        assert ref["premium_vs_market_sale_count"] == 2
+
+    def test_only_most_recent_contributes_inverse(self, tmp_path):
+        """Older sale at median + newer sale above median -> positive pct
+        from the newer sale only."""
+        old_at = {**_trade(sell=3200), "sell_date": "2026-01-05"}
+        recent_high = {**_trade(sell=3520), "sell_date": "2026-03-15"}
+        trades = [old_at, recent_high]
+        path = write_cache(*self._build_args(tmp_path, 3200, trades))
+        ref = _load(path)["references"]["79830RB"]
+        assert ref["premium_vs_market_pct"] == 10.0
+        assert ref["premium_vs_market_sale_count"] == 2
+
+    def test_same_date_tiebreak_highest_price_wins(self, tmp_path):
+        """Two sales on same sell_date -> highest sell_price is the
+        'most recent' for premium purposes (new tiebreak convention)."""
+        lo = {**_trade(sell=3300), "sell_date": "2026-03-15"}
+        hi = {**_trade(sell=3600), "sell_date": "2026-03-15"}
+        trades = [lo, hi]
+        path = write_cache(*self._build_args(tmp_path, 3200, trades))
+        ref = _load(path)["references"]["79830RB"]
+        # hi wins: (3600-3200)/3200*100 = 12.5
+        assert ref["premium_vs_market_pct"] == 12.5
+        assert ref["premium_vs_market_sale_count"] == 2
+
+    def test_cross_brand_same_reference_isolated(self, tmp_path):
+        """A trade with the same reference under a different brand must
+        not contaminate the computation. Mirrors the cross-brand
+        isolation in _confidence_from_trades."""
+        foreign = _trade(brand="Breitling", sell=5000)
+        trades = [foreign]
+        path = write_cache(*self._build_args(tmp_path, 3200, trades))
+        ref = _load(path)["references"]["79830RB"]
+        assert ref["premium_vs_market_pct"] == 0.0
+        assert ref["premium_vs_market_sale_count"] == 0
+
+    def test_zero_median_collapses_to_zero(self, tmp_path):
+        """Degenerate current_median (0 or None) -> 0.0 despite sales
+        present. Count still reports matching trades."""
+        trades = [_trade(sell=3520)]
+        path = write_cache(*self._build_args(tmp_path, 0, trades))
+        ref = _load(path)["references"]["79830RB"]
+        assert ref["premium_vs_market_pct"] == 0.0
+        assert ref["premium_vs_market_sale_count"] == 1
+
+    def test_dj_configs_inherit_parent(self, tmp_path):
+        """Per the B.2 addendum: DJ configs carry parent reference
+        126300's values, because Grailzee Pro lacks dial-color
+        granularity."""
+        args = list(_fixture(tmp_path))
+        args[0] = {
+            "references": {"126300": _ref(
+                brand="Rolex", model="DJ 41", reference="126300",
+                median=10000, max_buy_nr=9100, max_buy_res=8900,
+                risk_nr=5.0, signal="Strong", volume=50, st_pct=0.7,
+            )},
+            "dj_configs": {
+                "Rose/Jubilee": {
+                    "brand": "Rolex", "model": "DJ 41 Rose/Jubilee",
+                    "reference": "126300", "section": "dj_config",
+                    "median": 10500, "max_buy_nr": 9500, "max_buy_res": 9200,
+                    "risk_nr": 4.0, "signal": "Strong", "volume": 20,
+                    "st_pct": 0.75,
+                },
+                "Olive/Oyster": {
+                    "brand": "Rolex", "model": "DJ 41 Olive/Oyster",
+                    "reference": "126300", "section": "dj_config",
+                    "median": 9800, "max_buy_nr": 8800, "max_buy_res": 8600,
+                    "risk_nr": 6.0, "signal": "Normal", "volume": 15,
+                    "st_pct": 0.65,
+                },
+            },
+            "unnamed": [],
+        }
+        # One trade on parent 126300 at sell=11000 vs median 10000 -> 10.0
+        args[6] = {
+            "trades": [_trade(
+                brand="Rolex", reference="126300", sell=11000,
+            )],
+            "summary": {"total_trades": 1},
+        }
+        path = write_cache(*tuple(args))
+        cache = _load(path)
+
+        parent = cache["references"]["126300"]
+        assert parent["premium_vs_market_pct"] == 10.0
+        assert parent["premium_vs_market_sale_count"] == 1
+
+        for cfg_name in ("Rose/Jubilee", "Olive/Oyster"):
+            cfg = cache["dj_configs"][cfg_name]
+            assert cfg["premium_vs_market_pct"] == 10.0
+            assert cfg["premium_vs_market_sale_count"] == 1
+
+    def test_dj_configs_fall_back_when_parent_absent(self, tmp_path):
+        """DJ configs without the parent 126300 in references get
+        (0.0, 0) rather than crashing."""
+        args = list(_fixture(tmp_path))
+        args[0] = {
+            "references": {},
+            "dj_configs": {
+                "Rose/Jubilee": {
+                    "brand": "Rolex", "model": "DJ 41 Rose/Jubilee",
+                    "reference": "126300", "section": "dj_config",
+                    "median": 10500, "max_buy_nr": 9500, "max_buy_res": 9200,
+                    "risk_nr": 4.0, "signal": "Strong", "volume": 20,
+                    "st_pct": 0.75,
+                },
+            },
+            "unnamed": [],
+        }
+        args[6] = {"trades": [], "summary": {"total_trades": 0}}
+        path = write_cache(*tuple(args))
+        cache = _load(path)
+
+        assert "126300" not in cache["references"]
+        cfg = cache["dj_configs"]["Rose/Jubilee"]
+        assert cfg["premium_vs_market_pct"] == 0.0
+        assert cfg["premium_vs_market_sale_count"] == 0
 
 
 # ═══════════════════════════════════════════════════════════════════════

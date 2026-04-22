@@ -269,6 +269,76 @@ class TestPremiumStatusInCache:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# premium_vs_market_pct (B.2) integration
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestPremiumVsMarketIntegration:
+    """B.2 integration: the field computes correctly end-to-end through
+    the full pipeline (CSVs -> score -> ledger -> cache)."""
+
+    def test_fixture_ledger_with_above_median_sale(self, tmp_path):
+        """A ledger with a 79830RB sale above fixture median produces a
+        positive premium_vs_market_pct on the cache entry. The fixture
+        CSVs yield 79830RB median 3550.0; a sale at 3905 gives
+        (3905-3550)/3550*100 = 10.0."""
+        ledger_path = str(tmp_path / "trade_ledger.csv")
+        rows = ",2026-03-15,,cycle_2026-06,Tudor,79830RB,NR,2750,3905"
+        Path(ledger_path).write_text(V2_LEDGER_HEADER + rows + "\n")
+
+        kwargs = {
+            "csv_paths": ALL_CSVS,
+            "output_folder": str(tmp_path / "output"),
+            "ledger_path": ledger_path,
+            "cache_path": str(tmp_path / "state" / "analysis_cache.json"),
+            "backup_path": str(tmp_path / "backup"),
+            "name_cache_path": NAME_CACHE,
+            "cycle_focus_path": str(tmp_path / "no_focus.json"),
+        }
+        os.makedirs(kwargs["output_folder"], exist_ok=True)
+
+        run_analysis(**kwargs)
+        cache = json.loads(Path(kwargs["cache_path"]).read_text())
+        ref = cache["references"]["79830RB"]
+        assert ref["premium_vs_market_pct"] == 10.0
+        assert ref["premium_vs_market_sale_count"] == 1
+
+    def test_empty_ledger_zero_everywhere(self, tmp_path):
+        """Empty ledger -> every reference gets 0.0 / 0. Coverage
+        guarantees the field is present (not null) on every entry."""
+        kwargs = _setup(tmp_path)
+        run_analysis(**kwargs)
+        cache = json.loads(Path(kwargs["cache_path"]).read_text())
+        for ref_data in cache["references"].values():
+            assert ref_data["premium_vs_market_pct"] == 0.0
+            assert ref_data["premium_vs_market_sale_count"] == 0
+
+    def test_no_above_median_sale_zero(self, tmp_path):
+        """Ledger with an at-median sale -> 0.0 pct, count 1."""
+        ledger_path = str(tmp_path / "trade_ledger.csv")
+        # Fixture 79830RB median is 3550; sell exactly there.
+        rows = ",2026-03-15,,cycle_2026-06,Tudor,79830RB,NR,2750,3550"
+        Path(ledger_path).write_text(V2_LEDGER_HEADER + rows + "\n")
+
+        kwargs = {
+            "csv_paths": ALL_CSVS,
+            "output_folder": str(tmp_path / "output"),
+            "ledger_path": ledger_path,
+            "cache_path": str(tmp_path / "state" / "analysis_cache.json"),
+            "backup_path": str(tmp_path / "backup"),
+            "name_cache_path": NAME_CACHE,
+            "cycle_focus_path": str(tmp_path / "no_focus.json"),
+        }
+        os.makedirs(kwargs["output_folder"], exist_ok=True)
+
+        run_analysis(**kwargs)
+        cache = json.loads(Path(kwargs["cache_path"]).read_text())
+        ref = cache["references"]["79830RB"]
+        assert ref["premium_vs_market_pct"] == 0.0
+        assert ref["premium_vs_market_sale_count"] == 1
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Sentinel values (wiring verification)
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -318,6 +388,7 @@ class TestSentinelValues:
             "brand", "model", "reference", "named", "median",
             "max_buy_nr", "max_buy_res", "risk_nr", "signal",
             "volume", "st_pct", "momentum", "confidence",
+            "premium_vs_market_pct", "premium_vs_market_sale_count",
             "trend_signal", "trend_median_change", "trend_median_pct",
         }
         assert set(ref_data.keys()) == expected_keys
