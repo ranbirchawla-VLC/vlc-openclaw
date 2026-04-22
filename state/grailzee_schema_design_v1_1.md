@@ -34,7 +34,7 @@
 
 **Rule**: Config files never contain literal JSON `null` values. Every field has a concrete default at file creation. Fields currently at defaults are called out explicitly via a top-level `defaulted_fields` array so strategy can see at a glance what it has not yet set.
 
-**Scope**: Applies to every config file (strategy-writable, read by analyzer/bot). Does NOT apply to cache, shortlist, or cycle_outcome files, which are data representations and legitimately carry `null` when underlying data doesn't exist (e.g., `realized_premium_pct: null` when close count is below floor). Config is what SHOULD; data is what IS.
+**Scope**: Applies to every config file (strategy-writable, read by analyzer/bot). Does NOT apply to cache, shortlist, or cycle_outcome files, which are data representations and legitimately carry `null` when underlying data doesn't exist (e.g., `realized_premium_pct: null` when no Vardalux sell exists in the 30-day window). Config is what SHOULD; data is what IS.
 
 **Mechanism**:
 

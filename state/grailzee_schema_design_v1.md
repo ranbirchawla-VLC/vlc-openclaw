@@ -285,9 +285,10 @@ New fields (per locked levers):
 | Field | Source | Lever |
 |---|---|---|
 | `brand_floor_cleared` | bool (per brand_floors.json lookup against `premium_vs_market_pct`) | L3.1 |
-| `premium_vs_market_pct` | number or null (always-on edge vs. Grailzee market median) | L2 edge |
-| `realized_premium_pct` | number or null (30-day windowed, 5-close floored, null if below floor) | L2.1 |
-| `realized_premium_trade_count` | integer (ledger trades in window for this ref) | L2.2 |
+| `premium_vs_market_pct` | float, always present (zero-floored). Most-recent Vardalux sell vs current median: `(sell - median) / median * 100`, 1 decimal. 0.0 when no sell on reference or most-recent at/below median. Same-`sell_date` tiebreak: highest `sell_price`. DJ configs inherit parent. | L2 edge |
+| `premium_vs_market_sale_count` | int, always present. Total Vardalux sales on the reference (all-time, no window). Distinguishes "zero because no data" from "zero because all clearings were at/below median". DJ configs inherit parent. | L2 edge |
+| `realized_premium_pct` | float or null. 30-day windowed (`sell_date` inclusive) version of `premium_vs_market_pct`: most-recent in-window sell vs current median, same formula. Null when no in-window sell (no close-count floor). Negative values permitted (no zero-floor; differs from B.2). DJ configs inherit parent. | L2.1 |
+| `realized_premium_trade_count` | int, always present. Count of Vardalux trades where `sell_date` is within the last 30 days (inclusive). DJ configs inherit parent. | L2.2 |
 | `dollar_per_hour` | number or null (expected_net_at_median / hours_per_piece, null if unfamiliar brand) | L5.3 |
 | `expected_net_at_median` | number or null | L5.3 |
 | `capital_required` | number (equals max_buy_nr when brand is tradeable, else null) | L5.4 |
@@ -364,7 +365,7 @@ Fields deprecated / repurposed:
 Shortlist gate logic:
 1. Reference must be in a brand listed in `brand_floors.json` with `tradeable: true`.
 2. Reference's signal must not be Pass or Low data.
-3. Reference's `realized_premium_pct` must be non-null AND >= `brand_floor_pct` (L3.1 floor), OR `realized_premium_pct` is null due to close-count floor AND `premium_vs_market_pct` >= `brand_floor_pct` (L2 edge fallback when own-ledger is thin).
+3. Reference's `realized_premium_pct` must be non-null AND >= `brand_floor_pct` (L3.1 floor), OR `realized_premium_pct` is null (no recent in-window sell) AND `premium_vs_market_pct` >= `brand_floor_pct` (L2 edge fallback when own-ledger has no recent clearing).
 4. If more than 30 references pass, rank by `dollar_per_hour` DESC, take top 30. If fewer than 30 pass, ship what passes.
 
 See skill call S4 for rule 3 fallback semantics.
@@ -446,7 +447,7 @@ Per the "outcome questions to you, skill calls to me" rule, these are decisions 
 
 **S3. Capacity context writer semantics: hybrid.** Strategy writes ceilings (per-brand and per-reference). Cowork apply computes observed counts from the ledger at bundle build time. Both land in the same file under separate top-level keys. Analyzer reads both. Rationale: ceilings are strategic calls; observed counts are deterministic math and cowork already has the ledger in hand.
 
-**S4. Brand-floor gate fallback for thin own-ledger.** Shortlist gate rule 3 allows `premium_vs_market_pct` to stand in for `realized_premium_pct` when the own-ledger close-count floor isn't met yet. Rationale: L2.3's "insufficient data" for realized premium shouldn't disqualify a reference that demonstrably outperforms the Grailzee channel baseline. The edge metric is always-on (L2), so use it as the gate when the own-ledger metric is pending.
+**S4. Brand-floor gate fallback when recent own-ledger data is absent.** Shortlist gate rule 3 allows `premium_vs_market_pct` to stand in for `realized_premium_pct` when no in-window (30-day) Vardalux sell exists on the reference. Rationale: absence of recent clearings shouldn't disqualify a reference whose most-recent all-time sell outperforms the Grailzee channel baseline. The all-time edge metric (B.2) is always present, so use it as the gate when the windowed metric (B.3) is null.
 
 **S5. Ledger stores both `buy_cycle_id` and `sell_cycle_id` explicitly.** Deriving at read time works but creates two semantics for "cycle_id" on one row. Explicit is cheaper to reason about; storage cost is negligible.
 
@@ -475,6 +476,8 @@ At this phase, nothing breaks. Analyzer reads new configs but produces identical
 **Phase B — cache and brief (additive fields, subtractive computations):**
 5. Disable `apply_premium_adjustment` call in `run_analysis`. Max_buy stays at plain-median values.
 6. Add new cache fields: `brand_floor_cleared`, `premium_vs_market_pct`, `realized_premium_pct`, `realized_premium_trade_count`, `dollar_per_hour`, `expected_net_at_median`, `capital_required`, `condition_mix`, `capacity_observed`. All null for first run where the inputs don't yet exist.
+
+   *Shipped 2026-04-21 (B.2, B.3, + normalization follow-up): `premium_vs_market_pct` is always-present float, zero-floored; sibling field `premium_vs_market_sale_count` added for null-vs-zero disambiguation; `realized_premium_pct` null means no in-window (30-day) sell — no close-count floor. Ledger-to-cache joins route through `resolve_to_cache_ref` for Tudor per-piece inventory IDs. §3.1 table is authoritative for current shape.*
 7. Implement `build_shortlist` replacing `build_brief` JSON output. Markdown stays unchanged for now.
 8. Gate `max_buy` on brand_floors: references in non-tradeable or unlisted brands get `max_buy: null`.
 
