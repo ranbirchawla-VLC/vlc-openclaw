@@ -18,6 +18,7 @@ import json
 import os
 import statistics
 import time
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -339,6 +340,77 @@ class TestPremiumVsMarketIntegration:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# realized_premium_pct (B.3) integration
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestRealizedPremiumIntegration:
+    """B.3 integration: 30-day windowed signal behaves correctly end-to-
+    end through the pipeline. Uses today-relative ledger dates so
+    assertions are stable regardless of when pytest runs."""
+
+    def test_in_window_sale_populates(self, tmp_path):
+        """A ledger row with sell_date 5 days ago and a sale above the
+        79830RB fixture median (3550) populates realized_premium_pct
+        per the B.2 formula applied to the recent sale."""
+        recent = (date.today() - timedelta(days=5)).isoformat()
+        ledger_path = str(tmp_path / "trade_ledger.csv")
+        rows = f",{recent},,cycle_2026-06,Tudor,79830RB,NR,2750,3905"
+        Path(ledger_path).write_text(V2_LEDGER_HEADER + rows + "\n")
+
+        kwargs = {
+            "csv_paths": ALL_CSVS,
+            "output_folder": str(tmp_path / "output"),
+            "ledger_path": ledger_path,
+            "cache_path": str(tmp_path / "state" / "analysis_cache.json"),
+            "backup_path": str(tmp_path / "backup"),
+            "name_cache_path": NAME_CACHE,
+            "cycle_focus_path": str(tmp_path / "no_focus.json"),
+        }
+        os.makedirs(kwargs["output_folder"], exist_ok=True)
+        run_analysis(**kwargs)
+        cache = json.loads(Path(kwargs["cache_path"]).read_text())
+        ref = cache["references"]["79830RB"]
+        # (3905-3550)/3550*100 = 10.0
+        assert ref["realized_premium_pct"] == 10.0
+        assert ref["realized_premium_trade_count"] == 1
+
+    def test_out_of_window_sale_null(self, tmp_path):
+        """A ledger row with sell_date 45 days ago is out of window
+        -> realized_premium_pct null, trade_count 0."""
+        old = (date.today() - timedelta(days=45)).isoformat()
+        ledger_path = str(tmp_path / "trade_ledger.csv")
+        rows = f",{old},,cycle_2026-04,Tudor,79830RB,NR,2750,3905"
+        Path(ledger_path).write_text(V2_LEDGER_HEADER + rows + "\n")
+
+        kwargs = {
+            "csv_paths": ALL_CSVS,
+            "output_folder": str(tmp_path / "output"),
+            "ledger_path": ledger_path,
+            "cache_path": str(tmp_path / "state" / "analysis_cache.json"),
+            "backup_path": str(tmp_path / "backup"),
+            "name_cache_path": NAME_CACHE,
+            "cycle_focus_path": str(tmp_path / "no_focus.json"),
+        }
+        os.makedirs(kwargs["output_folder"], exist_ok=True)
+        run_analysis(**kwargs)
+        cache = json.loads(Path(kwargs["cache_path"]).read_text())
+        ref = cache["references"]["79830RB"]
+        assert ref["realized_premium_pct"] is None
+        assert ref["realized_premium_trade_count"] == 0
+
+    def test_empty_ledger_every_ref_null_zero(self, tmp_path):
+        """Empty ledger -> every reference has realized_premium_pct
+        null and realized_premium_trade_count 0."""
+        kwargs = _setup(tmp_path)
+        run_analysis(**kwargs)
+        cache = json.loads(Path(kwargs["cache_path"]).read_text())
+        for ref_data in cache["references"].values():
+            assert ref_data["realized_premium_pct"] is None
+            assert ref_data["realized_premium_trade_count"] == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Sentinel values (wiring verification)
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -389,6 +461,7 @@ class TestSentinelValues:
             "max_buy_nr", "max_buy_res", "risk_nr", "signal",
             "volume", "st_pct", "momentum", "confidence",
             "premium_vs_market_pct", "premium_vs_market_sale_count",
+            "realized_premium_pct", "realized_premium_trade_count",
             "trend_signal", "trend_median_change", "trend_median_pct",
         }
         assert set(ref_data.keys()) == expected_keys

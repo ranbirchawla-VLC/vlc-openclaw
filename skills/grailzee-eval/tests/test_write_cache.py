@@ -29,7 +29,7 @@ Hand-computed fixture:
 import json
 import os
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -185,6 +185,7 @@ class TestPerReferenceShape:
             "max_buy_nr", "max_buy_res", "risk_nr", "signal",
             "volume", "st_pct", "momentum", "confidence",
             "premium_vs_market_pct", "premium_vs_market_sale_count",
+            "realized_premium_pct", "realized_premium_trade_count",
             "trend_signal", "trend_median_change", "trend_median_pct",
         }
         assert set(ref.keys()) == expected_keys
@@ -466,6 +467,220 @@ class TestPremiumVsMarket:
         cfg = cache["dj_configs"]["Rose/Jubilee"]
         assert cfg["premium_vs_market_pct"] == 0.0
         assert cfg["premium_vs_market_sale_count"] == 0
+        assert cfg["realized_premium_pct"] is None
+        assert cfg["realized_premium_trade_count"] == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# realized_premium_pct + realized_premium_trade_count (B.3)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestRealizedPremium:
+    """B.3: recency-bounded (30-day) version of B.2's signal. Most-recent
+    in-window sale vs current median. Null if no in-window sale; counts
+    include zero; negative pct permitted (below-median clearing).
+    """
+
+    TODAY = date(2026, 4, 21)
+
+    def _build_args(self, tmp_path, ref_median, trades):
+        args = list(_fixture(tmp_path))
+        args[0] = {
+            "references": {"79830RB": _ref(median=ref_median)},
+            "dj_configs": {},
+            "unnamed": [],
+        }
+        args[6] = {"trades": trades, "summary": {"total_trades": len(trades)}}
+        return tuple(args)
+
+    def test_no_in_window_sale_null_and_zero(self, tmp_path):
+        """No matching in-window trade -> (None, 0). This is B.3's
+        distinct 'no recent data' signal, contrasted with B.2's zero."""
+        path = write_cache(*self._build_args(tmp_path, 3200, []),
+                           today=self.TODAY)
+        ref = _load(path)["references"]["79830RB"]
+        assert ref["realized_premium_pct"] is None
+        assert ref["realized_premium_trade_count"] == 0
+
+    def test_single_in_window_above_median(self, tmp_path):
+        """One in-window sale at 3520 vs median 3200 -> pct 10.0."""
+        recent = {**_trade(sell=3520),
+                  "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
+        path = write_cache(*self._build_args(tmp_path, 3200, [recent]),
+                           today=self.TODAY)
+        ref = _load(path)["references"]["79830RB"]
+        assert ref["realized_premium_pct"] == 10.0
+        assert ref["realized_premium_trade_count"] == 1
+
+    def test_below_median_produces_negative_pct(self, tmp_path):
+        """Recent below-median clearing produces negative pct — NOT
+        zero-floored. (3000 - 3200) / 3200 * 100 = -6.25 -> -6.2
+        (banker's rounding)."""
+        recent = {**_trade(sell=3000),
+                  "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
+        path = write_cache(*self._build_args(tmp_path, 3200, [recent]),
+                           today=self.TODAY)
+        ref = _load(path)["references"]["79830RB"]
+        assert ref["realized_premium_pct"] == -6.2
+        assert ref["realized_premium_trade_count"] == 1
+
+    def test_at_median_produces_zero_pct_not_null(self, tmp_path):
+        """Recent exactly-at-median sale -> 0.0 (real zero, data-driven),
+        distinct from null (no in-window data)."""
+        recent = {**_trade(sell=3200),
+                  "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
+        path = write_cache(*self._build_args(tmp_path, 3200, [recent]),
+                           today=self.TODAY)
+        ref = _load(path)["references"]["79830RB"]
+        assert ref["realized_premium_pct"] == 0.0
+        assert ref["realized_premium_trade_count"] == 1
+
+    def test_window_inclusive_at_30_days(self, tmp_path):
+        """A sale exactly 30 days before today is in window."""
+        boundary = {**_trade(sell=3520),
+                    "sell_date": (self.TODAY - timedelta(days=30)).isoformat()}
+        path = write_cache(*self._build_args(tmp_path, 3200, [boundary]),
+                           today=self.TODAY)
+        ref = _load(path)["references"]["79830RB"]
+        assert ref["realized_premium_pct"] == 10.0
+        assert ref["realized_premium_trade_count"] == 1
+
+    def test_window_excludes_31_days_old(self, tmp_path):
+        """A sale 31 days before today is out of window -> None, 0."""
+        old = {**_trade(sell=3520),
+               "sell_date": (self.TODAY - timedelta(days=31)).isoformat()}
+        path = write_cache(*self._build_args(tmp_path, 3200, [old]),
+                           today=self.TODAY)
+        ref = _load(path)["references"]["79830RB"]
+        assert ref["realized_premium_pct"] is None
+        assert ref["realized_premium_trade_count"] == 0
+
+    def test_future_sell_date_excluded(self, tmp_path):
+        """A sell_date beyond today is out of window (defensive)."""
+        future = {**_trade(sell=3520),
+                  "sell_date": (self.TODAY + timedelta(days=2)).isoformat()}
+        path = write_cache(*self._build_args(tmp_path, 3200, [future]),
+                           today=self.TODAY)
+        ref = _load(path)["references"]["79830RB"]
+        assert ref["realized_premium_pct"] is None
+        assert ref["realized_premium_trade_count"] == 0
+
+    def test_mixed_window_and_out_of_window(self, tmp_path):
+        """Older sale (45 days) + recent sale (5 days). Count reports 1
+        (only in-window); pct from the recent sale."""
+        old = {**_trade(sell=5000),
+               "sell_date": (self.TODAY - timedelta(days=45)).isoformat()}
+        recent = {**_trade(sell=3520),
+                  "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
+        path = write_cache(*self._build_args(tmp_path, 3200, [old, recent]),
+                           today=self.TODAY)
+        ref = _load(path)["references"]["79830RB"]
+        assert ref["realized_premium_pct"] == 10.0
+        assert ref["realized_premium_trade_count"] == 1
+
+    def test_multiple_in_window_most_recent_wins(self, tmp_path):
+        """Multiple in-window sales: the most-recent by sell_date
+        supplies the value; older in-window sales count toward
+        trade_count but not pct."""
+        older = {**_trade(sell=5000),
+                 "sell_date": (self.TODAY - timedelta(days=20)).isoformat()}
+        newer = {**_trade(sell=3520),
+                 "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
+        path = write_cache(*self._build_args(tmp_path, 3200, [older, newer]),
+                           today=self.TODAY)
+        ref = _load(path)["references"]["79830RB"]
+        # newer wins: (3520-3200)/3200*100 = 10.0
+        assert ref["realized_premium_pct"] == 10.0
+        assert ref["realized_premium_trade_count"] == 2
+
+    def test_same_date_tiebreak_highest_price_wins(self, tmp_path):
+        """Same sell_date: highest sell_price is 'most recent' per
+        B.2's precedent."""
+        lo = {**_trade(sell=3300),
+              "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
+        hi = {**_trade(sell=3600),
+              "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
+        path = write_cache(*self._build_args(tmp_path, 3200, [lo, hi]),
+                           today=self.TODAY)
+        ref = _load(path)["references"]["79830RB"]
+        # hi wins: (3600-3200)/3200*100 = 12.5
+        assert ref["realized_premium_pct"] == 12.5
+        assert ref["realized_premium_trade_count"] == 2
+
+    def test_indeterminate_median_with_in_window_trades(self, tmp_path):
+        """Current median zero/None with in-window trades -> (None, count).
+        Count still reports actual matches; pct is un-computable."""
+        recent = {**_trade(sell=3520),
+                  "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
+        path = write_cache(*self._build_args(tmp_path, 0, [recent]),
+                           today=self.TODAY)
+        ref = _load(path)["references"]["79830RB"]
+        assert ref["realized_premium_pct"] is None
+        assert ref["realized_premium_trade_count"] == 1
+
+    def test_cross_brand_isolation(self, tmp_path):
+        """A trade under a different brand with the same reference
+        doesn't contaminate this reference's counts or pct."""
+        foreign = {**_trade(brand="Breitling", sell=5000),
+                   "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
+        path = write_cache(*self._build_args(tmp_path, 3200, [foreign]),
+                           today=self.TODAY)
+        ref = _load(path)["references"]["79830RB"]
+        assert ref["realized_premium_pct"] is None
+        assert ref["realized_premium_trade_count"] == 0
+
+    def test_m_prefix_inventory_id_joins_canonical(self, tmp_path):
+        """Ledger row logged with M-prefix inventory ID resolves to
+        canonical cache entry (28500), carrying signal per B.3's
+        formula."""
+        inventory = {**_trade(reference="M28500-0005", sell=2400),
+                     "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
+        args = list(self._build_args(tmp_path, 2025, [inventory]))
+        args[0]["references"] = {"28500": _ref(
+            brand="Tudor", model="Black Bay 58", reference="28500",
+            median=2025, max_buy_nr=1790, max_buy_res=1740,
+            risk_nr=10.0, signal="Normal", volume=10, st_pct=0.5,
+        )}
+        path = write_cache(*tuple(args), today=self.TODAY)
+        ref = _load(path)["references"]["28500"]
+        # (2400-2025)/2025*100 = 18.518... -> 18.5
+        assert ref["realized_premium_pct"] == 18.5
+        assert ref["realized_premium_trade_count"] == 1
+
+    def test_dj_configs_inherit_parent(self, tmp_path):
+        """DJ configs inherit realized_premium_* from parent 126300."""
+        args = list(_fixture(tmp_path))
+        args[0] = {
+            "references": {"126300": _ref(
+                brand="Rolex", model="DJ 41", reference="126300",
+                median=10000, max_buy_nr=9100, max_buy_res=8900,
+                risk_nr=5.0, signal="Strong", volume=50, st_pct=0.7,
+            )},
+            "dj_configs": {
+                "Rose/Jubilee": {
+                    "brand": "Rolex", "model": "DJ 41 Rose/Jubilee",
+                    "reference": "126300", "section": "dj_config",
+                    "median": 10500, "max_buy_nr": 9500, "max_buy_res": 9200,
+                    "risk_nr": 4.0, "signal": "Strong", "volume": 20,
+                    "st_pct": 0.75,
+                },
+            },
+            "unnamed": [],
+        }
+        recent_parent_sale = {
+            **_trade(brand="Rolex", reference="126300", sell=11000),
+            "sell_date": (self.TODAY - timedelta(days=7)).isoformat(),
+        }
+        args[6] = {"trades": [recent_parent_sale], "summary": {"total_trades": 1}}
+        path = write_cache(*tuple(args), today=self.TODAY)
+        cache = _load(path)
+        parent = cache["references"]["126300"]
+        assert parent["realized_premium_pct"] == 10.0
+        assert parent["realized_premium_trade_count"] == 1
+        cfg = cache["dj_configs"]["Rose/Jubilee"]
+        assert cfg["realized_premium_pct"] == 10.0
+        assert cfg["realized_premium_trade_count"] == 1
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -17,7 +17,7 @@ import os
 import shutil
 import statistics
 import sys
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -150,6 +150,67 @@ def _premium_vs_market_from_trades(
     return pct, sale_count
 
 
+def _realized_premium_from_trades(
+    trades: list[dict],
+    brand: str,
+    reference: str,
+    current_median: float | None,
+    today: date,
+    window_days: int = 30,
+) -> tuple[float | None, int]:
+    """Compute (realized_premium_pct, realized_premium_trade_count) per B.3.
+
+    Recency-bounded version of B.2's signal: most-recent Vardalux sale
+    on the reference **within the last ``window_days``** vs current
+    market median. Window is inclusive on both ends — a sell exactly
+    ``window_days`` before ``today`` is in window.
+
+    Returns:
+      * ``(None, 0)`` — no matching in-window trade (B.3's distinct
+        "no recent data" signal, contrasted with B.2's zero-floor
+        "no data ever" signal)
+      * ``(None, count)`` — in-window trades exist but current_median
+        is indeterminate (can't compute pct)
+      * ``(pct, count)`` — normal case; pct is NOT zero-floored, so a
+        below-median recent clearing produces a negative number and
+        strategy reads raw
+
+    Tiebreak: two sells on the same ``sell_date`` resolve by highest
+    ``sell_price`` (same convention as B.2).
+
+    Brand+reference match goes through ``_trade_matches_cache_ref`` so
+    per-piece inventory IDs join to the canonical cache entry.
+    """
+    window_start = today - timedelta(days=window_days)
+    matching = [
+        t for t in trades
+        if t.get("brand", "").lower() == brand.lower()
+        and _trade_matches_cache_ref(t, reference)
+    ]
+    in_window: list[tuple[date, dict]] = []
+    for t in matching:
+        sd_str = t.get("sell_date", "")
+        if not sd_str:
+            continue
+        try:
+            sd = date.fromisoformat(sd_str)
+        except (TypeError, ValueError):
+            continue
+        if sd >= window_start and sd <= today:
+            in_window.append((sd, t))
+    count = len(in_window)
+    if not in_window:
+        return None, 0
+    if current_median is None or current_median <= 0:
+        return None, count
+    most_recent_sd, most_recent_trade = max(
+        in_window, key=lambda p: (p[0], p[1]["sell_price"]),
+    )
+    sale_price = most_recent_trade["sell_price"]
+    pct = round((sale_price - current_median) / current_median * 100, 1)
+    return pct, count
+
+
 def _build_premium_status(trades: list[dict]) -> dict:
     """Compute premium_status block from enriched ledger trades."""
     ps = calculate_presentation_premium(trades)
@@ -179,10 +240,17 @@ def write_cache(
     market_window: dict | None = None,
     cache_path: str | None = None,
     backup_path: str | None = None,
+    today: date | None = None,
 ) -> str:
-    """Write analysis_cache.json (v2 schema). Returns output path."""
+    """Write analysis_cache.json (v2 schema). Returns output path.
+
+    ``today`` anchors the B.3 realized-premium 30-day window. Defaults
+    to ``date.today()`` in live runs; tests pass a fixed date so the
+    assertions stay stable across pytest-run dates.
+    """
     out = cache_path or CACHE_PATH
     bak = backup_path or BACKUP_PATH
+    today = today or date.today()
 
     # Backup previous cache
     _backup_existing(out, bak)
@@ -208,6 +276,10 @@ def write_cache(
         pvm_pct, pvm_count = _premium_vs_market_from_trades(
             ledger_trades, rd.get("brand", ""), ref, rd.get("median"),
         )
+        rp_pct, rp_count = _realized_premium_from_trades(
+            ledger_trades, rd.get("brand", ""), ref,
+            rd.get("median"), today,
+        )
         entry = {
             "brand": rd.get("brand", ""),
             "model": rd.get("model", ""),
@@ -226,36 +298,43 @@ def write_cache(
             ),
             "premium_vs_market_pct": pvm_pct,
             "premium_vs_market_sale_count": pvm_count,
+            "realized_premium_pct": rp_pct,
+            "realized_premium_trade_count": rp_count,
             "trend_signal": t_entry.get("signal_str", "No prior data"),
             "trend_median_change": t_entry.get("med_change", 0),
             "trend_median_pct": t_entry.get("med_pct", 0),
         }
         cache_refs[ref] = entry
 
-    # DJ configs inherit premium_vs_market_* from parent reference 126300
-    # per B.2 addendum: Grailzee Pro data lacks dial-color granularity so
-    # per-config computation isn't supportable from the source. If the
-    # parent isn't present in cache_refs (e.g. didn't meet min_sales this
-    # run), configs fall back to (0.0, 0).
-    parent_pvm_pct = cache_refs.get(
-        DJ_PARENT_REFERENCE, {}
-    ).get("premium_vs_market_pct", 0.0)
-    parent_pvm_count = cache_refs.get(
-        DJ_PARENT_REFERENCE, {}
-    ).get("premium_vs_market_sale_count", 0)
+    # DJ configs inherit premium_vs_market_* and realized_premium_* from
+    # parent reference 126300 per B.2/B.3 addendum: Grailzee Pro data
+    # lacks dial-color granularity so per-config computation isn't
+    # supportable from the source. If the parent isn't present in
+    # cache_refs (e.g. didn't meet min_sales this run), configs fall
+    # back to B.2 (0.0, 0) / B.3 (None, 0).
+    parent = cache_refs.get(DJ_PARENT_REFERENCE, {})
+    parent_pvm_pct = parent.get("premium_vs_market_pct", 0.0)
+    parent_pvm_count = parent.get("premium_vs_market_sale_count", 0)
+    parent_rp_pct = parent.get("realized_premium_pct", None)
+    parent_rp_count = parent.get("realized_premium_trade_count", 0)
     for cfg_entry in dj_configs.values():
         cfg_entry["premium_vs_market_pct"] = parent_pvm_pct
         cfg_entry["premium_vs_market_sale_count"] = parent_pvm_count
+        cfg_entry["realized_premium_pct"] = parent_rp_pct
+        cfg_entry["realized_premium_trade_count"] = parent_rp_count
 
-    # Coverage signal on the active span (the caller's write_cache.run
+    # Coverage signals on the active span (the caller's write_cache.run
     # span in run_analysis.py, or write_cache.main()'s span). Silent
     # no-op outside any span context.
-    nonzero_count = sum(
-        1 for e in list(cache_refs.values()) + list(dj_configs.values())
-        if (e.get("premium_vs_market_pct") or 0) > 0
+    span = get_current_span()
+    all_entries = list(cache_refs.values()) + list(dj_configs.values())
+    span.set_attribute(
+        "premium_vs_market_pct_nonzero_count",
+        sum(1 for e in all_entries if (e.get("premium_vs_market_pct") or 0) > 0),
     )
-    get_current_span().set_attribute(
-        "premium_vs_market_pct_nonzero_count", nonzero_count,
+    span.set_attribute(
+        "realized_premium_pct_populated_count",
+        sum(1 for e in all_entries if e.get("realized_premium_pct") is not None),
     )
 
     # Hot references: set union of emerged refs and breakout refs
@@ -341,12 +420,14 @@ def run(
     market_window: dict | None = None,
     cache_path: str | None = None,
     backup_path: str | None = None,
+    today: date | None = None,
 ) -> str:
     """CLI-friendly wrapper."""
     return write_cache(
         all_results, trends, changes, breakouts,
         watchlist, brands, ledger_stats, current_cycle_id,
         source_report, market_window, cache_path, backup_path,
+        today=today,
     )
 
 
