@@ -84,7 +84,7 @@ TARGET_MARGIN = 0.05        # fallback default; live value in analyzer_config.js
 RISK_RESERVE_THRESHOLD = 0.40  # fallback default; live value in analyzer_config.json
 
 MIN_SALES_FOR_SCORING = 3   # fallback default; live value in analyzer_config.json
-CACHE_SCHEMA_VERSION = 2    # plan Section 13: v2 cache schema
+CACHE_SCHEMA_VERSION = 3    # v3 schema: market fields per-bucket (2b)
 
 # Phase A.2: analyzer_config.json name + schema version + factory defaults.
 # Factory defaults mirror the values bootstrapped by

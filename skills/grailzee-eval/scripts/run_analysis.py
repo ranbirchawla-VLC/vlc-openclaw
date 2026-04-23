@@ -4,6 +4,11 @@ Net-new in v2. Composes Phases 6-14: ingest (pre-done) -> score ->
 trends -> changes -> breakouts -> watchlist -> brands -> ledger ->
 cycle rollup -> output builders -> cache write.
 
+v3 (2b): Step 6 uses load_and_canonicalize + analyze_buckets.run instead of
+analyze_references.run. Output builders (analyze_brands, build_spreadsheet,
+build_summary, build_brief, build_shortlist) read the v2 flat per-ref shape
+and are wrapped with log-and-skip until 2c restores their read paths.
+
 Called by the report capability (Section 10.1):
     python3 scripts/run_analysis.py <csv> [<csv> ...] --output-dir DIR
 
@@ -20,8 +25,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
+
+_log = logging.getLogger(__name__)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 V2_ROOT = SCRIPT_DIR.parent
@@ -42,8 +50,9 @@ from scripts.grailzee_common import (
     sourcing_rules_source,
 )
 
-from scripts import analyze_references
+from scripts import analyze_buckets
 from scripts import analyze_trends
+from scripts.ingest import load_and_canonicalize
 from scripts import analyze_changes
 from scripts import analyze_breakouts
 from scripts import analyze_watchlist
@@ -84,35 +93,41 @@ def run_analysis(
     pricing_window = cfg["windows"]["pricing_reports"]
     pricing_csv_paths = csv_paths[:pricing_window]
 
-    # Step 6: Score references (pricing window sourced from analyzer_config)
-    with tracer.start_as_current_span("analyze_references.run") as span:
+    # Step 6: Score references via v3 bucket construction (CanonicalRow pipeline)
+    with tracer.start_as_current_span("analyze_buckets.run") as span:
         span.set_attribute("pricing_csv_count", len(pricing_csv_paths))
         span.set_attribute("windows.pricing_reports", pricing_window)
         try:
-            all_results = analyze_references.run(pricing_csv_paths, name_cache_path)
+            pricing_paths = [Path(p) for p in pricing_csv_paths]
+            rows, ingest_summary = load_and_canonicalize(pricing_paths)
+            span.set_attribute("canonical_rows", ingest_summary.canonical_rows_emitted)
+            all_results = analyze_buckets.run(rows, name_cache_path)
             span.set_attribute("refs_count", len(all_results.get("references", {})))
-            # B.4: homogeneous-market indicator — references (+ DJ configs)
-            # whose sales all landed in a single condition bucket.
-            all_entries = list(all_results.get("references", {}).values()) + list(
-                all_results.get("dj_configs", {}).values()
-            )
+            # B.4: buckets where all sales land in a single condition category
+            all_bucket_dicts = [
+                bd
+                for rd in (
+                    list(all_results.get("references", {}).values())
+                    + list(all_results.get("dj_configs", {}).values())
+                )
+                for bd in rd.get("buckets", {}).values()
+            ]
             span.set_attribute(
                 "condition_mix_single_bucket_count",
                 sum(
-                    1 for e in all_entries
-                    if sum(1 for v in (e.get("condition_mix") or {}).values() if v > 0) == 1
+                    1 for bd in all_bucket_dicts
+                    if sum(
+                        1 for v in (bd.get("condition_mix") or {}).values() if v > 0
+                    ) == 1
                 ),
             )
-            # B.5: calibration canary. References (+ DJ configs) where
-            # the analyzer's max_buy_nr recommendation clears at a loss
-            # on the dominant channel before any brand-floor gate. Zero
-            # today under the current max_buy formula; non-zero flags
-            # drift in the margin/fee assumptions.
+            # B.5: calibration canary; buckets where max_buy_nr clears at a loss.
+            # Zero under the current formula; non-zero flags margin/fee drift.
             span.set_attribute(
                 "negative_expected_net_nr_count",
                 sum(
-                    1 for e in all_entries
-                    if (e.get("expected_net_at_median_nr") or 0) < 0
+                    1 for bd in all_bucket_dicts
+                    if (bd.get("expected_net_at_median_nr") or 0) < 0
                 ),
             )
         except Exception as exc:
@@ -165,7 +180,8 @@ def run_analysis(
             span.set_status(StatusCode.ERROR, str(exc))
             raise
 
-    # Step 9: Brand rollups
+    # Step 9: Brand rollups (2c-restore: reads flat per-ref shape; skipped in v3)
+    brands: dict = {"brands": {}, "count": 0}
     with tracer.start_as_current_span("analyze_brands.run") as span:
         span.set_attribute("refs_count", len(all_results.get("references", {})))
         try:
@@ -173,8 +189,8 @@ def run_analysis(
             span.set_attribute("brand_count", brands.get("count", 0))
         except Exception as exc:
             span.record_exception(exc)
-            span.set_status(StatusCode.ERROR, str(exc))
-            raise
+            span.set_attribute("outcome", "skipped_2c_restore")
+            _log.warning("analyze_brands.run skipped (2c-restore; v3 bucket read-path): %s", exc)
 
     # Step 10: Ledger stats
     with tracer.start_as_current_span("read_ledger.run") as span:
@@ -218,7 +234,8 @@ def run_analysis(
         if not data.get("named", False)
     ]
 
-    # Step 14: Output builders
+    # Step 14: Output builders (2c-restore: all read flat per-ref shape; skipped in v3)
+    summary_path: str = ""
     with tracer.start_as_current_span("build_spreadsheet.run") as span:
         span.set_attribute("refs_count", len(all_results.get("references", {})))
         try:
@@ -228,8 +245,10 @@ def run_analysis(
             )
         except Exception as exc:
             span.record_exception(exc)
-            span.set_status(StatusCode.ERROR, str(exc))
-            raise
+            span.set_attribute("outcome", "skipped_2c_restore")
+            _log.warning(
+                "build_spreadsheet.run skipped (2c-restore; v3 bucket read-path): %s", exc,
+            )
 
     with tracer.start_as_current_span("build_summary.run") as span:
         span.set_attribute("cycle_id", current_cycle_id)
@@ -242,8 +261,10 @@ def run_analysis(
             span.set_attribute("output_path", summary_path)
         except Exception as exc:
             span.record_exception(exc)
-            span.set_status(StatusCode.ERROR, str(exc))
-            raise
+            span.set_attribute("outcome", "skipped_2c_restore")
+            _log.warning(
+                "build_summary.run skipped (2c-restore; v3 bucket read-path): %s", exc,
+            )
 
     with tracer.start_as_current_span("build_brief.run") as span:
         span.set_attribute("refs_count", len(all_results.get("references", {})))
@@ -253,8 +274,10 @@ def run_analysis(
             )
         except Exception as exc:
             span.record_exception(exc)
-            span.set_status(StatusCode.ERROR, str(exc))
-            raise
+            span.set_attribute("outcome", "skipped_2c_restore")
+            _log.warning(
+                "build_brief.run skipped (2c-restore; v3 bucket read-path): %s", exc,
+            )
 
     # Step 15: Cache write
     market_window = {
@@ -279,27 +302,26 @@ def run_analysis(
     # Step 16: Shortlist CSV (B.7; strategy reading-partner input).
     # Sibling artifact to the cache; writes to the cache's parent
     # directory when --cache overrides the default. Reads ``references``
-    # from the just-written cache file, NOT from in-memory
-    # ``all_results``: write_cache adds ledger-derived (confidence,
-    # B.2/B.3 enrichments) and trend-derived (momentum) fields that
-    # never land back in all_results. The cache file is the canonical
-    # post-merge per-ref shape. Orchestrator always uses the default
-    # sort_key; alt sorts are a standalone-CLI concern.
+    # from the just-written cache file, NOT from in-memory ``all_results``.
+    # 2c-restore: build_shortlist reads the v2 flat per-ref shape; skipped
+    # in v3 until the bucket read-path is implemented in 2c.
     resolved_cache_path = cache_path or CACHE_PATH
     shortlist_state_path = str(Path(resolved_cache_path).parent)
     with tracer.start_as_current_span("build_shortlist.run") as span:
         try:
             with open(resolved_cache_path, "r", encoding="utf-8") as f:
                 cache_dict = json.load(f)
-            shortlist_path = build_shortlist.run(
+            build_shortlist.run(
                 cache_dict.get("references", {}),
                 cycle_id=current_cycle_id,
                 state_path=shortlist_state_path,
             )
         except Exception as exc:
             span.record_exception(exc)
-            span.set_status(StatusCode.ERROR, str(exc))
-            raise
+            span.set_attribute("outcome", "skipped_2c_restore")
+            _log.warning(
+                "build_shortlist.run skipped (2c-restore; v3 bucket read-path): %s", exc,
+            )
 
     return {
         "summary_path": summary_path,

@@ -13,12 +13,9 @@ Sentinel references for wiring verification:
   Tudor 79830RB appears in all 3 fixture CSVs with consistent data.
 """
 
-import csv
 import json
 import os
-import statistics
 import time
-from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -48,20 +45,6 @@ def _empty_ledger(tmp_path: Path) -> str:
     return str(path)
 
 
-def _premium_ledger(tmp_path: Path) -> str:
-    """Ledger with 12 trades at ~10% premium to trigger threshold."""
-    path = tmp_path / "trade_ledger.csv"
-    rows = []
-    for i in range(12):
-        # Legacy-shape rows (no buy_date); matches post-A.6-migration
-        # state for trades that predate the prediction system.
-        rows.append(
-            f",2026-03-{i+1:02d},,cycle_2026-05,Tudor,79830RB,NR,2750,3200"
-        )
-    path.write_text(V2_LEDGER_HEADER + "\n".join(rows) + "\n")
-    return str(path)
-
-
 def _setup(tmp_path: Path, csvs=None, ledger_fn=None):
     """Common setup: create output dir, empty ledger, empty cache, return kwargs."""
     output = str(tmp_path / "output")
@@ -86,6 +69,7 @@ def _setup(tmp_path: Path, csvs=None, ledger_fn=None):
 
 
 class TestEndToEnd:
+    @pytest.mark.skip(reason="2c-restore: build_summary/build_spreadsheet/build_brief skipped in v3; files not created")
     def test_all_outputs_exist(self, tmp_path):
         """Feed 3 CSVs, assert all output files created."""
         kwargs = _setup(tmp_path)
@@ -131,13 +115,16 @@ class TestSingleCSV:
         assert isinstance(result["unnamed"], list)
 
     def test_trends_empty(self, tmp_path):
-        """Single CSV -> no trend data in cache."""
+        """Single CSV -> no trend data in cache. Post-fixup: absent
+        trend is null, not the string 'No prior data'."""
         kwargs = _setup(tmp_path, csvs=[CSV_APR])
         run_analysis(**kwargs)
         cache = json.loads(Path(kwargs["cache_path"]).read_text())
-        # With 1 CSV, trends have no entries
+        # With 1 CSV, trends have no entries -> null on every ref
         for ref_data in cache["references"].values():
-            assert ref_data["trend_signal"] == "No prior data"
+            assert ref_data["trend_signal"] is None
+            assert ref_data["trend_median_change"] is None
+            assert ref_data["trend_median_pct"] is None
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -230,246 +217,48 @@ class TestPremiumStatusInCache:
         assert cache["premium_status"]["threshold_met"] is False
         assert cache["premium_status"]["adjustment"] == 0
 
-    def test_max_buy_stays_at_plain_median(self, tmp_path):
-        """B.1 regression guard: a ledger that would have triggered
-        apply_premium_adjustment pre-B.1 (12 trades at ~10% premium)
-        must leave max_buy_nr / max_buy_res at the plain-median formula
-        values. The adjusted_max_buy formula returns different numbers;
-        asserting inequality as well catches a silent re-add of the
-        adjustment call.
-        """
-        from scripts.grailzee_common import (
-            NR_FIXED,
-            RES_FIXED,
-            adjusted_max_buy,
-            max_buy_nr,
-            max_buy_reserve,
-        )
-
-        kwargs = _setup(tmp_path, csvs=[CSV_APR], ledger_fn=_premium_ledger)
-        run_analysis(**kwargs)
-        cache = json.loads(Path(kwargs["cache_path"]).read_text())
-
-        ref = cache["references"]["79830RB"]
-        median = ref["median"]
-        expected_nr = max_buy_nr(median)
-        expected_res = max_buy_reserve(median)
-
-        assert ref["max_buy_nr"] == expected_nr
-        assert ref["max_buy_res"] == expected_res
-
-        # Belt-and-suspenders: the values that apply_premium_adjustment
-        # would have produced for a +10% premium (half = 5% adjustment)
-        # are strictly greater than the plain-median values. If a silent
-        # re-add reintroduced the call, these assertions would fail.
-        if median is not None:
-            would_be_adjusted_nr = adjusted_max_buy(median, NR_FIXED, 5.0)
-            would_be_adjusted_res = adjusted_max_buy(median, RES_FIXED, 5.0)
-            assert ref["max_buy_nr"] != would_be_adjusted_nr
-            assert ref["max_buy_res"] != would_be_adjusted_res
-
-
 # ═══════════════════════════════════════════════════════════════════════
-# premium_vs_market_pct (B.2) integration
+# Reference shape (v3 post-fixup)
 # ═══════════════════════════════════════════════════════════════════════
 
 
-class TestPremiumVsMarketIntegration:
-    """B.2 integration: the field computes correctly end-to-end through
-    the full pipeline (CSVs -> score -> ledger -> cache)."""
-
-    def test_fixture_ledger_with_above_median_sale(self, tmp_path):
-        """A ledger with a 79830RB sale above fixture median produces a
-        positive premium_vs_market_pct on the cache entry. The fixture
-        CSVs yield 79830RB median 3550.0; a sale at 3905 gives
-        (3905-3550)/3550*100 = 10.0."""
-        ledger_path = str(tmp_path / "trade_ledger.csv")
-        rows = ",2026-03-15,,cycle_2026-06,Tudor,79830RB,NR,2750,3905"
-        Path(ledger_path).write_text(V2_LEDGER_HEADER + rows + "\n")
-
-        kwargs = {
-            "csv_paths": ALL_CSVS,
-            "output_folder": str(tmp_path / "output"),
-            "ledger_path": ledger_path,
-            "cache_path": str(tmp_path / "state" / "analysis_cache.json"),
-            "backup_path": str(tmp_path / "backup"),
-            "name_cache_path": NAME_CACHE,
-            "cycle_focus_path": str(tmp_path / "no_focus.json"),
-        }
-        os.makedirs(kwargs["output_folder"], exist_ok=True)
-
-        run_analysis(**kwargs)
-        cache = json.loads(Path(kwargs["cache_path"]).read_text())
-        ref = cache["references"]["79830RB"]
-        assert ref["premium_vs_market_pct"] == 10.0
-        assert ref["premium_vs_market_sale_count"] == 1
-
-    def test_empty_ledger_zero_everywhere(self, tmp_path):
-        """Empty ledger -> every reference gets 0.0 / 0. Coverage
-        guarantees the field is present (not null) on every entry."""
-        kwargs = _setup(tmp_path)
-        run_analysis(**kwargs)
-        cache = json.loads(Path(kwargs["cache_path"]).read_text())
-        for ref_data in cache["references"].values():
-            assert ref_data["premium_vs_market_pct"] == 0.0
-            assert ref_data["premium_vs_market_sale_count"] == 0
-
-    def test_no_above_median_sale_zero(self, tmp_path):
-        """Ledger with an at-median sale -> 0.0 pct, count 1."""
-        ledger_path = str(tmp_path / "trade_ledger.csv")
-        # Fixture 79830RB median is 3550; sell exactly there.
-        rows = ",2026-03-15,,cycle_2026-06,Tudor,79830RB,NR,2750,3550"
-        Path(ledger_path).write_text(V2_LEDGER_HEADER + rows + "\n")
-
-        kwargs = {
-            "csv_paths": ALL_CSVS,
-            "output_folder": str(tmp_path / "output"),
-            "ledger_path": ledger_path,
-            "cache_path": str(tmp_path / "state" / "analysis_cache.json"),
-            "backup_path": str(tmp_path / "backup"),
-            "name_cache_path": NAME_CACHE,
-            "cycle_focus_path": str(tmp_path / "no_focus.json"),
-        }
-        os.makedirs(kwargs["output_folder"], exist_ok=True)
-
-        run_analysis(**kwargs)
-        cache = json.loads(Path(kwargs["cache_path"]).read_text())
-        ref = cache["references"]["79830RB"]
-        assert ref["premium_vs_market_pct"] == 0.0
-        assert ref["premium_vs_market_sale_count"] == 1
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# realized_premium_pct (B.3) integration
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestRealizedPremiumIntegration:
-    """B.3 integration: 30-day windowed signal behaves correctly end-to-
-    end through the pipeline. Uses today-relative ledger dates so
-    assertions are stable regardless of when pytest runs."""
-
-    def test_in_window_sale_populates(self, tmp_path):
-        """A ledger row with sell_date 5 days ago and a sale above the
-        79830RB fixture median (3550) populates realized_premium_pct
-        per the B.2 formula applied to the recent sale."""
-        recent = (date.today() - timedelta(days=5)).isoformat()
-        ledger_path = str(tmp_path / "trade_ledger.csv")
-        rows = f",{recent},,cycle_2026-06,Tudor,79830RB,NR,2750,3905"
-        Path(ledger_path).write_text(V2_LEDGER_HEADER + rows + "\n")
-
-        kwargs = {
-            "csv_paths": ALL_CSVS,
-            "output_folder": str(tmp_path / "output"),
-            "ledger_path": ledger_path,
-            "cache_path": str(tmp_path / "state" / "analysis_cache.json"),
-            "backup_path": str(tmp_path / "backup"),
-            "name_cache_path": NAME_CACHE,
-            "cycle_focus_path": str(tmp_path / "no_focus.json"),
-        }
-        os.makedirs(kwargs["output_folder"], exist_ok=True)
-        run_analysis(**kwargs)
-        cache = json.loads(Path(kwargs["cache_path"]).read_text())
-        ref = cache["references"]["79830RB"]
-        # (3905-3550)/3550*100 = 10.0
-        assert ref["realized_premium_pct"] == 10.0
-        assert ref["realized_premium_trade_count"] == 1
-
-    def test_out_of_window_sale_null(self, tmp_path):
-        """A ledger row with sell_date 45 days ago is out of window
-        -> realized_premium_pct null, trade_count 0."""
-        old = (date.today() - timedelta(days=45)).isoformat()
-        ledger_path = str(tmp_path / "trade_ledger.csv")
-        rows = f",{old},,cycle_2026-04,Tudor,79830RB,NR,2750,3905"
-        Path(ledger_path).write_text(V2_LEDGER_HEADER + rows + "\n")
-
-        kwargs = {
-            "csv_paths": ALL_CSVS,
-            "output_folder": str(tmp_path / "output"),
-            "ledger_path": ledger_path,
-            "cache_path": str(tmp_path / "state" / "analysis_cache.json"),
-            "backup_path": str(tmp_path / "backup"),
-            "name_cache_path": NAME_CACHE,
-            "cycle_focus_path": str(tmp_path / "no_focus.json"),
-        }
-        os.makedirs(kwargs["output_folder"], exist_ok=True)
-        run_analysis(**kwargs)
-        cache = json.loads(Path(kwargs["cache_path"]).read_text())
-        ref = cache["references"]["79830RB"]
-        assert ref["realized_premium_pct"] is None
-        assert ref["realized_premium_trade_count"] == 0
-
-    def test_empty_ledger_every_ref_null_zero(self, tmp_path):
-        """Empty ledger -> every reference has realized_premium_pct
-        null and realized_premium_trade_count 0."""
-        kwargs = _setup(tmp_path)
-        run_analysis(**kwargs)
-        cache = json.loads(Path(kwargs["cache_path"]).read_text())
-        for ref_data in cache["references"].values():
-            assert ref_data["realized_premium_pct"] is None
-            assert ref_data["realized_premium_trade_count"] == 0
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Sentinel values (wiring verification)
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestSentinelValues:
-    def test_reference_median_in_cache(self, tmp_path):
-        """Hand-compute 79830RB median from fixture, verify in cache.
-
-        Load the pricing window (latest 2 CSVs), extract 79830RB prices,
-        compute expected median, assert it matches cache.
-        """
+class TestReferenceShape:
+    def test_reference_has_v3_keys(self, tmp_path):
+        """Every scored reference has exactly the post-fixup v3 key set:
+        identity + trend/momentum + confidence + buckets."""
         kwargs = _setup(tmp_path)
         run_analysis(**kwargs)
         cache = json.loads(Path(kwargs["cache_path"]).read_text())
 
-        # Hand-compute from the two pricing CSVs
-        prices = []
-        for csv_path in [CSV_APR, CSV_MAR2]:
-            with open(csv_path) as f:
-                for row in csv.DictReader(f):
-                    ref = row.get("reference", "").strip()
-                    if ref == "79830RB":
-                        try:
-                            p = float(row["sold_price"])
-                            if p > 0:
-                                prices.append(p)
-                        except (ValueError, KeyError):
-                            pass
-
-        assert len(prices) > 0, "79830RB not found in fixtures"
-        expected_median = statistics.median(prices)
-
-        assert "79830RB" in cache["references"]
-        actual_median = cache["references"]["79830RB"]["median"]
-        assert actual_median == expected_median
-
-    def test_reference_has_all_cache_fields(self, tmp_path):
-        """A scored reference has every field from the v2 cache schema."""
-        kwargs = _setup(tmp_path)
-        run_analysis(**kwargs)
-        cache = json.loads(Path(kwargs["cache_path"]).read_text())
-
-        # Pick any reference
         ref_key = next(iter(cache["references"]))
         ref_data = cache["references"][ref_key]
-        expected_keys = {
-            "brand", "model", "reference", "named", "median",
-            "max_buy_nr", "max_buy_res", "risk_nr", "signal",
-            "volume", "st_pct", "momentum", "confidence",
+        expected = {
+            "brand", "model", "reference", "named",
+            "trend_signal", "trend_median_change", "trend_median_pct",
+            "momentum", "confidence", "buckets",
+        }
+        actual = set(ref_data.keys())
+        missing = expected - actual
+        assert not missing, f"Missing: {missing}"
+
+    def test_no_ripped_fields_in_cache(self, tmp_path):
+        """End-to-end regression: ripped fields never appear on any
+        reference or DJ config entry across a full pipeline run."""
+        kwargs = _setup(tmp_path)
+        run_analysis(**kwargs)
+        cache = json.loads(Path(kwargs["cache_path"]).read_text())
+        ripped = {
             "premium_vs_market_pct", "premium_vs_market_sale_count",
             "realized_premium_pct", "realized_premium_trade_count",
-            "condition_mix",
-            "capital_required_nr", "capital_required_res",
-            "expected_net_at_median_nr", "expected_net_at_median_res",
-            "trend_signal", "trend_median_change", "trend_median_pct",
+            "median", "max_buy_nr", "max_buy_res", "risk_nr", "signal",
+            "volume", "st_pct", "condition_mix",
         }
-        actual_keys = set(ref_data.keys())
-        missing = expected_keys - actual_keys
-        assert not missing, f"Missing expected per-reference keys: {missing}"
+        for ref_key, ref_data in cache["references"].items():
+            leaked = ripped & set(ref_data.keys())
+            assert not leaked, f"{ref_key}: {leaked}"
+        for cfg_name, cfg_data in cache.get("dj_configs", {}).items():
+            leaked = ripped & set(cfg_data.keys())
+            assert not leaked, f"dj_configs/{cfg_name}: {leaked}"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -499,19 +288,28 @@ class TestOutputLocation:
 
 class TestEmptyReferences:
     def test_no_qualifying_refs(self, tmp_path):
-        """CSV with all refs < 3 sales -> empty references, no crash."""
+        """CSV with all refs < 3 sales -> refs present with Low data signal, no crash.
+
+        v3 behavior: all references appear in cache with per-bucket signal="Low data"
+        rather than being excluded. v2 excluded below-threshold refs entirely.
+        """
         tiny_csv = tmp_path / "tiny.csv"
         tiny_csv.write_text(
-            "date_sold,make,reference,title,condition,papers,sold_price,sell_through_pct\n"
-            "2026-04-01,Tudor,FAKE01,Test,Very Good,Yes,1000,\n"
-            "2026-04-02,Tudor,FAKE02,Test,Excellent,Yes,2000,\n"
+            "date_sold,make,reference,title,condition,papers,sold_price,sell_through_pct,"
+            "model,year,box,dial_numerals_raw,url\n"
+            "2026-04-01,Tudor,FAKE01,Test Arabic,Very Good,Yes,1000,,,,,Arabic Numerals,\n"
+            "2026-04-02,Tudor,FAKE02,Test Arabic,Excellent,Yes,2000,,,,,Arabic Numerals,\n"
         )
         kwargs = _setup(tmp_path, csvs=[str(tiny_csv)])
         result = run_analysis(**kwargs)
         cache = json.loads(Path(kwargs["cache_path"]).read_text())
-        assert cache["references"] == {}
-        assert cache["summary"]["total_references"] == 0
-        assert result["unnamed"] == []
+        # v3: below-threshold refs ARE in cache with Low data buckets
+        assert "FAKE01" in cache["references"]
+        assert "FAKE02" in cache["references"]
+        for ref_data in cache["references"].values():
+            for bd in ref_data["buckets"].values():
+                assert bd["signal"] == "Low data"
+        assert isinstance(result["unnamed"], list)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -597,7 +395,7 @@ class TestReturnShape:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# B.7 — shortlist CSV emitted by orchestrator
+# B.7; shortlist CSV emitted by orchestrator
 # ═══════════════════════════════════════════════════════════════════════
 
 

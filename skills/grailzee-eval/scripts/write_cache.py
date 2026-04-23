@@ -1,9 +1,16 @@
-"""Write analysis_cache.json (v2 schema) per guide Section 13.
+"""Write analysis_cache.json (v3 schema) per schema v3 Decision Lock 2026-04-24.
 
-Extracted from v1 write_cache.py (232 lines). Schema upgraded from v1
-(schema_version 1) to v2. Backup rotation and run history preserved.
-Per-reference shape simplified (v2 references are already flat; no
-flatten_entry needed).
+Upgraded from v2 (schema_version 2) to v3 (schema_version 3). Market fields
+move per-bucket; the only reference-level derived field is `confidence`
+(own-ledger trade rollup, not a per-bucket synthesis). Bucket construction
+and scoring consumed from analyze_buckets.py.
+
+Per G4 (patched 2026-04-24) + 2b fixup 2026-04-24: market fields are
+per-bucket; `confidence` is reference-level (own-ledger summary); trend
+and momentum are reference-level (cross-report data from analyze_trends.py).
+Ledger-vs-market comparison (premium_vs_market, realized_premium) is NOT
+produced here; it moves to strategy-session time in 2c where the ledger
+entry's own bucket keying supplies the matching-bucket median.
 
 Usage:
     Called by orchestrator: write_cache.run(all_results, trends, changes,
@@ -17,14 +24,12 @@ import os
 import shutil
 import statistics
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 V2_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(V2_ROOT))
-
-from opentelemetry.trace import get_current_span
 
 from scripts.grailzee_common import (
     BACKUP_PATH,
@@ -69,7 +74,7 @@ def _trade_matches_cache_ref(trade: dict, reference: str) -> bool:
     ``read_ledger._compute_derived_fields`` successfully stamped one
     (requires the cache to have been loaded at read time). Falls back
     to a single-key ``resolve_to_cache_ref`` when the field is absent
-    or null — the common case on the run_analysis first-pass, since
+    or null; the common case on the run_analysis first-pass, since
     the cache file is written AFTER read_ledger has already run, so
     read_ledger's call sees an empty cache and stamps ``None``.
     """
@@ -109,108 +114,6 @@ def _confidence_from_trades(
     }
 
 
-def _premium_vs_market_from_trades(
-    trades: list[dict],
-    brand: str,
-    reference: str,
-    current_median: float | None,
-) -> tuple[float, int]:
-    """Compute (premium_vs_market_pct, premium_vs_market_sale_count) per B.2.
-
-    Most-recent Vardalux sale on the reference vs current market median.
-    Zero-floored: no matching trades, indeterminate median, or a most-
-    recent sale at-or-below the current median all collapse to 0.0.
-    The count reports total matching trades regardless of premium sign,
-    mirroring realized_premium_trade_count's precedent for B.3.
-
-    Tiebreak: two sales on the same ``sell_date`` resolve by highest
-    ``sell_price``. New convention with B.2; no prior codebase precedent
-    for most-recent-row tiebreak exists.
-
-    Brand+reference match mirrors ``_confidence_from_trades`` and
-    uses ``_trade_matches_cache_ref`` so per-piece inventory IDs join
-    to the canonical cache entry.
-    """
-    matching = [
-        t for t in trades
-        if t.get("brand", "").lower() == brand.lower()
-        and _trade_matches_cache_ref(t, reference)
-    ]
-    sale_count = len(matching)
-    if not matching or current_median is None or current_median <= 0:
-        return 0.0, sale_count
-    most_recent = max(
-        matching,
-        key=lambda t: (t["sell_date"], t["sell_price"]),
-    )
-    sale_price = most_recent["sell_price"]
-    if sale_price <= current_median:
-        return 0.0, sale_count
-    pct = round((sale_price - current_median) / current_median * 100, 1)
-    return pct, sale_count
-
-
-def _realized_premium_from_trades(
-    trades: list[dict],
-    brand: str,
-    reference: str,
-    current_median: float | None,
-    today: date,
-    window_days: int = 30,
-) -> tuple[float | None, int]:
-    """Compute (realized_premium_pct, realized_premium_trade_count) per B.3.
-
-    Recency-bounded version of B.2's signal: most-recent Vardalux sale
-    on the reference **within the last ``window_days``** vs current
-    market median. Window is inclusive on both ends — a sell exactly
-    ``window_days`` before ``today`` is in window.
-
-    Returns:
-      * ``(None, 0)`` — no matching in-window trade (B.3's distinct
-        "no recent data" signal, contrasted with B.2's zero-floor
-        "no data ever" signal)
-      * ``(None, count)`` — in-window trades exist but current_median
-        is indeterminate (can't compute pct)
-      * ``(pct, count)`` — normal case; pct is NOT zero-floored, so a
-        below-median recent clearing produces a negative number and
-        strategy reads raw
-
-    Tiebreak: two sells on the same ``sell_date`` resolve by highest
-    ``sell_price`` (same convention as B.2).
-
-    Brand+reference match goes through ``_trade_matches_cache_ref`` so
-    per-piece inventory IDs join to the canonical cache entry.
-    """
-    window_start = today - timedelta(days=window_days)
-    matching = [
-        t for t in trades
-        if t.get("brand", "").lower() == brand.lower()
-        and _trade_matches_cache_ref(t, reference)
-    ]
-    in_window: list[tuple[date, dict]] = []
-    for t in matching:
-        sd_str = t.get("sell_date", "")
-        if not sd_str:
-            continue
-        try:
-            sd = date.fromisoformat(sd_str)
-        except (TypeError, ValueError):
-            continue
-        if sd >= window_start and sd <= today:
-            in_window.append((sd, t))
-    count = len(in_window)
-    if not in_window:
-        return None, 0
-    if current_median is None or current_median <= 0:
-        return None, count
-    most_recent_sd, most_recent_trade = max(
-        in_window, key=lambda p: (p[0], p[1]["sell_price"]),
-    )
-    sale_price = most_recent_trade["sell_price"]
-    pct = round((sale_price - current_median) / current_median * 100, 1)
-    return pct, count
-
-
 def _build_premium_status(trades: list[dict]) -> dict:
     """Compute premium_status block from enriched ledger trades."""
     ps = calculate_presentation_premium(trades)
@@ -242,15 +145,22 @@ def write_cache(
     backup_path: str | None = None,
     today: date | None = None,
 ) -> str:
-    """Write analysis_cache.json (v2 schema). Returns output path.
+    """Write analysis_cache.json (v3 schema). Returns output path.
 
-    ``today`` anchors the B.3 realized-premium 30-day window. Defaults
-    to ``date.today()`` in live runs; tests pass a fixed date so the
-    assertions stay stable across pytest-run dates.
+    ``today`` reserved for future ledger-window work; currently unused
+    by v3 write_cache after the 2b fixup removed the realized-premium
+    window from the cache shape. Kept in the signature so callers
+    (run_analysis, tests) do not need to change.
+
+    v3 shape: market fields live in per-bucket dicts inside each reference
+    entry's ``buckets`` key. `confidence` (own-ledger trade rollup) and
+    trend/momentum remain at reference level. Ledger-vs-market comparison
+    is NOT in the cache; strategy session computes it at read time with
+    bucket-aware median lookup.
     """
     out = cache_path or CACHE_PATH
     bak = backup_path or BACKUP_PATH
-    today = today or date.today()
+    _ = today  # reserved; see docstring
 
     # Backup previous cache
     _backup_existing(out, bak)
@@ -269,92 +179,50 @@ def write_cache(
     # Premium status
     premium_status = _build_premium_status(ledger_trades)
 
-    # Per-reference cache entries
+    # Per-reference cache entries (v3: market fields live in buckets dict)
     cache_refs: dict[str, dict] = {}
     for ref, rd in refs.items():
-        t_entry = trend_by_ref.get(ref, {})
-        pvm_pct, pvm_count = _premium_vs_market_from_trades(
-            ledger_trades, rd.get("brand", ""), ref, rd.get("median"),
-        )
-        rp_pct, rp_count = _realized_premium_from_trades(
-            ledger_trades, rd.get("brand", ""), ref,
-            rd.get("median"), today,
-        )
+        t_entry = trend_by_ref.get(ref)
         entry = {
             "brand": rd.get("brand", ""),
             "model": rd.get("model", ""),
             "reference": ref,
             "named": rd.get("named", False),
-            "median": rd.get("median"),
-            "max_buy_nr": rd.get("max_buy_nr"),
-            "max_buy_res": rd.get("max_buy_res"),
-            "risk_nr": rd.get("risk_nr"),
-            "signal": rd.get("signal", "Low data"),
-            "volume": rd.get("volume", 0),
-            "st_pct": rd.get("st_pct"),
+            "trend_signal": t_entry.get("signal_str") if t_entry else None,
+            "trend_median_change": t_entry.get("med_change") if t_entry else None,
+            "trend_median_pct": t_entry.get("med_pct") if t_entry else None,
             "momentum": momentum_map.get(ref),
             "confidence": _confidence_from_trades(
                 ledger_trades, rd.get("brand", ""), ref,
             ),
-            "premium_vs_market_pct": pvm_pct,
-            "premium_vs_market_sale_count": pvm_count,
-            "realized_premium_pct": rp_pct,
-            "realized_premium_trade_count": rp_count,
-            "condition_mix": rd.get("condition_mix"),
-            "capital_required_nr": rd.get("capital_required_nr"),
-            "capital_required_res": rd.get("capital_required_res"),
-            "expected_net_at_median_nr": rd.get("expected_net_at_median_nr"),
-            "expected_net_at_median_res": rd.get("expected_net_at_median_res"),
-            "trend_signal": t_entry.get("signal_str", "No prior data"),
-            "trend_median_change": t_entry.get("med_change", 0),
-            "trend_median_pct": t_entry.get("med_pct", 0),
+            "buckets": rd.get("buckets", {}),
         }
         cache_refs[ref] = entry
 
-    # DJ configs inherit premium_vs_market_* and realized_premium_* from
-    # parent reference 126300 per B.2/B.3 addendum: Grailzee Pro data
-    # lacks dial-color granularity so per-config computation isn't
-    # supportable from the source. If the parent isn't present in
-    # cache_refs (e.g. didn't meet min_sales this run), configs fall
-    # back to B.2 (0.0, 0) / B.3 (None, 0).
-    parent = cache_refs.get(DJ_PARENT_REFERENCE, {})
-    parent_pvm_pct = parent.get("premium_vs_market_pct", 0.0)
-    parent_pvm_count = parent.get("premium_vs_market_sale_count", 0)
-    parent_rp_pct = parent.get("realized_premium_pct", None)
-    parent_rp_count = parent.get("realized_premium_trade_count", 0)
+    # DJ configs: confidence is always None (no per-config ledger join).
+    # Trend/momentum are reference-level per Patch 2; DJ configs have no
+    # independent trend series, so they receive nulls (not synthesized
+    # defaults).
     for cfg_entry in dj_configs.values():
-        cfg_entry["premium_vs_market_pct"] = parent_pvm_pct
-        cfg_entry["premium_vs_market_sale_count"] = parent_pvm_count
-        cfg_entry["realized_premium_pct"] = parent_rp_pct
-        cfg_entry["realized_premium_trade_count"] = parent_rp_count
-
-    # Coverage signals on the active span (the caller's write_cache.run
-    # span in run_analysis.py, or write_cache.main()'s span). Silent
-    # no-op outside any span context.
-    span = get_current_span()
-    all_entries = list(cache_refs.values()) + list(dj_configs.values())
-    span.set_attribute(
-        "premium_vs_market_pct_nonzero_count",
-        sum(1 for e in all_entries if (e.get("premium_vs_market_pct") or 0) > 0),
-    )
-    span.set_attribute(
-        "realized_premium_pct_populated_count",
-        sum(1 for e in all_entries if e.get("realized_premium_pct") is not None),
-    )
+        cfg_entry["confidence"] = None
+        cfg_entry["trend_signal"] = None
+        cfg_entry["trend_median_change"] = None
+        cfg_entry["trend_median_pct"] = None
+        cfg_entry["momentum"] = None
 
     # Hot references: set union of emerged refs and breakout refs
     emerged_set = set(changes.get("emerged", []))
     breakout_set = set(b["reference"] for b in breakouts.get("breakouts", []))
     hot_count = len(emerged_set | breakout_set)
 
-    # Summary
+    # Summary: counts are over references, changes, breakouts, watchlist.
+    # Per-signal reference counts (strong/normal/reserve/caution) are NOT
+    # in summary in v3 post-fixup: signal is per-bucket, so "Strong count"
+    # at reference level is synthesis. Strategy consumers compute what
+    # they need from the bucket layer.
     ref_entries = list(cache_refs.values())
     summary = {
         "total_references": len(ref_entries),
-        "strong_count": sum(1 for e in ref_entries if e["signal"] == "Strong"),
-        "normal_count": sum(1 for e in ref_entries if e["signal"] == "Normal"),
-        "reserve_count": sum(1 for e in ref_entries if e["signal"] == "Reserve"),
-        "caution_count": sum(1 for e in ref_entries if e["signal"] == "Careful"),
         "emerged_count": len(changes.get("emerged", [])),
         "breakout_count": len(breakouts.get("breakouts", [])),
         "watchlist_count": len(watchlist.get("watchlist", [])),

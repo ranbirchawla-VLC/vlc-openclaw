@@ -1,35 +1,27 @@
-"""Tests for scripts.write_cache; analysis_cache.json (v2 schema) per guide Section 13.
+"""Tests for scripts.write_cache; analysis_cache.json (v3 schema) per schema v2.0 doc.
 
-Extraction from v1 write_cache.py. Schema upgraded to v2. v1/v2 delta
-tested via full deep-dict equality against hand-computed expected cache.
+v3 post-fixup 2026-04-24: market fields live in buckets; reference-level
+fields are identity + trend/momentum + `confidence` only. Ledger-vs-market
+comparison (premium_vs_market, realized_premium) is no longer in the cache;
+strategy session computes it at read time. Cross-bucket signal aggregates
+(strong_count etc.) are no longer in summary.
 
 Hand-computed fixture:
-──────────────────────────────────────────────────────────────────────
-  Ref 79830RB: brand=Tudor, model=BB GMT, named=True,
-    median=3200, max_buy_nr=2910, max_buy_res=2770, risk_nr=8.0,
-    signal=Strong, volume=5, st_pct=0.6
-  Ref A17320: brand=Breitling, model=SO Heritage, named=True,
-    median=2400, risk_nr=25.0, signal=Reserve, volume=3
-  Ref NEW123: brand=Unknown, model=NEW123, named=False,
-    median=5000, signal=Normal, volume=4
+  Ref 79830RB: brand=Tudor, model=BB GMT, named=True (buckets empty in
+    fixture; per-bucket shape covered by test_analyze_buckets.py).
+  Ref A17320: brand=Breitling, model=SO Heritage, named=True.
+  Ref NEW123: brand=Unknown, model=NEW123, named=False.
 
   Emerged: [NEW123]  Breakouts: [{ref: 79830RB, signals: [...]}]
   hot_references = |{NEW123} union {79830RB}| = 2
 
-  Summary (3 refs): strong=1, normal=1, reserve=1, caution=0,
-    emerged=1, breakout=1, watchlist=1, unnamed=1, hot=2
-
-  Ledger trades (for premium + confidence):
+  Ledger trades (for confidence):
     Tudor 79830RB: buy=2750, sell=3200, NR -> net=301, roi=10.95
-    Premium: 1 trade, avg_premium=0 (no median_at_trade), threshold not met,
-      trades_to_threshold=9
-──────────────────────────────────────────────────────────────────────
 """
 
 import json
 import os
-import time
-from datetime import date, datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -145,11 +137,11 @@ class TestFullSchema:
         missing = expected_keys - actual_keys
         assert not missing, f"Missing expected top-level keys: {missing}"
 
-    def test_schema_version_is_2(self, tmp_path):
+    def test_schema_version_is_3(self, tmp_path):
         path = write_cache(*_fixture(tmp_path))
         cache = _load(path)
-        assert cache["schema_version"] == 2
-        assert CACHE_SCHEMA_VERSION == 2
+        assert cache["schema_version"] == 3
+        assert CACHE_SCHEMA_VERSION == 3
 
     def test_generated_at_iso8601(self, tmp_path):
         path = write_cache(*_fixture(tmp_path))
@@ -173,47 +165,47 @@ class TestFullSchema:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Per-reference shape
+# Per-reference shape (v3 post-fixup)
 # ═══════════════════════════════════════════════════════════════════════
 
 
 class TestPerReferenceShape:
-    def test_all_fields_present(self, tmp_path):
+    """v3 reference entries carry identity + trend/momentum + `confidence` +
+    `buckets` only. No reference-level market fields; no premium_vs_market;
+    no realized_premium; no dominant-median proxy."""
+
+    def test_expected_keys_present(self, tmp_path):
         path = write_cache(*_fixture(tmp_path))
         cache = _load(path)
         ref = cache["references"]["79830RB"]
-        expected_keys = {
-            "brand", "model", "reference", "named", "median",
-            "max_buy_nr", "max_buy_res", "risk_nr", "signal",
-            "volume", "st_pct", "momentum", "confidence",
-            "premium_vs_market_pct", "premium_vs_market_sale_count",
-            "realized_premium_pct", "realized_premium_trade_count",
-            "condition_mix",
-            "capital_required_nr", "capital_required_res",
-            "expected_net_at_median_nr", "expected_net_at_median_res",
+        expected = {
+            "brand", "model", "reference", "named",
             "trend_signal", "trend_median_change", "trend_median_pct",
+            "momentum", "confidence", "buckets",
         }
-        actual_keys = set(ref.keys())
-        missing = expected_keys - actual_keys
+        actual = set(ref.keys())
+        missing = expected - actual
         assert not missing, f"Missing expected per-reference keys: {missing}"
 
-    def test_extra_keys_tolerated(self, tmp_path):
-        """Subset assertion doesn't regress on additive-field additions.
-
-        Decorate a reference entry in-memory with an extra key and
-        re-run the shape check logic. Subset holds; strict equality
-        would have broken. Regression guard for the B.5 preamble flip.
-        """
+    def test_ripped_fields_absent(self, tmp_path):
+        """Regression guard against judgment-creep re-adding the ripped
+        fields. If any of these names comes back, the rip lost."""
         path = write_cache(*_fixture(tmp_path))
         cache = _load(path)
-        ref = dict(cache["references"]["79830RB"])
-        ref["hypothetical_future_field"] = 123
-        expected_keys = {"brand", "model", "reference", "median"}
-        actual_keys = set(ref.keys())
-        missing = expected_keys - actual_keys
-        assert not missing
+        ripped = {
+            "premium_vs_market_pct", "premium_vs_market_sale_count",
+            "realized_premium_pct", "realized_premium_trade_count",
+            "median", "max_buy_nr", "max_buy_res", "risk_nr", "signal",
+            "volume", "st_pct", "condition_mix",
+            "capital_required_nr", "capital_required_res",
+            "expected_net_at_median_nr", "expected_net_at_median_res",
+        }
+        for ref_key, ref_entry in cache["references"].items():
+            leaked = ripped & set(ref_entry.keys())
+            assert not leaked, f"{ref_key}: ripped fields leaked: {leaked}"
 
-    def test_fully_populated_reference(self, tmp_path):
+    def test_identity_values(self, tmp_path):
+        """Identity fields (brand, model, reference, named) match input."""
         path = write_cache(*_fixture(tmp_path))
         cache = _load(path)
         ref = cache["references"]["79830RB"]
@@ -221,17 +213,35 @@ class TestPerReferenceShape:
         assert ref["model"] == "BB GMT"
         assert ref["reference"] == "79830RB"
         assert ref["named"] is True
-        assert ref["median"] == 3200
-        assert ref["max_buy_nr"] == 2910
-        assert ref["max_buy_res"] == 2770
-        assert ref["risk_nr"] == 8.0
-        assert ref["signal"] == "Strong"
-        assert ref["volume"] == 5
-        assert ref["st_pct"] == 0.6
-        assert ref["momentum"] == {"score": 2, "label": "Heating Up"}
+
+    def test_trend_threaded(self, tmp_path):
+        """79830RB has a trend entry -> trend_signal/change/pct carry it."""
+        path = write_cache(*_fixture(tmp_path))
+        cache = _load(path)
+        ref = cache["references"]["79830RB"]
         assert ref["trend_signal"] == "Momentum"
         assert ref["trend_median_change"] == 200
         assert ref["trend_median_pct"] == 6.67
+        assert ref["momentum"] == {"score": 2, "label": "Heating Up"}
+
+    def test_buckets_passed_through(self, tmp_path):
+        """buckets dict on input -> buckets dict on output (unchanged)."""
+        args = list(_fixture(tmp_path))
+        args[0]["references"]["79830RB"]["buckets"] = {
+            "arabic|nr|black": {"signal": "Strong", "volume": 5},
+        }
+        path = write_cache(*tuple(args))
+        cache = _load(path)
+        assert cache["references"]["79830RB"]["buckets"] == {
+            "arabic|nr|black": {"signal": "Strong", "volume": 5},
+        }
+
+    def test_buckets_default_empty(self, tmp_path):
+        """Reference input without a `buckets` field -> entry has `buckets: {}`."""
+        path = write_cache(*_fixture(tmp_path))
+        cache = _load(path)
+        # Fixture _ref() doesn't set buckets
+        assert cache["references"]["79830RB"]["buckets"] == {}
 
     def test_confidence_from_ledger(self, tmp_path):
         """79830RB has 1 trade: net=301 > 0. roi=10.95. No premium data."""
@@ -248,226 +258,17 @@ class TestPerReferenceShape:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# premium_vs_market_pct + premium_vs_market_sale_count (B.2)
+# DJ config shape (v3 post-fixup)
 # ═══════════════════════════════════════════════════════════════════════
 
 
-class TestPremiumVsMarket:
-    """B.2: most-recent Vardalux sale on the reference vs current market
-    median. Zero-floored; sale count reports total matching trades
-    regardless of premium sign."""
+class TestDJConfigShape:
+    """DJ config entries: identity fields carry inherited/declared values;
+    confidence and trend fields are always null (no per-config ledger
+    or trend data). No premium_vs_market / realized_premium inheritance
+    in v3 post-fixup."""
 
-    def _build_args(self, tmp_path, ref_median, trades):
-        """Build write_cache args with a single reference at given median
-        and a custom trades list."""
-        args = list(_fixture(tmp_path))
-        args[0] = {
-            "references": {"79830RB": _ref(median=ref_median)},
-            "dj_configs": {},
-            "unnamed": [],
-        }
-        args[6] = {"trades": trades, "summary": {"total_trades": len(trades)}}
-        return tuple(args)
-
-    def test_no_sale_zero(self, tmp_path):
-        """Reference with no matching ledger trades -> 0.0, count 0."""
-        path = write_cache(*self._build_args(tmp_path, 3200, []))
-        ref = _load(path)["references"]["79830RB"]
-        assert ref["premium_vs_market_pct"] == 0.0
-        assert ref["premium_vs_market_sale_count"] == 0
-
-    def test_sale_above_median_positive_pct(self, tmp_path):
-        """Most recent sale at 3520 vs median 3200 -> (3520-3200)/3200*100
-        = 10.0."""
-        trades = [_trade(sell=3520)]
-        path = write_cache(*self._build_args(tmp_path, 3200, trades))
-        ref = _load(path)["references"]["79830RB"]
-        assert ref["premium_vs_market_pct"] == 10.0
-        assert ref["premium_vs_market_sale_count"] == 1
-
-    def test_sale_at_median_zero(self, tmp_path):
-        """Sale at exactly median -> 0.0 (floor)."""
-        trades = [_trade(sell=3200)]
-        path = write_cache(*self._build_args(tmp_path, 3200, trades))
-        ref = _load(path)["references"]["79830RB"]
-        assert ref["premium_vs_market_pct"] == 0.0
-        assert ref["premium_vs_market_sale_count"] == 1
-
-    def test_sale_below_median_zero(self, tmp_path):
-        """Sale below median -> 0.0 (floor); count still reports trade."""
-        trades = [_trade(sell=3000)]
-        path = write_cache(*self._build_args(tmp_path, 3200, trades))
-        ref = _load(path)["references"]["79830RB"]
-        assert ref["premium_vs_market_pct"] == 0.0
-        assert ref["premium_vs_market_sale_count"] == 1
-
-    def test_only_most_recent_contributes(self, tmp_path):
-        """Older sale above median + newer sale below median -> 0.0.
-        Older sale must not leak into the value."""
-        old_high = {**_trade(sell=4000), "sell_date": "2026-01-05"}
-        recent_low = {**_trade(sell=3000), "sell_date": "2026-03-15"}
-        trades = [old_high, recent_low]
-        path = write_cache(*self._build_args(tmp_path, 3200, trades))
-        ref = _load(path)["references"]["79830RB"]
-        assert ref["premium_vs_market_pct"] == 0.0
-        assert ref["premium_vs_market_sale_count"] == 2
-
-    def test_only_most_recent_contributes_inverse(self, tmp_path):
-        """Older sale at median + newer sale above median -> positive pct
-        from the newer sale only."""
-        old_at = {**_trade(sell=3200), "sell_date": "2026-01-05"}
-        recent_high = {**_trade(sell=3520), "sell_date": "2026-03-15"}
-        trades = [old_at, recent_high]
-        path = write_cache(*self._build_args(tmp_path, 3200, trades))
-        ref = _load(path)["references"]["79830RB"]
-        assert ref["premium_vs_market_pct"] == 10.0
-        assert ref["premium_vs_market_sale_count"] == 2
-
-    def test_same_date_tiebreak_highest_price_wins(self, tmp_path):
-        """Two sales on same sell_date -> highest sell_price is the
-        'most recent' for premium purposes (new tiebreak convention)."""
-        lo = {**_trade(sell=3300), "sell_date": "2026-03-15"}
-        hi = {**_trade(sell=3600), "sell_date": "2026-03-15"}
-        trades = [lo, hi]
-        path = write_cache(*self._build_args(tmp_path, 3200, trades))
-        ref = _load(path)["references"]["79830RB"]
-        # hi wins: (3600-3200)/3200*100 = 12.5
-        assert ref["premium_vs_market_pct"] == 12.5
-        assert ref["premium_vs_market_sale_count"] == 2
-
-    def test_cross_brand_same_reference_isolated(self, tmp_path):
-        """A trade with the same reference under a different brand must
-        not contaminate the computation. Mirrors the cross-brand
-        isolation in _confidence_from_trades."""
-        foreign = _trade(brand="Breitling", sell=5000)
-        trades = [foreign]
-        path = write_cache(*self._build_args(tmp_path, 3200, trades))
-        ref = _load(path)["references"]["79830RB"]
-        assert ref["premium_vs_market_pct"] == 0.0
-        assert ref["premium_vs_market_sale_count"] == 0
-
-    def test_zero_median_collapses_to_zero(self, tmp_path):
-        """Degenerate current_median (0 or None) -> 0.0 despite sales
-        present. Count still reports matching trades."""
-        trades = [_trade(sell=3520)]
-        path = write_cache(*self._build_args(tmp_path, 0, trades))
-        ref = _load(path)["references"]["79830RB"]
-        assert ref["premium_vs_market_pct"] == 0.0
-        assert ref["premium_vs_market_sale_count"] == 1
-
-    def test_dj_configs_inherit_parent(self, tmp_path):
-        """Per the B.2 addendum: DJ configs carry parent reference
-        126300's values, because Grailzee Pro lacks dial-color
-        granularity."""
-        args = list(_fixture(tmp_path))
-        args[0] = {
-            "references": {"126300": _ref(
-                brand="Rolex", model="DJ 41", reference="126300",
-                median=10000, max_buy_nr=9100, max_buy_res=8900,
-                risk_nr=5.0, signal="Strong", volume=50, st_pct=0.7,
-            )},
-            "dj_configs": {
-                "Rose/Jubilee": {
-                    "brand": "Rolex", "model": "DJ 41 Rose/Jubilee",
-                    "reference": "126300", "section": "dj_config",
-                    "median": 10500, "max_buy_nr": 9500, "max_buy_res": 9200,
-                    "risk_nr": 4.0, "signal": "Strong", "volume": 20,
-                    "st_pct": 0.75,
-                },
-                "Olive/Oyster": {
-                    "brand": "Rolex", "model": "DJ 41 Olive/Oyster",
-                    "reference": "126300", "section": "dj_config",
-                    "median": 9800, "max_buy_nr": 8800, "max_buy_res": 8600,
-                    "risk_nr": 6.0, "signal": "Normal", "volume": 15,
-                    "st_pct": 0.65,
-                },
-            },
-            "unnamed": [],
-        }
-        # One trade on parent 126300 at sell=11000 vs median 10000 -> 10.0
-        args[6] = {
-            "trades": [_trade(
-                brand="Rolex", reference="126300", sell=11000,
-            )],
-            "summary": {"total_trades": 1},
-        }
-        path = write_cache(*tuple(args))
-        cache = _load(path)
-
-        parent = cache["references"]["126300"]
-        assert parent["premium_vs_market_pct"] == 10.0
-        assert parent["premium_vs_market_sale_count"] == 1
-
-        for cfg_name in ("Rose/Jubilee", "Olive/Oyster"):
-            cfg = cache["dj_configs"][cfg_name]
-            assert cfg["premium_vs_market_pct"] == 10.0
-            assert cfg["premium_vs_market_sale_count"] == 1
-
-    def test_m_prefix_ledger_row_joins_canonical_cache(self, tmp_path):
-        """A ledger row logged with the Tudor per-piece inventory ID
-        (M-prefix + 4-digit sequence) must join to the cache entry
-        keyed on the canonical reference. Regression guard for the
-        normalization gap that silenced 6 of 14 live ledger rows in B.2."""
-        inventory_trade = {
-            **_trade(reference="M28500-0005", sell=2400),
-            "sell_date": "2026-04-19",
-        }
-        args = list(self._build_args(tmp_path, 2025, [inventory_trade]))
-        args[0]["references"] = {"28500": _ref(
-            brand="Tudor", model="Black Bay 58", reference="28500",
-            median=2025, max_buy_nr=1790, max_buy_res=1740,
-            risk_nr=10.0, signal="Normal", volume=10, st_pct=0.5,
-        )}
-        path = write_cache(*tuple(args))
-        ref = _load(path)["references"]["28500"]
-        # (2400-2025)/2025*100 = 18.518... -> 18.5
-        assert ref["premium_vs_market_pct"] == 18.5
-        assert ref["premium_vs_market_sale_count"] == 1
-
-    def test_m_prefix_and_canonical_rows_coalesce(self, tmp_path):
-        """Two rows for the same reference — one canonical, one with
-        M-prefix inventory ID — must both land in the same cache
-        entry's sale_count. Most-recent by sell_date wins for pct."""
-        canonical_trade = {
-            **_trade(sell=2130, reference="28500"),
-            "sell_date": "2026-02-16",
-        }
-        inventory_trade = {
-            **_trade(sell=2400, reference="M28500-0005"),
-            "sell_date": "2026-04-19",
-        }
-        args = list(self._build_args(
-            tmp_path, 2025, [canonical_trade, inventory_trade]
-        ))
-        args[0]["references"] = {"28500": _ref(
-            brand="Tudor", model="Black Bay 58", reference="28500",
-            median=2025, max_buy_nr=1790, max_buy_res=1740,
-            risk_nr=10.0, signal="Normal", volume=10, st_pct=0.5,
-        )}
-        path = write_cache(*tuple(args))
-        ref = _load(path)["references"]["28500"]
-        # Most recent = Apr 19 inventory trade at 2400
-        assert ref["premium_vs_market_pct"] == 18.5
-        assert ref["premium_vs_market_sale_count"] == 2
-
-    def test_canonical_cache_m_prefix_lookup_negative(self, tmp_path):
-        """Cross-check: a canonical ref in the cache with no matching
-        ledger row (canonical or M-prefix) still produces zero signal.
-        No false positives from normalization."""
-        stray_trade = {
-            **_trade(reference="M99999-0001", sell=5000),
-            "sell_date": "2026-04-19",
-        }
-        args = list(self._build_args(tmp_path, 2025, [stray_trade]))
-        args[0]["references"] = {"28500": _ref(median=2025)}
-        path = write_cache(*tuple(args))
-        ref = _load(path)["references"]["28500"]
-        assert ref["premium_vs_market_pct"] == 0.0
-        assert ref["premium_vs_market_sale_count"] == 0
-
-    def test_dj_configs_fall_back_when_parent_absent(self, tmp_path):
-        """DJ configs without the parent 126300 in references get
-        (0.0, 0) rather than crashing."""
+    def _dj_args(self, tmp_path):
         args = list(_fixture(tmp_path))
         args[0] = {
             "references": {},
@@ -475,235 +276,40 @@ class TestPremiumVsMarket:
                 "Rose/Jubilee": {
                     "brand": "Rolex", "model": "DJ 41 Rose/Jubilee",
                     "reference": "126300", "section": "dj_config",
-                    "median": 10500, "max_buy_nr": 9500, "max_buy_res": 9200,
-                    "risk_nr": 4.0, "signal": "Strong", "volume": 20,
-                    "st_pct": 0.75,
+                    "buckets": {},
                 },
             },
             "unnamed": [],
         }
         args[6] = {"trades": [], "summary": {"total_trades": 0}}
-        path = write_cache(*tuple(args))
-        cache = _load(path)
-
-        assert "126300" not in cache["references"]
-        cfg = cache["dj_configs"]["Rose/Jubilee"]
-        assert cfg["premium_vs_market_pct"] == 0.0
-        assert cfg["premium_vs_market_sale_count"] == 0
-        assert cfg["realized_premium_pct"] is None
-        assert cfg["realized_premium_trade_count"] == 0
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# realized_premium_pct + realized_premium_trade_count (B.3)
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestRealizedPremium:
-    """B.3: recency-bounded (30-day) version of B.2's signal. Most-recent
-    in-window sale vs current median. Null if no in-window sale; counts
-    include zero; negative pct permitted (below-median clearing).
-    """
-
-    TODAY = date(2026, 4, 21)
-
-    def _build_args(self, tmp_path, ref_median, trades):
-        args = list(_fixture(tmp_path))
-        args[0] = {
-            "references": {"79830RB": _ref(median=ref_median)},
-            "dj_configs": {},
-            "unnamed": [],
-        }
-        args[6] = {"trades": trades, "summary": {"total_trades": len(trades)}}
         return tuple(args)
 
-    def test_no_in_window_sale_null_and_zero(self, tmp_path):
-        """No matching in-window trade -> (None, 0). This is B.3's
-        distinct 'no recent data' signal, contrasted with B.2's zero."""
-        path = write_cache(*self._build_args(tmp_path, 3200, []),
-                           today=self.TODAY)
-        ref = _load(path)["references"]["79830RB"]
-        assert ref["realized_premium_pct"] is None
-        assert ref["realized_premium_trade_count"] == 0
-
-    def test_single_in_window_above_median(self, tmp_path):
-        """One in-window sale at 3520 vs median 3200 -> pct 10.0."""
-        recent = {**_trade(sell=3520),
-                  "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
-        path = write_cache(*self._build_args(tmp_path, 3200, [recent]),
-                           today=self.TODAY)
-        ref = _load(path)["references"]["79830RB"]
-        assert ref["realized_premium_pct"] == 10.0
-        assert ref["realized_premium_trade_count"] == 1
-
-    def test_below_median_produces_negative_pct(self, tmp_path):
-        """Recent below-median clearing produces negative pct — NOT
-        zero-floored. (3000 - 3200) / 3200 * 100 = -6.25 -> -6.2
-        (banker's rounding)."""
-        recent = {**_trade(sell=3000),
-                  "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
-        path = write_cache(*self._build_args(tmp_path, 3200, [recent]),
-                           today=self.TODAY)
-        ref = _load(path)["references"]["79830RB"]
-        assert ref["realized_premium_pct"] == -6.2
-        assert ref["realized_premium_trade_count"] == 1
-
-    def test_at_median_produces_zero_pct_not_null(self, tmp_path):
-        """Recent exactly-at-median sale -> 0.0 (real zero, data-driven),
-        distinct from null (no in-window data)."""
-        recent = {**_trade(sell=3200),
-                  "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
-        path = write_cache(*self._build_args(tmp_path, 3200, [recent]),
-                           today=self.TODAY)
-        ref = _load(path)["references"]["79830RB"]
-        assert ref["realized_premium_pct"] == 0.0
-        assert ref["realized_premium_trade_count"] == 1
-
-    def test_window_inclusive_at_30_days(self, tmp_path):
-        """A sale exactly 30 days before today is in window."""
-        boundary = {**_trade(sell=3520),
-                    "sell_date": (self.TODAY - timedelta(days=30)).isoformat()}
-        path = write_cache(*self._build_args(tmp_path, 3200, [boundary]),
-                           today=self.TODAY)
-        ref = _load(path)["references"]["79830RB"]
-        assert ref["realized_premium_pct"] == 10.0
-        assert ref["realized_premium_trade_count"] == 1
-
-    def test_window_excludes_31_days_old(self, tmp_path):
-        """A sale 31 days before today is out of window -> None, 0."""
-        old = {**_trade(sell=3520),
-               "sell_date": (self.TODAY - timedelta(days=31)).isoformat()}
-        path = write_cache(*self._build_args(tmp_path, 3200, [old]),
-                           today=self.TODAY)
-        ref = _load(path)["references"]["79830RB"]
-        assert ref["realized_premium_pct"] is None
-        assert ref["realized_premium_trade_count"] == 0
-
-    def test_future_sell_date_excluded(self, tmp_path):
-        """A sell_date beyond today is out of window (defensive)."""
-        future = {**_trade(sell=3520),
-                  "sell_date": (self.TODAY + timedelta(days=2)).isoformat()}
-        path = write_cache(*self._build_args(tmp_path, 3200, [future]),
-                           today=self.TODAY)
-        ref = _load(path)["references"]["79830RB"]
-        assert ref["realized_premium_pct"] is None
-        assert ref["realized_premium_trade_count"] == 0
-
-    def test_mixed_window_and_out_of_window(self, tmp_path):
-        """Older sale (45 days) + recent sale (5 days). Count reports 1
-        (only in-window); pct from the recent sale."""
-        old = {**_trade(sell=5000),
-               "sell_date": (self.TODAY - timedelta(days=45)).isoformat()}
-        recent = {**_trade(sell=3520),
-                  "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
-        path = write_cache(*self._build_args(tmp_path, 3200, [old, recent]),
-                           today=self.TODAY)
-        ref = _load(path)["references"]["79830RB"]
-        assert ref["realized_premium_pct"] == 10.0
-        assert ref["realized_premium_trade_count"] == 1
-
-    def test_multiple_in_window_most_recent_wins(self, tmp_path):
-        """Multiple in-window sales: the most-recent by sell_date
-        supplies the value; older in-window sales count toward
-        trade_count but not pct."""
-        older = {**_trade(sell=5000),
-                 "sell_date": (self.TODAY - timedelta(days=20)).isoformat()}
-        newer = {**_trade(sell=3520),
-                 "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
-        path = write_cache(*self._build_args(tmp_path, 3200, [older, newer]),
-                           today=self.TODAY)
-        ref = _load(path)["references"]["79830RB"]
-        # newer wins: (3520-3200)/3200*100 = 10.0
-        assert ref["realized_premium_pct"] == 10.0
-        assert ref["realized_premium_trade_count"] == 2
-
-    def test_same_date_tiebreak_highest_price_wins(self, tmp_path):
-        """Same sell_date: highest sell_price is 'most recent' per
-        B.2's precedent."""
-        lo = {**_trade(sell=3300),
-              "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
-        hi = {**_trade(sell=3600),
-              "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
-        path = write_cache(*self._build_args(tmp_path, 3200, [lo, hi]),
-                           today=self.TODAY)
-        ref = _load(path)["references"]["79830RB"]
-        # hi wins: (3600-3200)/3200*100 = 12.5
-        assert ref["realized_premium_pct"] == 12.5
-        assert ref["realized_premium_trade_count"] == 2
-
-    def test_indeterminate_median_with_in_window_trades(self, tmp_path):
-        """Current median zero/None with in-window trades -> (None, count).
-        Count still reports actual matches; pct is un-computable."""
-        recent = {**_trade(sell=3520),
-                  "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
-        path = write_cache(*self._build_args(tmp_path, 0, [recent]),
-                           today=self.TODAY)
-        ref = _load(path)["references"]["79830RB"]
-        assert ref["realized_premium_pct"] is None
-        assert ref["realized_premium_trade_count"] == 1
-
-    def test_cross_brand_isolation(self, tmp_path):
-        """A trade under a different brand with the same reference
-        doesn't contaminate this reference's counts or pct."""
-        foreign = {**_trade(brand="Breitling", sell=5000),
-                   "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
-        path = write_cache(*self._build_args(tmp_path, 3200, [foreign]),
-                           today=self.TODAY)
-        ref = _load(path)["references"]["79830RB"]
-        assert ref["realized_premium_pct"] is None
-        assert ref["realized_premium_trade_count"] == 0
-
-    def test_m_prefix_inventory_id_joins_canonical(self, tmp_path):
-        """Ledger row logged with M-prefix inventory ID resolves to
-        canonical cache entry (28500), carrying signal per B.3's
-        formula."""
-        inventory = {**_trade(reference="M28500-0005", sell=2400),
-                     "sell_date": (self.TODAY - timedelta(days=5)).isoformat()}
-        args = list(self._build_args(tmp_path, 2025, [inventory]))
-        args[0]["references"] = {"28500": _ref(
-            brand="Tudor", model="Black Bay 58", reference="28500",
-            median=2025, max_buy_nr=1790, max_buy_res=1740,
-            risk_nr=10.0, signal="Normal", volume=10, st_pct=0.5,
-        )}
-        path = write_cache(*tuple(args), today=self.TODAY)
-        ref = _load(path)["references"]["28500"]
-        # (2400-2025)/2025*100 = 18.518... -> 18.5
-        assert ref["realized_premium_pct"] == 18.5
-        assert ref["realized_premium_trade_count"] == 1
-
-    def test_dj_configs_inherit_parent(self, tmp_path):
-        """DJ configs inherit realized_premium_* from parent 126300."""
-        args = list(_fixture(tmp_path))
-        args[0] = {
-            "references": {"126300": _ref(
-                brand="Rolex", model="DJ 41", reference="126300",
-                median=10000, max_buy_nr=9100, max_buy_res=8900,
-                risk_nr=5.0, signal="Strong", volume=50, st_pct=0.7,
-            )},
-            "dj_configs": {
-                "Rose/Jubilee": {
-                    "brand": "Rolex", "model": "DJ 41 Rose/Jubilee",
-                    "reference": "126300", "section": "dj_config",
-                    "median": 10500, "max_buy_nr": 9500, "max_buy_res": 9200,
-                    "risk_nr": 4.0, "signal": "Strong", "volume": 20,
-                    "st_pct": 0.75,
-                },
-            },
-            "unnamed": [],
-        }
-        recent_parent_sale = {
-            **_trade(brand="Rolex", reference="126300", sell=11000),
-            "sell_date": (self.TODAY - timedelta(days=7)).isoformat(),
-        }
-        args[6] = {"trades": [recent_parent_sale], "summary": {"total_trades": 1}}
-        path = write_cache(*tuple(args), today=self.TODAY)
+    def test_confidence_null(self, tmp_path):
+        path = write_cache(*self._dj_args(tmp_path))
         cache = _load(path)
-        parent = cache["references"]["126300"]
-        assert parent["realized_premium_pct"] == 10.0
-        assert parent["realized_premium_trade_count"] == 1
+        assert cache["dj_configs"]["Rose/Jubilee"]["confidence"] is None
+
+    def test_trend_all_null(self, tmp_path):
+        """trend_signal / _change / _pct / momentum all null, not string or 0."""
+        path = write_cache(*self._dj_args(tmp_path))
+        cache = _load(path)
         cfg = cache["dj_configs"]["Rose/Jubilee"]
-        assert cfg["realized_premium_pct"] == 10.0
-        assert cfg["realized_premium_trade_count"] == 1
+        assert cfg["trend_signal"] is None
+        assert cfg["trend_median_change"] is None
+        assert cfg["trend_median_pct"] is None
+        assert cfg["momentum"] is None
+
+    def test_no_premium_fields_inherited(self, tmp_path):
+        """Ripped fields do not leak into DJ config entries."""
+        path = write_cache(*self._dj_args(tmp_path))
+        cache = _load(path)
+        cfg = cache["dj_configs"]["Rose/Jubilee"]
+        ripped = {
+            "premium_vs_market_pct", "premium_vs_market_sale_count",
+            "realized_premium_pct", "realized_premium_trade_count",
+        }
+        leaked = ripped & set(cfg.keys())
+        assert not leaked, f"Ripped fields leaked into DJ config: {leaked}"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -725,19 +331,13 @@ class TestNullDefaults:
         assert cache["references"]["A17320"]["confidence"] is None
 
     def test_no_trend(self, tmp_path):
-        """A17320 has no trend entry -> defaults."""
+        """A17320 has no trend entry -> trend fields are null (bug 2 fix)."""
         path = write_cache(*_fixture(tmp_path))
         cache = _load(path)
         ref = cache["references"]["A17320"]
-        assert ref["trend_signal"] == "No prior data"
-        assert ref["trend_median_change"] == 0
-        assert ref["trend_median_pct"] == 0
-
-    def test_null_st_pct(self, tmp_path):
-        """NEW123 has st_pct=None -> null in JSON."""
-        path = write_cache(*_fixture(tmp_path))
-        cache = _load(path)
-        assert cache["references"]["NEW123"]["st_pct"] is None
+        assert ref["trend_signal"] is None
+        assert ref["trend_median_change"] is None
+        assert ref["trend_median_pct"] is None
 
     def test_not_named(self, tmp_path):
         """NEW123 named=False."""
@@ -818,19 +418,26 @@ class TestBackupRotation:
 
 class TestSummaryAggregation:
     def test_summary_counts(self, tmp_path):
-        """Hand-computed: 1 Strong, 1 Normal, 1 Reserve, 0 Careful."""
+        """Post-fixup: no per-signal reference counts in summary; only
+        counts that do not synthesize judgment across buckets stay."""
         path = write_cache(*_fixture(tmp_path))
         cache = _load(path)
         s = cache["summary"]
         assert s["total_references"] == 3
-        assert s["strong_count"] == 1
-        assert s["normal_count"] == 1
-        assert s["reserve_count"] == 1
-        assert s["caution_count"] == 0
         assert s["emerged_count"] == 1
         assert s["breakout_count"] == 1
         assert s["watchlist_count"] == 1
         assert s["unnamed_count"] == 1
+
+    def test_per_signal_counts_absent(self, tmp_path):
+        """strong_count/normal_count/reserve_count/caution_count were
+        ripped because signal is per-bucket (cross-bucket aggregation
+        is judgment)."""
+        path = write_cache(*_fixture(tmp_path))
+        cache = _load(path)
+        s = cache["summary"]
+        for key in ("strong_count", "normal_count", "reserve_count", "caution_count"):
+            assert key not in s, f"ripped summary field leaked: {key}"
 
     def test_hot_references_set_union(self, tmp_path):
         """emerged={NEW123}, breakouts={79830RB} -> union = 2."""
@@ -948,7 +555,6 @@ class TestEmptyInputs:
         cache = _load(path)
         assert cache["references"] == {}
         assert cache["summary"]["total_references"] == 0
-        assert cache["summary"]["strong_count"] == 0
         assert cache["summary"]["hot_references"] == 0
         assert cache["breakouts"] == []
         assert cache["watchlist"] == []

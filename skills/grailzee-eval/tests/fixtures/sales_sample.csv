@@ -1,15 +1,15 @@
-date_sold,make,reference,title,condition,papers,sold_price,sell_through_pct
-2026-02-01,Tudor,79830RB,No Reserve - Tudor BB GMT Pepsi 79830RB,Very Good,Yes,3000,0.6
-2026-02-03,Tudor,79830RB,No Reserve - Tudor BB GMT Pepsi Full Set,Excellent,Yes,3100,0.6
-2026-02-05,Tudor,79830RB,Tudor Black Bay GMT 79830RB Papers,Like New,Yes,3200,0.6
-2026-02-07,Tudor,79830RB,Tudor BB GMT Pepsi 79830RB Box Papers,Very Good,Yes,3300,0.6
-2026-02-09,Tudor,79830RB,No Reserve - Tudor GMT 79830RB BNIB,New,Yes,3400,0.6
-2026-02-02,Breitling,A17320,No Reserve - Breitling SO Heritage 42,Very Good,Yes,2300,0.45
-2026-02-04,Breitling,A17320,Breitling Superocean Heritage A17320,Excellent,Yes,2400,0.45
-2026-02-06,Breitling,A17320,Breitling SO Heritage 42 A17320,Fair,No,2500,0.45
-2026-02-01,Tudor,91650,Tudor 1926 41mm 91650,Very Good,Yes,1500,
-2026-02-03,Tudor,91650,Tudor 1926 41mm Full Set,Excellent,Yes,1600,
-2026-02-01,Rolex,126300,Rolex Datejust 41 Black Dial Oyster Bracelet,Very Good,Yes,9500,0.7
-2026-02-03,Rolex,126300,Rolex DJ 41 Blue Dial Jubilee Bracelet,Excellent,Yes,10200,0.7
-2026-02-05,Rolex,126300,Rolex Datejust 41 Silver Dial,Very Good,Yes,8800,0.7
-2026-02-07,Rolex,126300,Rolex Datejust 41 Black Oyster,Like New,Yes,9800,0.7
+date_sold,make,reference,title,condition,papers,sold_price,sell_through_pct,model,year,box,dial_numerals_raw,url
+2026-02-01,Tudor,79830RB,No Reserve - Tudor BB GMT Pepsi 79830RB,Very Good,Yes,3000,0.6,,,,Arabic Numerals,
+2026-02-03,Tudor,79830RB,No Reserve - Tudor BB GMT Pepsi Full Set,Excellent,Yes,3100,0.6,,,,Arabic Numerals,
+2026-02-05,Tudor,79830RB,Tudor Black Bay GMT 79830RB Papers,Like New,Yes,3200,0.6,,,,Arabic Numerals,
+2026-02-07,Tudor,79830RB,Tudor BB GMT Pepsi 79830RB Box Papers,Very Good,Yes,3300,0.6,,,,Arabic Numerals,
+2026-02-09,Tudor,79830RB,No Reserve - Tudor GMT 79830RB BNIB,New,Yes,3400,0.6,,,,Arabic Numerals,
+2026-02-02,Breitling,A17320,No Reserve - Breitling SO Heritage 42,Very Good,Yes,2300,0.45,,,,Arabic Numerals,
+2026-02-04,Breitling,A17320,Breitling Superocean Heritage A17320,Excellent,Yes,2400,0.45,,,,Arabic Numerals,
+2026-02-06,Breitling,A17320,Breitling SO Heritage 42 A17320,Fair,No,2500,0.45,,,,Arabic Numerals,
+2026-02-01,Tudor,91650,Tudor 1926 41mm 91650,Very Good,Yes,1500,,,,,Arabic Numerals,
+2026-02-03,Tudor,91650,Tudor 1926 41mm Full Set,Excellent,Yes,1600,,,,,Arabic Numerals,
+2026-02-01,Rolex,126300,Rolex Datejust 41 Black Dial Oyster Bracelet,Very Good,Yes,9500,0.7,,,,Arabic Numerals,
+2026-02-03,Rolex,126300,Rolex DJ 41 Blue Dial Jubilee Bracelet,Excellent,Yes,10200,0.7,,,,Arabic Numerals,
+2026-02-05,Rolex,126300,Rolex Datejust 41 Silver Dial,Very Good,Yes,8800,0.7,,,,Arabic Numerals,
+2026-02-07,Rolex,126300,Rolex Datejust 41 Black Oyster,Like New,Yes,9800,0.7,,,,Arabic Numerals,

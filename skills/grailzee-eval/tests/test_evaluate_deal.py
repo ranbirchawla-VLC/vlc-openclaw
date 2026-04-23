@@ -187,6 +187,10 @@ def standard_cache():
 # ═══════════════════════════════════════════════════════════════════════
 
 
+_PENDING_2C = "2c-restore: evaluate_deal gated on pending_2c_restore post-2b fixup; unit tests of internal helpers still run"
+
+
+@pytest.mark.skip(reason=_PENDING_2C)
 class TestCacheHitDecisions:
     """One test per decision branch; hand-computed margins."""
 
@@ -327,6 +331,7 @@ class TestCacheHitDecisions:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+@pytest.mark.skip(reason=_PENDING_2C)
 class TestOnDemandFallback:
     """Reference not in cache; found (or not) in raw CSV."""
 
@@ -417,6 +422,7 @@ class TestOnDemandFallback:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+@pytest.mark.skip(reason=_PENDING_2C)
 class TestNotFound:
 
     def test_not_found_returns_comp_search_hint(self, tmp_path):
@@ -462,6 +468,7 @@ class TestNotFound:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+@pytest.mark.skip(reason=_PENDING_2C)
 class TestCycleFocusAlignment:
 
     @pytest.fixture
@@ -554,6 +561,7 @@ class TestCycleFocusAlignment:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+@pytest.mark.skip(reason=_PENDING_2C)
 class TestConfidenceEnrichment:
 
     def test_confidence_with_history(self, tmp_path):
@@ -673,6 +681,7 @@ class TestConfidenceEnrichment:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+@pytest.mark.skip(reason=_PENDING_2C)
 class TestPremiumStatus:
 
     def test_premium_not_met(self, tmp_path):
@@ -773,6 +782,7 @@ class TestErrorPaths:
         assert _parse_price_arg("3000") == 3000.0
         assert _parse_price_arg("$1,234.56") == 1234.56
 
+    @pytest.mark.skip(reason=_PENDING_2C)
     def test_bad_cycle_focus_json(self, tmp_path):
         """G22: Malformed cycle_focus.json -> state='error' with parse note.
 
@@ -799,6 +809,7 @@ class TestErrorPaths:
         assert cf["state"] == "error"
         assert "parse error" in cf["note"].lower()
 
+    @pytest.mark.skip(reason=_PENDING_2C)
     def test_cycle_focus_missing_cycle_id(self, tmp_path):
         """G22b: cycle_focus.json valid JSON but missing cycle_id key."""
         cache = _make_cache(refs={"79830RB": _make_ref()})
@@ -819,10 +830,49 @@ class TestErrorPaths:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# 2b fixup: schema-version guard
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestSchemaGuardPending2c:
+    """2b fixup adds a loud pending_2c_restore branch: on a v3 cache
+    (current CACHE_SCHEMA_VERSION=3), evaluate() returns a clean error
+    instead of silently KeyError-ing on flat per-ref fields that no
+    longer exist. Previous stale-schema behavior (v{<3} cache) unchanged."""
+
+    def test_v3_cache_returns_pending_2c_restore(self, tmp_path):
+        """Current-schema v3 cache -> error/pending_2c_restore."""
+        cache = _make_cache()
+        assert cache["schema_version"] == CACHE_SCHEMA_VERSION == 3
+        cache_path = _write_cache(tmp_path, cache)
+        result = evaluate(
+            "Tudor", "79830RB", 2750,
+            cache_path=cache_path,
+        )
+        assert result["status"] == "error"
+        assert result["error"] == "pending_2c_restore"
+        assert "schema v3" in result["message"]
+
+    def test_v2_cache_returns_stale_schema(self, tmp_path):
+        """v2 cache (schema_version=2) -> error/stale_schema, not
+        pending_2c. Stale check runs first."""
+        cache = _make_cache()
+        cache["schema_version"] = 2
+        cache_path = _write_cache(tmp_path, cache)
+        result = evaluate(
+            "Tudor", "79830RB", 2750,
+            cache_path=cache_path,
+        )
+        assert result["status"] == "error"
+        assert result["error"] == "stale_schema"
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # H. Path injection / test isolation
 # ═══════════════════════════════════════════════════════════════════════
 
 
+@pytest.mark.skip(reason=_PENDING_2C)
 class TestPathIsolation:
 
     def test_all_paths_injected(self, tmp_path):
@@ -851,6 +901,7 @@ class TestPathIsolation:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+@pytest.mark.skip(reason=_PENDING_2C)
 class TestCLI:
     """Subprocess tests for CLI entry point."""
 
@@ -1127,6 +1178,7 @@ class TestRiskReserveThresholdParity:
         assert tightened["grailzee"] == "YES"
 
 
+@pytest.mark.skip(reason=_PENDING_2C)
 class TestAdBudget:
     """Verify ad_budget appears correctly in response."""
 

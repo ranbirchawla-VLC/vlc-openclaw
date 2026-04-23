@@ -1,0 +1,46 @@
+# Part B; W2-only operational rehearsal (2b fixup)
+
+Temp tree: /var/folders/vx/21dmp02515n258nh__nf6j040000gp/T/fixup_part_b_9jkx5iql
+Running run_analysis on W2 only...
+cycle_id: cycle_2026-08
+unnamed count: 3690
+
+schema_version: 3
+  PASS: schema_version == 3
+
+Missing top-level keys: set()
+  PASS: all top-level keys present
+
+Summary keys: ['breakout_count', 'emerged_count', 'hot_references', 'premium_status', 'total_references', 'unnamed_count', 'watchlist_count']
+  PASS: no per-signal reference counts in summary
+
+References: 3712
+DJ configs: 8
+
+References with leaked ripped fields: 0
+  PASS: no ripped fields leak into reference entries
+
+References missing keep-list fields: 0
+  PASS: every reference carries the full keep-list
+
+References with confidence key present: 3712 / 3712
+  PASS: confidence key present on every reference (value may be null)
+
+References with trend_signal is None (W2-only run): 3712 / 3712
+  PASS: trend_signal null (not 'No prior data' string) on single-CSV run
+
+DJ configs with leaked ripped fields: 0
+  PASS: no ripped fields leak into DJ config entries
+
+DJ configs with trend_signal null: 8 / 8
+DJ configs with confidence null: 8 / 8
+  PASS: DJ configs always carry null trend/confidence
+
+Total buckets: 5026
+Mixed-case bucket_keys: 0
+  PASS: all bucket_keys lowercase
+
+Cache file size: 5175016 bytes
+  PASS: cache file written
+
+ALL PART B CHECKS PASSED.

@@ -92,8 +92,17 @@ def _load_cache(cache_path: str) -> tuple[dict | None, dict | None]:
                 f"version {CACHE_SCHEMA_VERSION}. Re-run the full analyzer."
             ),
         }
-
-    return cache, None
+    # 2b fixup: cache is v3 (per-bucket shape), evaluator still reads v2
+    # flat fields. Fail loud until 2c restores bucket-aware lookup rather
+    # than silently KeyError-ing on entry.get("median"), etc.
+    return None, {
+        "status": "error",
+        "error": "pending_2c_restore",
+        "message": (
+            f"Deal eval pending 2c restoration; cache is schema "
+            f"v{schema_version}, evaluator requires v2-compatible shape."
+        ),
+    }
 
 
 # ─── Reference lookup in cache ───────────────────────────────────────
