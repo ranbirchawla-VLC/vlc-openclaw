@@ -1,7 +1,7 @@
 # GRAILZEE_SYSTEM_STATE
 
 **Repo path**: `/Users/ranbirchawla/.openclaw/workspace/GRAILZEE_SYSTEM_STATE.md`
-**Branch**: `feature/grailzee-eval-v2` (single long-lived)
+**Branch**: `feature/grailzee-eval` (single long-lived)
 **Owner**: Supervisor chat updates at end of every session. Operator reviews the diff before the chat closes. Commits land on the same branch as the code changes they describe.
 **Read at**: Start of every supervisor chat. Start of every Claude Code task. No inference from conversation history. This document is truth.
 
@@ -133,19 +133,21 @@ Not a cache field. Written to `GrailzeeData/state/cycle_shortlist_<cycle_id>.csv
 
 **2026-04-24**: `max_buy_nr_realistic` open question closed. No new cache field. Reasoning: the question was "how does Vardalux systematically discipline buy prices when sell-through is weak," and the proposed field bakes judgment into the cache. Violates the locked April 16 principle (Python does analysis, judgment lives in strategy) and repeats the B.6 failure mode (judgment-in-cache that silently distorts consumer behavior). The cache already carries the three facts strategy needs to apply this discipline in conversation: `max_buy_nr` (formula's answer at median), `st_pct` (sell-through signal telling you how much to trust the formula), and `risk_nr` (historical probability of a sub-breakeven hammer, the strongest single signal for this specific use). All three already flatten into the shortlist CSV. Strategy applies the haircut visually during the keep/strike pass. Deal evaluator behavior unchanged; bot answers against `max_buy_nr` as today and exposes `st_pct` and `risk_nr` in its response so the operator has the facts to override in the moment. Avoids a two-ceiling problem on the bot side (which ceiling is authoritative). No code change, no schema change, no open work item.
 
+**2026-04-24**: B.9 deferred. Discovery completed (read-only audit, 957 / 193 test counts unchanged). Discovery surfaced 16-file rename surface (5 code, 5 test, 6 live doc) plus 5 judgment calls (filename `analyze_watchlist.py`, function name `detect_watch_list`, OTEL span name `analyze_watchlist.run`, OTEL attribute `watchlist_count`, envelope key `{"watchlist": [...], "count": N}`) plus required closed-object schema-pin update at `test_write_cache.py:142`. Original Section 5 "low complexity" label was inaccurate. Reasoning for deferral: zero functional change, zero analytical-quality improvement, two higher-value items present in Ready-to-execute backlog (live sourcing_brief Drive-state gap blocking the operating loop today; cleanup trio of dead-code deletes). B.9 reclassified from Section 5 (Open work) to Section 6 (Ready to execute backlog). Discovery inventory not preserved in any committed artifact; if B.9 ever comes off backlog, plan task should attempt to locate prior discovery before re-running. Independent finding from B.9 discovery: schema design docs (`grailzee_schema_design_v1.md`, `v1_1.md`) are silent on the `watchlist` cache key entirely. Surfaced as backlog candidate for Schema v2 work, not in scope for B.9 itself. Independent finding: `.claude/progress.md:81` carries stale "B.8 - watchlist - emergent_refs" label from before the renumbering; self-correcting on next progress update.
+
 ---
 
 ## 5. Open work
 
-### B.9 (watchlist rename)
+No open work items. Section 5 is empty pending operator selection from Section 6 backlog.
 
-Rename `watchlist` to `emergent_refs` in cache schema and downstream consumers. Low complexity. Re-labeled from B.8 to B.9 on 2026-04-24 to resolve naming collision with the cowork role 11 ship.
+The recommended next pick from "Ready to execute" is the live `sourcing_brief_cycle_2026-06.json` Drive-state gap. It blocks Section 7's only verification item and blocks the live reading-partner flow today. See Section 6.
 
 ---
 
 ## 6. Backlog
 
-From `Vardalux_Grailzee_Backlog.md` (April 21 baseline), updated for the 2026-04-23 B.6 kill, revert, B.7 ship, and 2026-04-24 B.8 ship.
+From `Vardalux_Grailzee_Backlog.md` (April 21 baseline), updated for the 2026-04-23 B.6 kill, revert, B.7 ship, 2026-04-24 B.8 ship, 2026-04-24 max_buy_nr_realistic closure, and 2026-04-24 B.9 deferral.
 
 ### Dropped (obsoleted by 2026-04-23 decisions)
 
@@ -157,11 +159,14 @@ From `Vardalux_Grailzee_Backlog.md` (April 21 baseline), updated for the 2026-04
 
 ### Ready to execute
 
+Order below reflects recommended priority. Sourcing_brief gap is at the top because it blocks the live operating loop. Cleanup trio second because it removes dead code that confuses future work. B.9 last because it's a cosmetic rename with no functional or analytical-quality impact.
+
+- **Live `sourcing_brief_cycle_2026-06.json` Drive-state gap** (recommended next pick): file does not exist on Drive; live `python3 -m grailzee_bundle.build_bundle --grailzee-root <drive>` fails with `Missing sourcing_brief for cycle_2026-06` before reaching the new role-11 check. Pre-dates B.8; surfaced during B.8 live spot-check. Audit: confirm whether the per-cycle brief producer is running, or whether the per-cycle naming has drifted from what `build_bundle.py` expects. Phase D-adjacent (role 9 is slated for deprecation), but blocking the live reading-partner flow today. Recommend separate small audit task ahead of Phase D rather than folding into the larger `build_brief.py` rework.
 - **`apply_premium_adjustment` dead code**: zero callers since B.1. Delete.
 - **`adjusted_max_buy` helper**: dead in production (was only called by `apply_premium_adjustment`); co-dead with parent. Delete bundled.
 - **`analyzer_config.premium_model.*` subtree**: zero live consumers since A.2. Decision needed: wire the hardcoded constants in `calculate_presentation_premium` to read from the subtree, or remove the subtree. Decision previously blocked on B.3 lookback externalization; B.3 shipped without externalizing, so lean is remove.
 - **`premium_model.min_trade_count` hardcoded 10** in `calculate_presentation_premium`: resolves if the parent function gets removed in this cleanup sweep.
-- **Live `sourcing_brief_cycle_2026-06.json` Drive-state gap**: file does not exist on Drive; live `python3 -m grailzee_bundle.build_bundle --grailzee-root <drive>` fails with `Missing sourcing_brief for cycle_2026-06` before reaching the new role-11 check. Pre-dates B.8; surfaced during B.8 live spot-check. Audit: confirm whether the per-cycle brief producer is running, or whether the per-cycle naming has drifted from what `build_bundle.py` expects. Phase D-adjacent (role 9 is slated for deprecation), but blocking the live reading-partner flow today. Recommend separate small audit task ahead of Phase D rather than folding into the larger `build_brief.py` rework.
+- **B.9 (watchlist rename)**: rename `watchlist` to `emergent_refs` in cache schema and downstream consumers. Discovery completed 2026-04-24 (read-only). Surface area: 16 files (5 code, 5 test, 6 live doc), excludes 1 archival doc (`Grailzee_Eval_v2_Implementation.md`). Five judgment calls: filename, function name, OTEL span name, OTEL attribute, envelope key. Required closed-object schema-pin update at `test_write_cache.py:142`. Plan task should locate prior discovery before re-running. Cosmetic rename; no functional or analytical-quality impact. Defer until Section 6 higher-value items are cleared.
 
 ### Triggers on Phase D start
 
@@ -186,6 +191,7 @@ From `Vardalux_Grailzee_Backlog.md` (April 21 baseline), updated for the 2026-04
 - Schema doc v1 vs v1_1 consolidation
 - `condition_mix` enum revision (excellent bucket empty, vintage separate)
 - Per-condition medians (v2.0 territory)
+- **Schema-doc completeness audit**: `grailzee_schema_design_v1.md` and `v1_1.md` are silent on the `watchlist` cache key (and possibly other as-shipped fields). Surfaced by B.9 discovery 2026-04-24 as independent gap.
 
 ### Opportunistic cleanup (no hard trigger)
 
@@ -198,7 +204,7 @@ From `Vardalux_Grailzee_Backlog.md` (April 21 baseline), updated for the 2026-04
 
 ### Resolved (for record)
 
-Phase A cleanup items (A.cleanup.1 through A.cleanup.3) all landed. M-prefix ledger reference normalization resolved. Schema doc staleness on B.2/B.3 resolved. Exhaustive-shape test anti-pattern addressed during B.5. B.6 shipped then reverted per 2026-04-23 kill. B.7 shipped 2026-04-23 (shortlist CSV, brand_floors default record, build_brief footer fix). B.8 shipped 2026-04-24 (cowork role 11 cycle_shortlist, bare arcname, cycle_id from cache). `max_buy_nr_realistic` open question closed 2026-04-24 (no new cache field; judgment stays in strategy).
+Phase A cleanup items (A.cleanup.1 through A.cleanup.3) all landed. M-prefix ledger reference normalization resolved. Schema doc staleness on B.2/B.3 resolved. Exhaustive-shape test anti-pattern addressed during B.5. B.6 shipped then reverted per 2026-04-23 kill. B.7 shipped 2026-04-23 (shortlist CSV, brand_floors default record, build_brief footer fix). B.8 shipped 2026-04-24 (cowork role 11 cycle_shortlist, bare arcname, cycle_id from cache). `max_buy_nr_realistic` open question closed 2026-04-24 (no new cache field; judgment stays in strategy). B.9 deferred to backlog 2026-04-24 (discovery complete, deferred for prioritization reasons; not resolved, deferred).
 
 ---
 
