@@ -215,14 +215,34 @@ def write_cache(
     breakout_set = set(b["reference"] for b in breakouts.get("breakouts", []))
     hot_count = len(emerged_set | breakout_set)
 
-    # Summary: counts are over references, changes, breakouts, watchlist.
-    # Per-signal reference counts (strong/normal/reserve/caution) are NOT
-    # in summary in v3 post-fixup: signal is per-bucket, so "Strong count"
-    # at reference level is synthesis. Strategy consumers compute what
-    # they need from the bucket layer.
+    # Bucket-level signal counts: a factual rollup of buckets by signal.
+    # Reference buckets only; DJ config buckets excluded to match the
+    # `total_references` precedent (DJ configs are sub-entries of 126300,
+    # not distinct references; counting their buckets would present a
+    # second view on the same underlying sales).
     ref_entries = list(cache_refs.values())
+    all_ref_buckets = [
+        bd
+        for rd in ref_entries
+        for bd in rd.get("buckets", {}).values()
+    ]
+    total_bucket_count = len(all_ref_buckets)
+    strong_bucket_count = sum(1 for bd in all_ref_buckets if bd.get("signal") == "Strong")
+    normal_bucket_count = sum(1 for bd in all_ref_buckets if bd.get("signal") == "Normal")
+    reserve_bucket_count = sum(1 for bd in all_ref_buckets if bd.get("signal") == "Reserve")
+    caution_bucket_count = sum(1 for bd in all_ref_buckets if bd.get("signal") == "Careful")
+    pass_bucket_count = sum(1 for bd in all_ref_buckets if bd.get("signal") == "Pass")
+    low_data_bucket_count = sum(1 for bd in all_ref_buckets if bd.get("signal") == "Low data")
+
     summary = {
         "total_references": len(ref_entries),
+        "total_bucket_count": total_bucket_count,
+        "strong_bucket_count": strong_bucket_count,
+        "normal_bucket_count": normal_bucket_count,
+        "reserve_bucket_count": reserve_bucket_count,
+        "caution_bucket_count": caution_bucket_count,
+        "pass_bucket_count": pass_bucket_count,
+        "low_data_bucket_count": low_data_bucket_count,
         "emerged_count": len(changes.get("emerged", [])),
         "breakout_count": len(breakouts.get("breakouts", [])),
         "watchlist_count": len(watchlist.get("watchlist", [])),

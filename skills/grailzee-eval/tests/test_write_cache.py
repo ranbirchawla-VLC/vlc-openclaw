@@ -470,6 +470,156 @@ class TestSummaryAggregation:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Summary bucket counts (2b fixup summary-counts patch)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _bucket(signal, volume=5, median=3200.0, dial_numerals="Arabic",
+            auction_type="nr", dial_color="black"):
+    """Build a minimal bucket entry for summary-counts tests."""
+    return {
+        "dial_numerals": dial_numerals,
+        "auction_type": auction_type,
+        "dial_color": dial_color,
+        "named_special": None,
+        "volume": volume,
+        "st_pct": 0.5,
+        "condition_mix": {},
+        "signal": signal,
+        "median": median if signal != "Low data" else None,
+        "max_buy_nr": 2910.0 if signal != "Low data" else None,
+        "max_buy_res": 2770.0 if signal != "Low data" else None,
+        "risk_nr": 8.0 if signal != "Low data" else None,
+        "capital_required_nr": 2910.0 if signal != "Low data" else None,
+        "capital_required_res": 2770.0 if signal != "Low data" else None,
+        "expected_net_at_median_nr": 141.0 if signal != "Low data" else None,
+        "expected_net_at_median_res": 231.0 if signal != "Low data" else None,
+    }
+
+
+def _bucketed_args(tmp_path, ref_buckets, dj_buckets=None):
+    """Build write_cache args with explicitly bucketed references.
+
+    ref_buckets: dict of {ref_name: {bucket_key: bucket_dict}}.
+    dj_buckets: optional dict of {cfg_name: {bucket_key: bucket_dict}}.
+    """
+    args = list(_fixture(tmp_path))
+    refs = {}
+    for ref_name, buckets in ref_buckets.items():
+        refs[ref_name] = {
+            "brand": "Tudor",
+            "model": ref_name,
+            "reference": ref_name,
+            "named": True,
+            "buckets": buckets,
+        }
+    dj_configs = {}
+    if dj_buckets:
+        for cfg_name, buckets in dj_buckets.items():
+            dj_configs[cfg_name] = {
+                "brand": "Rolex",
+                "model": f"DJ 41 {cfg_name}",
+                "reference": "126300",
+                "named": True,
+                "buckets": buckets,
+            }
+    args[0] = {
+        "references": refs,
+        "dj_configs": dj_configs,
+        "unnamed": [],
+    }
+    return tuple(args)
+
+
+class TestSummaryBucketCounts:
+    """Bucket-level signal counts in summary. Reference buckets only;
+    DJ config buckets excluded to match the total_references precedent."""
+
+    @pytest.mark.parametrize("signal,field", [
+        ("Strong", "strong_bucket_count"),
+        ("Normal", "normal_bucket_count"),
+        ("Reserve", "reserve_bucket_count"),
+        ("Careful", "caution_bucket_count"),
+        ("Pass", "pass_bucket_count"),
+        ("Low data", "low_data_bucket_count"),
+    ])
+    def test_single_signal_count(self, tmp_path, signal, field):
+        """One reference, three buckets all with signal S -> field == 3;
+        others all 0. Verifies signal-to-field name mapping."""
+        args = _bucketed_args(tmp_path, {
+            "REF_A": {
+                "arabic|nr|black": _bucket(signal),
+                "arabic|nr|white": _bucket(signal),
+                "arabic|res|black": _bucket(signal),
+            },
+        })
+        path = write_cache(*args)
+        s = _load(path)["summary"]
+        assert s[field] == 3
+        assert s["total_bucket_count"] == 3
+        others = {
+            "strong_bucket_count", "normal_bucket_count", "reserve_bucket_count",
+            "caution_bucket_count", "pass_bucket_count", "low_data_bucket_count",
+        } - {field}
+        for other in others:
+            assert s[other] == 0, f"{other} should be 0 when only {signal} buckets present"
+
+    def test_sum_equals_total_bucket_count(self, tmp_path):
+        """Sum of six signal counts equals total_bucket_count."""
+        args = _bucketed_args(tmp_path, {
+            "A": {
+                "arabic|nr|black": _bucket("Strong"),
+                "arabic|nr|white": _bucket("Normal"),
+            },
+            "B": {
+                "roman|nr|blue": _bucket("Careful"),
+                "roman|res|blue": _bucket("Low data"),
+            },
+        })
+        path = write_cache(*args)
+        s = _load(path)["summary"]
+        signal_sum = (
+            s["strong_bucket_count"]
+            + s["normal_bucket_count"]
+            + s["reserve_bucket_count"]
+            + s["caution_bucket_count"]
+            + s["pass_bucket_count"]
+            + s["low_data_bucket_count"]
+        )
+        assert signal_sum == s["total_bucket_count"]
+        assert s["total_bucket_count"] == 4
+
+    def test_dj_config_buckets_excluded(self, tmp_path):
+        """DJ config bucket signals do NOT contribute to the counts.
+        Matches total_references precedent: DJ configs are sub-entries
+        of 126300, not distinct references, so counting their buckets
+        would present a second view on the same sales."""
+        args = _bucketed_args(
+            tmp_path,
+            ref_buckets={
+                "A": {"arabic|nr|black": _bucket("Strong")},
+            },
+            dj_buckets={
+                "Black/Oyster": {
+                    "arabic|nr|black": _bucket("Strong"),
+                    "arabic|res|black": _bucket("Normal"),
+                },
+                "Blue/Jubilee": {
+                    "roman|nr|blue": _bucket("Reserve"),
+                },
+            },
+        )
+        path = write_cache(*args)
+        s = _load(path)["summary"]
+        # Only the single reference bucket counts; the three DJ config
+        # buckets are excluded.
+        assert s["total_bucket_count"] == 1
+        assert s["strong_bucket_count"] == 1
+        assert s["normal_bucket_count"] == 0
+        assert s["reserve_bucket_count"] == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Premium status block
 # ═══════════════════════════════════════════════════════════════════════
 
