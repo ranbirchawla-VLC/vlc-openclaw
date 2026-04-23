@@ -19,15 +19,15 @@
 
 ## 1. Target architecture
 
-The Grailzee analyzer is a deterministic Python pipeline. It reads bi-weekly Grailzee Pro reports, scores every reference with 3+ sales, and produces `analysis_cache.json` on Google Drive.
+The Grailzee analyzer is a deterministic Python pipeline. It reads bi-weekly Grailzee Pro reports, scores every reference with 3+ sales, and produces `analysis_cache.json` on Google Drive. After cache write, it emits a per-cycle CSV shortlist at `cycle_shortlist_<cycle_id>.csv` as the strategy-session input.
 
-Strategy happens in Chat. The strategy session reads a CSV shortlist (produced by B.7, not yet built) and discusses the candidate set with the operator as a reading-partner flow. The LLM reads, patterns emerge, the operator marks references to keep or strike. The session writes `cycle_focus.json` as the output contract.
+Strategy happens in Chat. The grailzee-cowork plugin copies the shortlist CSV into the outbound bundle it builds for the strategy session. Operator uploads the bundle to Chat. The strategy skill reads the CSV from inside the bundle and runs a reading-partner conversation with the operator. The LLM reads, patterns emerge, the operator marks references to keep or strike. The session writes `cycle_focus.json` as the output contract.
 
 The Telegram bot reads `cycle_focus.json` for "what am I buying right now" and reads `analysis_cache.json` for ad-hoc deal evaluation ("should I buy this at this price").
 
-Brand-floor judgment lives in the strategy session, not in the analyzer. Per-brand margin floors are held in `brand_floors.json` as strategy config. The analyzer does not compute brand-floor clearance. The deal evaluator looks up the brand's floor at runtime and computes clearance inline against the offered price.
+Brand-floor judgment lives in the strategy session, not in the analyzer. Per-brand margin floors are held in `brand_floors.json` as strategy config, with a `default` record for unlisted brands. The analyzer does not compute brand-floor clearance. The deal evaluator looks up the brand's floor at runtime and computes clearance inline against the offered price.
 
-The core split: Python does deterministic analysis, LLM does reading-partner conversation, operator holds all judgment. The April 16 implementation plan is the canonical intent document and governs anything this state document does not cover.
+The core split: Python does deterministic analysis, LLM does reading-partner conversation, operator holds all judgment. The April 16 implementation plan (`Grailzee_Eval_v2_Implementation.md`) is the canonical intent document and governs anything this state document does not cover.
 
 ---
 
@@ -35,8 +35,8 @@ The core split: Python does deterministic analysis, LLM does reading-partner con
 
 ### Git repo: `/Users/ranbirchawla/.openclaw/workspace`
 
-- **Code**: `skills/grailzee-eval/scripts/` (Phase 22 migration completed 2026-04-21 commit `286d58b`; the `-v2` suffix from the parallel-build phase is no longer in the tree)
-- **Workspace-tracked config**: `state/brand_floors.json`, `state/analyzer_config.json`, schema design docs, other config per A.2
+- **Code**: `skills/grailzee-eval/scripts/` (Phase 22 migration landed 2026-04-21 commit 286d58b; v2 replaces v1, legacy deleted)
+- **Workspace-tracked config**: `state/brand_floors.json`, `state/analyzer_config.json`, `state/sourcing_rules.json`, schema design docs
 - **This document**: repo root, `GRAILZEE_SYSTEM_STATE.md`
 
 ### Google Drive runtime data
@@ -45,6 +45,7 @@ Base path: `/Users/ranbirchawla/Library/CloudStorage/GoogleDrive-ranbir.chawla@r
 
 - `state/analysis_cache.json`: analyzer output, bot deal-evaluator input
 - `state/cycle_focus.json`: strategy session output, bot target-list input
+- `state/cycle_shortlist_<cycle_id>.csv`: analyzer shortlist output, strategy-session reading-partner input (B.7)
 - `state/cycle_outcome_<cycle_id>.json`: per-cycle trade rollup
 - `state/trade_ledger.csv`: append-only, Grailzee-only
 - `state/name_cache.json`: reference to display-name mapping
@@ -84,6 +85,14 @@ Base path: `/Users/ranbirchawla/Library/CloudStorage/GoogleDrive-ranbir.chawla@r
 
 No B.6 fields in the cache. `brand_floor_cleared` removed by the 2026-04-23 revert.
 
+### Sibling artifact: shortlist CSV (B.7)
+
+Not a cache field. Written to `GrailzeeData/state/cycle_shortlist_<cycle_id>.csv` by `build_shortlist.run` after `write_cache.run` produces the cache. 23-column contract with the strategy session:
+
+`brand, reference, model, signal, median, max_buy_nr, st_pct, volume, risk_nr, premium_vs_market_pct, realized_premium_pct, realized_premium_trade_count, confidence_trades, confidence_profitable, confidence_win_rate, confidence_avg_roi, confidence_avg_premium, confidence_last_trade, momentum_score, momentum_label, capital_required_nr, expected_net_at_median_nr, keep`
+
+`confidence.*` and `momentum.*` flatten to scalar columns. Null ledger-derived fields write as empty string. `keep` is blank at generation, filled during the strategy session. Default sort `signal,volume_desc`, configurable via `--sort-key` on the standalone CLI only (not threaded through the orchestrator). Surfaced inside the cowork outbound bundle (per B.8 ship) as bare-name `cycle_shortlist.csv`. Source filename on Drive remains cycle-keyed.
+
 ---
 
 ## 4. Decisions log (append-only)
@@ -114,69 +123,60 @@ No B.6 fields in the cache. `brand_floor_cleared` removed by the 2026-04-23 reve
 
 **2026-04-23**: B.6 revert executed and verified. Eleven files restored to b5ab5fc (GRAILZEE_SYSTEM_STATE.md commit, parent 68d448e = B.5). Files reverted: `.claude/progress.md`, `skills/grailzee-eval/scripts/grailzee_common.py`, `skills/grailzee-eval/scripts/install_brand_floors.py`, `skills/grailzee-eval/scripts/write_cache.py`, four test files in `skills/grailzee-eval/tests/`, `state/brand_floors.json`, `state/grailzee_schema_design_v1.md`, `state/grailzee_schema_design_v1_1.md`. Test count 964 to 930 (B.5 baseline). All 930 passing on canonical Python 3.12.10. Cache regenerated on the two latest pricing-window CSVs; `brand_floor_cleared` absent, B.2 through B.5 fields intact.
 
-**2026-04-22**: B.7 Phase 0 ships the brand_floors default record. `state/brand_floors.json` gains a top-level `default` record with shape `{"floor_pct": 10.0, "tradeable": true, "asset_class": "watch"}`, sibling to `brands`. `last_updated` updated, `updated_by` set to `b7_section_7_close`, `defaulted_fields` gains `default.floor_pct`. Five named brand floors unchanged. Closes Section 7 verification item. Read by the deal evaluator at runtime per the 2026-04-23 strategy-config decision.
+**2026-04-23 (amended)**: Reading-partner flow mechanics clarified. The grailzee-cowork plugin (`build_bundle.py`) uses an explicit 10-role manifest, not a directory glob. The shortlist CSV is added to that manifest as role 11 in a separate cowork-side task. Operator uploads the bundle to Chat; the strategy skill reads the CSV from inside the bundle rather than receiving the CSV as a separately-dropped file. Amends the 2026-04-23 reading-partner flow entry above.
 
-**2026-04-22**: B.7 ships `build_shortlist.py` producing `cycle_shortlist_<cycle_id>.csv` in Drive STATE_PATH. 23-column CSV per locked spec; signal,volume_desc default sort; null ledger-derived fields write as empty strings; atomic write via tmp+fsync+os.replace; OTEL span `build_shortlist.run` with flat attrs `cycle_id`, `row_count`, `sort_key`, `output_path`. Wired as Step 16 of `run_analysis.py` after `write_cache.run`; orchestrator re-reads the just-written cache because `confidence`, `momentum`, B.2/B.3 enrichments are added by `write_cache` and never mutated back into the in-memory `all_results` dict. Sibling artifact to the cache; `schema_version` stays 2. CSV replaces `sourcing_brief.json` as the strategy reading-partner input per the 2026-04-23 decision; brief continues emitting during transition. Live regen on cycle_2026-06: 1,229 rows, all 23 columns; 10 of 1,229 refs have populated `confidence_*` fields (matches live ledger coverage). Spot-check Tudor 79830RB: confidence dict and B.5 fields match cache exactly.
+**2026-04-23**: `state/brand_floors.json` gains a `default` record with full shape `{"floor_pct": 10.0, "tradeable": true, "asset_class": "watch"}`. Deal evaluator uses this record for unlisted brands at runtime. Closes Section 7 verification item carried from the B.6 revert.
 
-**2026-04-22**: `build_brief.py` markdown footer `papers_required` linkage fixed. Pre-fix the footer hardcoded "Papers required on every deal." regardless of `sourcing_rules.json`. Post-fix it reads from `sourcing_rules['papers_required']` and emits "Papers required on every deal." or "Papers not required." accordingly, matching the JSON brief's top-level `sourcing_rules.papers_required` value. Per-target hardcoded `papers_required: True` (`build_brief.py:214`) is out of fix scope; flagged as Phase D backlog. Test count 930 → 957 (+27 net).
+**2026-04-23**: B.7 shipped. New script `skills/grailzee-eval/scripts/build_shortlist.py` produces per-cycle CSV shortlist at `GrailzeeData/state/cycle_shortlist_<cycle_id>.csv`. 23-column contract with the strategy session. Orchestrator passes `cycle_id` (derived via `cycle_id_from_csv`) to `build_shortlist.run`; only the references sub-dict is re-read from the just-written cache file. Standalone CLI is the only path that derives `cycle_id` from the cache's own top-level field. Plan-review called for in-memory `all_references` from the orchestrator; build inverted because pre-cache `all_results` lacks B.2/B.3/B.5 enrichments, and the correct on-disk read was caught by live spot-check. Default sort `signal,volume_desc`. `--sort-key` on standalone CLI only, not threaded through the orchestrator. Null ledger-derived fields write as empty string. `build_brief.py:275` markdown footer fix landed in the same commit, reads from `sourcing_rules.papers_required` instead of hardcoding the string. Line 214 per-target hardcode stays; flagged for Phase D rework. Test count 930 to 957 on canonical Python 3.12.10. Plan projected 945; the 12-test delta is boundary coverage (unknown-sort-field, empty-references, zero-stays-zero, parent-directory creation, signal-order explicit lock). Cowork-side role 11 addition is a separate round-trip.
+
+**2026-04-24**: B.8 shipped. Cowork plugin gains role 11 `cycle_shortlist` in `grailzee-cowork/grailzee_bundle/build_bundle.py`, sourced from Drive `state/cycle_shortlist_<cycle_id>.csv`. Loud failure at bundle-build time via the existing `_read_required` pattern when the CSV is missing. cycle_id derived from `cache["cycle_id"]` (option (b) of plan-review item 1; reuses the established line-373 pattern, no new derivation code). In-bundle arcname is bare `cycle_shortlist.csv`, matching the convention of every other in-bundle artifact (`analysis_cache.json`, `sourcing_brief.json`, `cycle_focus.json`, `trade_ledger.csv`); cycle scope carried by bundle filename and the manifest's cycle_id field. Source filename on Drive remains `cycle_shortlist_<cycle_id>.csv`. Manifest position: inserted after `latest_report_csv`, before the `previous_cycle_outcome*` block (current-cycle artifacts grouped, conditional historical block stays trailing). OTEL: `cycle_shortlist_loaded` flat boolean attribute set on the caller's ambient span via `get_current_span().set_attribute(...)` after the successful `_read_required`, silent no-op outside any span context. Mirrors the B.7-era pattern in `build_shortlist.py:217`. No new bundle-build span; cowork OTEL audit (backlog) remains the path to wrap `build_outbound_bundle` in a span and surface this attribute. Cowork test count 184 to 193 (+9: 3 manifest/path, 1 byte-fidelity, 2 loud-failure, 1 role-9 regression, 2 OTEL); existing role-set literal in `test_happy_path_builds_bundle_with_all_roles` mutated from 11 to 12 entries. Eval side regression check: 957 to 957. Live spot-check methodology: tmp GrailzeeData tree seeded by copying live Drive files into it with a stub `sourcing_brief_<cycle_id>.json` written to paper over the live role-9 gap; validates the role-11 code path against live bytes but does not validate the full live bundle build, which remains blocked on the sourcing_brief Drive-state gap (now in backlog as separate audit). Corrects the 10-role count from the 2026-04-23 amended entry; pre-B.8 actual was 11 always-present plus 1 conditional from A.7's `previous_cycle_outcome_meta`. Post-B.8: 12 always-present plus 1 conditional. Watchlist rename re-labeled from B.8 to B.9 to resolve naming collision with this ship.
+
+**2026-04-24**: `max_buy_nr_realistic` open question closed. No new cache field. Reasoning: the question was "how does Vardalux systematically discipline buy prices when sell-through is weak," and the proposed field bakes judgment into the cache. Violates the locked April 16 principle (Python does analysis, judgment lives in strategy) and repeats the B.6 failure mode (judgment-in-cache that silently distorts consumer behavior). The cache already carries the three facts strategy needs to apply this discipline in conversation: `max_buy_nr` (formula's answer at median), `st_pct` (sell-through signal telling you how much to trust the formula), and `risk_nr` (historical probability of a sub-breakeven hammer, the strongest single signal for this specific use). All three already flatten into the shortlist CSV. Strategy applies the haircut visually during the keep/strike pass. Deal evaluator behavior unchanged; bot answers against `max_buy_nr` as today and exposes `st_pct` and `risk_nr` in its response so the operator has the facts to override in the moment. Avoids a two-ceiling problem on the bot side (which ceiling is authoritative). No code change, no schema change, no open work item.
 
 ---
 
 ## 5. Open work
 
-### B.8 (watchlist rename)
+### B.9 (watchlist rename)
 
-Rename `watchlist` to `emergent_refs` in cache schema and downstream consumers. Low complexity, sequenced after B.7.
-
-### Open question: `max_buy_nr_realistic`
-
-Discussed 2026-04-23 but not locked. The proposal: one new cache field that applies a flat percentage discount to median before computing the ceiling, capturing the "need to buy 5% under median" discipline for low-sell-through references.
-
-```
-max_buy_nr_realistic = (median × (1 − discount_pct / 100) − NR_FIXED) / (1 + target_margin)
-```
-
-Decision pending: whether to add this field, what `discount_pct` to use, whether to scale discount by `st_pct` or keep flat. Operator leaning toward flat 5% discount, strategy session judges reachability in conversation. Not blocking B.7.
+Rename `watchlist` to `emergent_refs` in cache schema and downstream consumers. Low complexity. Re-labeled from B.8 to B.9 on 2026-04-24 to resolve naming collision with the cowork role 11 ship.
 
 ---
 
 ## 6. Backlog
 
-From `Vardalux_Grailzee_Backlog.md` (April 21 baseline), updated for the 2026-04-23 B.6 kill and revert.
+From `Vardalux_Grailzee_Backlog.md` (April 21 baseline), updated for the 2026-04-23 B.6 kill, revert, B.7 ship, and 2026-04-24 B.8 ship.
 
-### Dropped (obsoleted by 2026-04-23 kill)
+### Dropped (obsoleted by 2026-04-23 decisions)
 
 - **BRAND_FLOORS_FACTORY_CONTENT lift**: no longer needed as B.6 gate logic. If the deal evaluator's runtime brand-floor lookup ever needs a shared constant, revisit at that point.
 - **B.7 HIGH/MEDIUM/LOW mapping**: moot. Reading-partner CSV flow does not tier references at analyzer time; strategy sorts the whole list.
 - **B.7 top-30 ceiling vs all-HIGH-plus-MEDIUM**: moot. Strategy session decides row count per session.
 - **B.7 capital_target null fallback**: simplified. Analyzer does not do capital math; strategy does.
+- **`max_buy_nr_realistic` cache field**: closed 2026-04-24. Judgment-in-cache violates architecture; strategy applies the discipline in conversation using existing `max_buy_nr`, `st_pct`, and `risk_nr`.
 
-### Ready to execute (triggered by 2026-04-23 B.6 revert)
+### Ready to execute
 
 - **`apply_premium_adjustment` dead code**: zero callers since B.1. Delete.
 - **`adjusted_max_buy` helper**: dead in production (was only called by `apply_premium_adjustment`); co-dead with parent. Delete bundled.
 - **`analyzer_config.premium_model.*` subtree**: zero live consumers since A.2. Decision needed: wire the hardcoded constants in `calculate_presentation_premium` to read from the subtree, or remove the subtree. Decision previously blocked on B.3 lookback externalization; B.3 shipped without externalizing, so lean is remove.
 - **`premium_model.min_trade_count` hardcoded 10** in `calculate_presentation_premium`: resolves if the parent function gets removed in this cleanup sweep.
+- **Live `sourcing_brief_cycle_2026-06.json` Drive-state gap**: file does not exist on Drive; live `python3 -m grailzee_bundle.build_bundle --grailzee-root <drive>` fails with `Missing sourcing_brief for cycle_2026-06` before reaching the new role-11 check. Pre-dates B.8; surfaced during B.8 live spot-check. Audit: confirm whether the per-cycle brief producer is running, or whether the per-cycle naming has drifted from what `build_bundle.py` expects. Phase D-adjacent (role 9 is slated for deprecation), but blocking the live reading-partner flow today. Recommend separate small audit task ahead of Phase D rather than folding into the larger `build_brief.py` rework.
 
-### Triggers on Phase D start (added during B.7)
+### Triggers on Phase D start
 
-- **Per-target hardcoded `papers_required: True` in `build_brief.py:214`**: each target entry hardcodes True regardless of `sourcing_rules.papers_required`. The B.7 footer fix corrected the markdown footer (line 275); the per-target field is out of scope for that fix and lives inside the broader sourcing_brief surface that Phase D replaces. Fix or remove with the JSON brief deprecation.
-
-### Triggers on Phase C start
-
+- **`build_brief.py:214` per-target hardcoded `papers_required: True`**: inconsistent with line 85 sourcing_rules-driven field. Fix as part of Phase D sourcing_brief removal and `build_brief.py` broader rework. Surfaced during B.7 co-review.
 - `resolved_cache_ref` null-in-pipeline artifact (low priority)
 - Pipeline `today` threading (historical cycle replay)
 - References below `min_sales_for_scoring` that are actively traded (M21010 and similar)
 - March 2026 pre-A.6 ledger rows with blank `buy_date`
-
-### Triggers on Phase D start
-
 - Cowork KNOWN_ISSUES #2 (`is_cycle_focus_current` logic)
 - Cowork KNOWN_ISSUES #3 (`sourcing_brief` path mismatch, now deprecated with B.7 CSV shortlist)
+- Remove role 9 `sourcing_brief` from cowork bundle manifest; remove JSON emission from `build_brief.py`; update strategy skill docs
 
 ### Triggers before Z.1 (Honeycomb wire-up)
 
-- Cowork OTEL audit and instrumentation
+- Cowork OTEL audit and instrumentation. Two analyzer-side artifacts (`build_shortlist.run`, B.8 cowork role 11) now emit `*_loaded` attributes that fall into silent no-op without an ambient span. Audit becomes the path to wrap `build_outbound_bundle` in a span and surface these.
 - Strategy-docs migration to `cycle_focus.json`; remove bundle alias
 
 ### Triggers on Schema v2 work (post-Phase D)
@@ -198,7 +198,7 @@ From `Vardalux_Grailzee_Backlog.md` (April 21 baseline), updated for the 2026-04
 
 ### Resolved (for record)
 
-Phase A cleanup items (A.cleanup.1 through A.cleanup.3) all landed. M-prefix ledger reference normalization resolved. Schema doc staleness on B.2/B.3 resolved. Exhaustive-shape test anti-pattern addressed during B.5. B.6 shipped then reverted per 2026-04-23 kill. B.7 shortlist CSV shipped 2026-04-22 with brand_floors default record (Phase 0) and build_brief markdown footer `papers_required` linkage fix bundled.
+Phase A cleanup items (A.cleanup.1 through A.cleanup.3) all landed. M-prefix ledger reference normalization resolved. Schema doc staleness on B.2/B.3 resolved. Exhaustive-shape test anti-pattern addressed during B.5. B.6 shipped then reverted per 2026-04-23 kill. B.7 shipped 2026-04-23 (shortlist CSV, brand_floors default record, build_brief footer fix). B.8 shipped 2026-04-24 (cowork role 11 cycle_shortlist, bare arcname, cycle_id from cache). `max_buy_nr_realistic` open question closed 2026-04-24 (no new cache field; judgment stays in strategy).
 
 ---
 
@@ -206,7 +206,7 @@ Phase A cleanup items (A.cleanup.1 through A.cleanup.3) all landed. M-prefix led
 
 Remove entries as each is confirmed. Add new entries only for verifications needed before the next session can rely on a section.
 
-(All prior verification items closed by B.7 Phase 0 on 2026-04-22: `state/brand_floors.json` carries the five named brand floors plus a top-level `default` record at 10% for unlisted brands.)
+- **Live cowork bundle build, end-to-end**: once the sourcing_brief Drive-state gap is resolved, confirm the first live `python3 -m grailzee_bundle.build_bundle --grailzee-root <drive>` produces a bundle containing both role 9 `sourcing_brief.json` and role 11 `cycle_shortlist.csv` with byte-fidelity to source. This is the closure on B.8's deferred full-flow validation.
 
 ---
 
