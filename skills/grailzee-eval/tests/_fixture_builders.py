@@ -21,6 +21,7 @@ def build_minimal_report(
     extra_auctions_column: str | None = None,
     omit_auctions_sheet: bool = False,
     omit_required_column: str | None = None,
+    header_style: str = "w1",
 ) -> Path:
     """Write a synthetic Grailzee Pro report to `path`.
 
@@ -46,9 +47,16 @@ def build_minimal_report(
         ws = wb.active
         ws.title = "Auctions Sold"
 
+        if header_style == "w2":
+            sold_at_header = "Sold At"
+            dial_header = "Dial Numbers"
+        else:
+            sold_at_header = "Sold at"
+            dial_header = "Dial"
         headers = [
-            "Sold at", "Auction", "Make", "Model", "Reference Number",
+            sold_at_header, "Auction", "Make", "Model", "Reference Number",
             "Sold For", "Condition", "Year", "Papers", "Box",
+            dial_header, "URL",
         ]
         if extra_auctions_column:
             headers.append(extra_auctions_column)
@@ -73,6 +81,9 @@ def build_minimal_report(
                     "year": "year",
                     "papers": "papers",
                     "box": "box",
+                    "dial": "dial",
+                    "dial_numbers": "dial",
+                    "url": "url",
                 }
                 mapped = key_map.get(key, key)
                 val = row.get(mapped)
@@ -151,6 +162,8 @@ DEFAULT_SALES_ROWS = [
         "year": 2020,
         "papers": "Yes",
         "box": "Yes",
+        "dial": "No Numerals",
+        "url": "https://grailzee.com/products/tudor-black-bay-gmt-pepsi-79830rb-1",
     },
     {
         "sold_at": datetime(2026, 2, 7, 10, 0, 0),
@@ -163,6 +176,8 @@ DEFAULT_SALES_ROWS = [
         "year": 2021,
         "papers": "Yes",
         "box": "No",
+        "dial": "Arabic Numerals",
+        "url": "https://grailzee.com/products/breitling-superocean-heritage-a17320-1",
     },
     {
         "sold_at": datetime(2026, 2, 9, 16, 45, 0),
@@ -175,5 +190,7 @@ DEFAULT_SALES_ROWS = [
         "year": 2019,
         "papers": "Yes",
         "box": "Yes",
+        "dial": "No Numerals",
+        "url": "https://grailzee.com/products/tudor-black-bay-gmt-pepsi-79830rb-full-set-2",
     },
 ]

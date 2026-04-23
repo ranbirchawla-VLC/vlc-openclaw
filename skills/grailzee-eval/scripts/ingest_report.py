@@ -35,14 +35,31 @@ except ImportError:
 
 tracer = get_tracer(__name__)
 
-# Output CSV columns
+# Output CSV columns. The leading 8 preserve the v2 scorer contract and
+# MUST stay in this order; five columns appended right carry the full
+# source for the v3 ingest pipeline (Phase 2a) to canonicalize. Raw
+# passthrough for the appended fields: this layer names, Phase 2a
+# transforms.
 OUTPUT_COLUMNS = [
     "date_sold", "make", "reference", "title", "condition",
     "papers", "sold_price", "sell_through_pct",
+    "model", "year", "box", "dial_numerals_raw", "url",
 ]
 
 # Required columns in Auctions Sold (must all be present in row 1)
 REQUIRED_AUCTION_COLUMNS = {"Make", "Model", "Reference Number", "Sold For", "Condition", "Papers"}
+
+# Source-header aliases. W1 uses "Sold at" / "Dial"; W2 uses "Sold At" /
+# "Dial Numbers". Same underlying column in each case.
+SOLD_AT_ALIASES = ("Sold at", "Sold At")
+DIAL_ALIASES = ("Dial", "Dial Numbers")
+
+# Full set of known source headers; anything else triggers a warning.
+KNOWN_AUCTION_COLUMNS = {
+    "Sold at", "Sold At", "Auction", "Make", "Model",
+    "Reference Number", "Sold For", "Condition",
+    "Year", "Papers", "Box", "Dial", "Dial Numbers", "URL",
+}
 
 
 # ─── Normalization helpers ────────────────────────────────────────────
@@ -172,11 +189,26 @@ def parse_auctions_sold(ws) -> tuple[list[dict], list[str]]:
     if missing:
         return [], [f"FATAL: Missing required columns: {sorted(missing)}"]
 
-    extra = actual_cols - {"Sold at", "Auction", "Make", "Model",
-                           "Reference Number", "Sold For", "Condition",
-                           "Year", "Papers", "Box", "URL"}
+    extra = actual_cols - KNOWN_AUCTION_COLUMNS
     if extra:
         warnings.append(f"Unexpected columns ignored: {sorted(extra)}")
+
+    def _first_present(get_fn, aliases: tuple[str, ...]):
+        """Return the first non-None value across aliased source headers."""
+        for name in aliases:
+            v = get_fn(name)
+            if v is not None:
+                return v
+        return None
+
+    def _raw_str(v) -> str:
+        """Raw passthrough for appended columns: preserve source bytes,
+        collapse None to empty, strip surrounding whitespace only.
+        NBSP and other in-cell whitespace survive verbatim for Phase 2a.
+        """
+        if v is None:
+            return ""
+        return str(v).strip()
 
     rows = []
     skipped = 0
@@ -199,7 +231,7 @@ def parse_auctions_sold(ws) -> tuple[list[dict], list[str]]:
             skipped += 1
             continue
 
-        date_str = normalize_date(get("Sold at"))
+        date_str = normalize_date(_first_present(get, SOLD_AT_ALIASES))
         if not date_str:
             skipped += 1
             continue
@@ -215,6 +247,11 @@ def parse_auctions_sold(ws) -> tuple[list[dict], list[str]]:
             "condition": str(get("Condition") or "").strip(),
             "papers": papers,
             "sold_price": price,
+            "model": _raw_str(get("Model")),
+            "year": _raw_str(get("Year")),
+            "box": _raw_str(get("Box")),
+            "dial_numerals_raw": _raw_str(_first_present(get, DIAL_ALIASES)),
+            "url": _raw_str(get("URL")),
         })
 
     if skipped:
@@ -368,6 +405,11 @@ def ingest(
                 "papers": sale["papers"],
                 "sold_price": sale["sold_price"],
                 "sell_through_pct": sale.get("sell_through_pct", ""),
+                "model": sale.get("model", ""),
+                "year": sale.get("year", ""),
+                "box": sale.get("box", ""),
+                "dial_numerals_raw": sale.get("dial_numerals_raw", ""),
+                "url": sale.get("url", ""),
             })
 
     return {

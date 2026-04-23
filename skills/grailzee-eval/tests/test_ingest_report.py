@@ -156,10 +156,11 @@ class TestMinimalValid:
         data = json.loads(r.stdout)
         with open(data["output_csv"]) as f:
             reader = csv.DictReader(f)
-            assert set(reader.fieldnames) == {
+            assert reader.fieldnames == [
                 "date_sold", "make", "reference", "title", "condition",
                 "papers", "sold_price", "sell_through_pct",
-            }
+                "model", "year", "box", "dial_numerals_raw", "url",
+            ]
 
     def test_sell_through_joined(self, tmp_path):
         xlsx = build_minimal_report(tmp_path / "report.xlsx")
@@ -444,3 +445,71 @@ class TestRequiredOutputDir:
         r = run_cli(str(xlsx))
         assert r.returncode != 0
         assert "output-dir" in r.stderr.lower()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# v3 prerequisite: full-column emission (Dial/URL/etc. preserved for
+# Phase 2a canonicalization)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestFullColumnEmission:
+    """Phase 2a prerequisite: every source column flows through to CSV."""
+
+    def test_round_trip_all_appended_fields(self, tmp_path):
+        xlsx = build_minimal_report(tmp_path / "report.xlsx")
+        out_dir = str(tmp_path / "csv_out")
+        r = run_cli(str(xlsx), "--output-dir", out_dir)
+        assert r.returncode == 0, r.stderr
+        data = json.loads(r.stdout)
+        with open(data["output_csv"]) as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+        assert len(rows) == 3
+        r0 = rows[0]
+        assert r0["model"] == "Tudor Black Bay GMT"
+        assert r0["year"] == "2020"
+        assert r0["box"] == "Yes"
+        assert r0["dial_numerals_raw"] == "No Numerals"
+        assert r0["url"].startswith("https://grailzee.com/")
+        r1 = rows[1]
+        assert r1["model"] == "Breitling Superocean Heritage 42"
+        assert r1["dial_numerals_raw"] == "Arabic Numerals"
+
+    def test_w2_header_aliases_emit_same_shape(self, tmp_path):
+        """W2 uses 'Sold At' + 'Dial Numbers' instead of 'Sold at' + 'Dial'.
+        Both source spellings must resolve to the same canonical CSV."""
+        xlsx = build_minimal_report(
+            tmp_path / "report.xlsx", header_style="w2")
+        out_dir = str(tmp_path / "csv_out")
+        r = run_cli(str(xlsx), "--output-dir", out_dir)
+        assert r.returncode == 0, r.stderr
+        data = json.loads(r.stdout)
+        with open(data["output_csv"]) as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+        assert len(rows) == 3
+        assert rows[0]["date_sold"] == "2026-02-05"
+        assert rows[0]["dial_numerals_raw"] == "No Numerals"
+        assert rows[1]["dial_numerals_raw"] == "Arabic Numerals"
+
+    def test_nbsp_in_appended_fields_passes_through_verbatim(self, tmp_path):
+        """Raw passthrough: NBSP (U+00A0) survives ingest unchanged. Phase
+        2a owns NBSP normalization; this layer must not touch it."""
+        nbsp = " "
+        rows = [{
+            **DEFAULT_SALES_ROWS[0],
+            "title": f"No Reserve -{nbsp}Rolex Submariner 41MM Black Dial",
+            "dial": f"Arabic{nbsp}Numerals",
+        }]
+        xlsx = build_minimal_report(tmp_path / "report.xlsx", sales_rows=rows)
+        out_dir = str(tmp_path / "csv_out")
+        r = run_cli(str(xlsx), "--output-dir", out_dir)
+        assert r.returncode == 0, r.stderr
+        data = json.loads(r.stdout)
+        with open(data["output_csv"], encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            row = next(reader)
+        assert nbsp in row["title"]
+        assert nbsp in row["dial_numerals_raw"]
+        assert row["dial_numerals_raw"] == f"Arabic{nbsp}Numerals"
