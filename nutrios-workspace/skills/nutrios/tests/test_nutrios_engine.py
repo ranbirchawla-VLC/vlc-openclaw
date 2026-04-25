@@ -73,3 +73,104 @@ def test_macro_range_check_ok_at_max_boundary():
 
 def test_macro_range_check_ok_within_range():
     assert engine.macro_range_check(180, MacroRange(min=150, max=200)) == "OK"
+
+
+# ---------------------------------------------------------------------------
+# range_proximity()
+# ---------------------------------------------------------------------------
+
+def test_range_proximity_none_when_no_active_bounds():
+    assert engine.range_proximity(100, MacroRange()) is None
+
+def test_range_proximity_near_max():
+    r = MacroRange(max=65)
+    # distance = 65 - 55 = 10; 10/65 = 15.4% → within 20% → hint
+    p = engine.range_proximity(55, r)
+    assert p is not None
+    assert p.end == "max"
+    assert abs(p.distance_g - 10.0) < 0.01
+
+def test_range_proximity_near_min():
+    r = MacroRange(min=175)
+    # 175 * 1.2 = 210, so 180 is within 20% above min → hint
+    p = engine.range_proximity(185, r)
+    assert p is not None
+    assert p.end == "min"
+
+def test_range_proximity_none_when_far():
+    r = MacroRange(max=65)
+    # 20 is very far below 65, so NOT within 20% → None
+    assert engine.range_proximity(20, r) is None
+
+def test_range_proximity_none_when_over():
+    # If already over max, proximity hint is not relevant
+    r = MacroRange(max=65)
+    assert engine.range_proximity(70, r) is None
+
+
+# ---------------------------------------------------------------------------
+# resolve_day()
+# ---------------------------------------------------------------------------
+
+def _make_goals(
+    day_type: str = "rest",
+    pattern_deficit: int | None = None,
+    pattern_protein_min: int | None = None,
+) -> Goals:
+    defaults = DayMacros(
+        protein_g=MacroRange(min=175),
+        fat_g=MacroRange(max=65),
+    )
+    patterns = []
+    if pattern_deficit is not None or pattern_protein_min is not None:
+        p = DayPattern(
+            day_type=day_type,
+            deficit_kcal=pattern_deficit,
+            protein_g=MacroRange(min=pattern_protein_min) if pattern_protein_min else MacroRange(),
+        )
+        patterns.append(p)
+    return Goals(
+        active_cycle_id="cyc1",
+        weekly_schedule={"friday": day_type},
+        defaults=defaults,
+        day_patterns=patterns,
+    )
+
+
+def _make_mesocycle(tdee: int | None = 2600, deficit: int = 400) -> Mesocycle:
+    return Mesocycle(
+        cycle_id="cyc1",
+        phase="cut",
+        start_date=date(2026, 1, 1),
+        tdee_kcal=tdee,
+        deficit_kcal=deficit,
+    )
+
+
+# now = Friday 2026-04-24T12:00:00 UTC
+_NOW = datetime(2026, 4, 24, 12, 0, 0, tzinfo=timezone.utc)  # Friday
+
+
+def test_resolve_day_kcal_from_tdee_deficit():
+    goals = _make_goals("rest")
+    meso = _make_mesocycle(tdee=2600, deficit=400)
+    rd = engine.resolve_day(_NOW, goals, meso)
+    assert rd.kcal_target == 2200
+
+def test_resolve_day_kcal_none_when_tdee_none():
+    goals = _make_goals("rest")
+    meso = _make_mesocycle(tdee=None, deficit=400)
+    rd = engine.resolve_day(_NOW, goals, meso)
+    assert rd.kcal_target is None
+
+def test_resolve_day_pattern_deficit_overrides_cycle():
+    goals = _make_goals("rest", pattern_deficit=600)
+    meso = _make_mesocycle(tdee=2600, deficit=400)
+    rd = engine.resolve_day(_NOW, goals, meso)
+    assert rd.kcal_target == 2000   # 2600 - 600
+
+def test_resolve_day_pattern_protein_overrides_default():
+    goals = _make_goals("rest", pattern_protein_min=200)
+    meso = _make_mesocycle(tdee=2600, deficit=400)
+    rd = engine.resolve_day(_NOW, goals, meso)
+    assert rd.protein_g.min == 200  # pattern override
