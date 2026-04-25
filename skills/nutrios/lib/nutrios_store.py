@@ -18,7 +18,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from nutrios_models import (
-    Event, NeedsSetup, State,
+    Event, NeedsSetup, State, Recipe,
 )
 
 
@@ -276,6 +276,40 @@ def write_events(user_id: str, events: list[Event]) -> None:
     dest = user_dir(user_id) / "events.json"
     content = json.dumps(
         {"version": 1, "events": [e.model_dump(mode="json") for e in events]},
+        indent=2,
+    )
+    _atomic_write_text(dest, content)
+
+
+# ---------------------------------------------------------------------------
+# Recipes convenience wrappers — wrapped format mirrors events.json
+# ---------------------------------------------------------------------------
+
+def read_recipes(user_id: str) -> list[Recipe]:
+    """Read recipes.json and return the recipes list.
+
+    Requires wrapped format: {"recipes": [...], "version": 1}.
+    Returns [] when the file does not exist.
+    """
+    path = user_dir(user_id) / "recipes.json"
+    if not path.exists():
+        return []
+    try:
+        raw = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise StoreError(f"Failed to parse recipes.json: {exc}") from exc
+    if not isinstance(raw, dict) or "recipes" not in raw:
+        raise StoreError(
+            'recipes.json must use wrapped format {"recipes": [...], "version": 1}.'
+        )
+    return [Recipe.model_validate(r) for r in raw["recipes"]]
+
+
+def write_recipes(user_id: str, recipes: list[Recipe]) -> None:
+    """Atomically rewrite recipes.json in wrapped format."""
+    dest = user_dir(user_id) / "recipes.json"
+    content = json.dumps(
+        {"version": 1, "recipes": [r.model_dump(mode="json") for r in recipes]},
         indent=2,
     )
     _atomic_write_text(dest, content)
