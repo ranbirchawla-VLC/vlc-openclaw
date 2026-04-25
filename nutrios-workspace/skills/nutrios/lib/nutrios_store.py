@@ -1,0 +1,280 @@
+"""NutriOS v2 store — disk I/O, per-user path resolution, atomic writes.
+
+All paths are built from data_root() / "users" / user_id / <constant>.
+No path supplied by the LLM or user_text is ever trusted.
+Write paths are atomic (write temp → fsync → os.replace).
+JSONL files are append-only; no in-place rewrite ever occurs.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import tempfile
+import threading
+from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel
+
+from nutrios_models import (
+    Event, NeedsSetup, State,
+)
+
+
+# ---------------------------------------------------------------------------
+# Per-user lock table — prevents concurrent next_id collisions on same user
+# ---------------------------------------------------------------------------
+
+_user_locks: dict[str, threading.Lock] = {}
+_lock_table_lock = threading.Lock()
+
+
+def _user_lock(user_id: str) -> threading.Lock:
+    with _lock_table_lock:
+        if user_id not in _user_locks:
+            _user_locks[user_id] = threading.Lock()
+        return _user_locks[user_id]
+
+
+# ---------------------------------------------------------------------------
+# Path validation helpers
+# ---------------------------------------------------------------------------
+
+_VALID_USER_ID = re.compile(r"^[A-Za-z0-9_-]+$")
+_VALID_CYCLE_ID = re.compile(r"^[A-Za-z0-9_]+$")
+
+_JSON_ALLOWLIST = frozenset({
+    "profile.json",
+    "goals.json",
+    "protocol.json",
+    "events.json",
+    "recipes.json",
+    "aliases.json",
+    "portions.json",
+    "state.json",
+    "_needs_setup.json",
+    "_migration_marker.json",
+})
+
+_JSONL_ALLOWLIST = frozenset({
+    "weigh_ins.jsonl",
+    "med_notes.jsonl",
+})
+
+_COUNTER_ALLOWLIST = frozenset({
+    "last_entry_id",
+    "last_weigh_in_id",
+    "last_med_note_id",
+    "last_event_id",
+})
+
+
+def _validate_json_filename(filename: str) -> None:
+    if filename in _JSON_ALLOWLIST:
+        return
+    # mesocycles/<cycle_id>.json
+    if filename.startswith("mesocycles/"):
+        tail = filename[len("mesocycles/"):]
+        if tail.endswith(".json"):
+            cycle_id = tail[:-5]
+            if _VALID_CYCLE_ID.match(cycle_id):
+                return
+    raise ValueError(f"Filename not on allowlist: {filename!r}")
+
+
+def _validate_jsonl_filename(filename: str) -> None:
+    if filename in _JSONL_ALLOWLIST:
+        return
+    # log/YYYY-MM-DD.jsonl
+    if filename.startswith("log/") and filename.endswith(".jsonl"):
+        name = filename[4:-6]
+        try:
+            from datetime import date
+            date.fromisoformat(name)
+            return
+        except ValueError:
+            pass
+    raise ValueError(f"JSONL filename not on allowlist: {filename!r}")
+
+
+# ---------------------------------------------------------------------------
+# Root and per-user path resolution
+# ---------------------------------------------------------------------------
+
+def data_root() -> Path:
+    """Return the data root from NUTRIOS_DATA_ROOT env var. Raises if unset."""
+    val = os.environ.get("NUTRIOS_DATA_ROOT")
+    if not val:
+        raise EnvironmentError("NUTRIOS_DATA_ROOT environment variable is not set")
+    return Path(val)
+
+
+def user_dir(user_id: str) -> Path:
+    """Return per-user directory path. Validates user_id for safety."""
+    if not user_id or not _VALID_USER_ID.match(user_id):
+        raise ValueError(
+            f"Invalid user_id {user_id!r}: must be non-empty, no path separators or whitespace"
+        )
+    return data_root() / "users" / user_id
+
+
+# ---------------------------------------------------------------------------
+# Atomic write helpers
+# ---------------------------------------------------------------------------
+
+def _atomic_write_text(dest: Path, content: str) -> None:
+    """Write content to dest atomically via a temp file in the same directory."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=dest.parent)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, dest)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Index lookup
+# ---------------------------------------------------------------------------
+
+def resolve_user_id_from_peer(channel_peer: str) -> str:
+    """Map a channel peer identifier to a user_id via _index/users.json."""
+    index_path = data_root() / "_index" / "users.json"
+    if not index_path.exists():
+        raise KeyError(f"User index not found at {index_path}")
+    index = json.loads(index_path.read_text())
+    if channel_peer not in index:
+        raise KeyError(f"Channel peer {channel_peer!r} not in user index")
+    return index[channel_peer]
+
+
+# ---------------------------------------------------------------------------
+# JSON read/write
+# ---------------------------------------------------------------------------
+
+def read_json(user_id: str, filename: str, model: type[BaseModel]) -> BaseModel | None:
+    """Read a validated JSON file. Returns None if the file does not exist."""
+    _validate_json_filename(filename)
+    path = user_dir(user_id) / filename
+    if not path.exists():
+        return None
+    return model.model_validate_json(path.read_text())
+
+
+def write_json(user_id: str, filename: str, model: BaseModel) -> None:
+    """Atomically write a Pydantic model as JSON."""
+    _validate_json_filename(filename)
+    dest = user_dir(user_id) / filename
+    _atomic_write_text(dest, model.model_dump_json(indent=2))
+
+
+# ---------------------------------------------------------------------------
+# JSONL append and read (Tripwire 2: no in-place rewrite)
+# ---------------------------------------------------------------------------
+
+def append_jsonl(user_id: str, filename: str, model: BaseModel) -> None:
+    """Atomically append one JSON line to a JSONL file.
+
+    Pattern: write existing content + new line to a temp file, then os.replace.
+    This is the ONLY write path for JSONL files. No in-place rewrite ever.
+    """
+    _validate_jsonl_filename(filename)
+    dest = user_dir(user_id) / filename
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    new_line = model.model_dump_json() + "\n"
+
+    fd, tmp_path = tempfile.mkstemp(dir=dest.parent)
+    try:
+        with os.fdopen(fd, "w") as f:
+            if dest.exists():
+                f.write(dest.read_text())
+            f.write(new_line)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, dest)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def tail_jsonl(user_id: str, filename: str, n: int) -> list[dict]:
+    """Return last n lines of a JSONL file as parsed dicts."""
+    _validate_jsonl_filename(filename)
+    path = user_dir(user_id) / filename
+    if not path.exists():
+        return []
+    lines = [l for l in path.read_text().splitlines() if l.strip()]
+    return [json.loads(line) for line in lines[-n:]]
+
+
+# ---------------------------------------------------------------------------
+# Events convenience wrappers
+# ---------------------------------------------------------------------------
+
+def read_events(user_id: str) -> list[Event]:
+    """Read events.json and return the events list."""
+    path = user_dir(user_id) / "events.json"
+    if not path.exists():
+        return []
+    raw = json.loads(path.read_text())
+    events_data = raw if isinstance(raw, list) else raw.get("events", [])
+    return [Event.model_validate(e) for e in events_data]
+
+
+def write_events(user_id: str, events: list[Event]) -> None:
+    """Atomically rewrite events.json (whole-file; events are not a hot append path)."""
+    dest = user_dir(user_id) / "events.json"
+    content = json.dumps([e.model_dump(mode="json") for e in events], indent=2)
+    _atomic_write_text(dest, content)
+
+
+# ---------------------------------------------------------------------------
+# Atomic counter increment
+# ---------------------------------------------------------------------------
+
+def next_id(
+    user_id: str,
+    counter: Literal["last_entry_id", "last_weigh_in_id", "last_med_note_id", "last_event_id"],
+) -> int:
+    """Atomically increment a counter in state.json and return the new value."""
+    if counter not in _COUNTER_ALLOWLIST:
+        raise ValueError(f"Unknown counter: {counter!r}")
+    with _user_lock(user_id):
+        state_raw = read_json(user_id, "state.json", State)
+        state = state_raw if state_raw is not None else State()
+        new_val = getattr(state, counter) + 1
+        updated = state.model_copy(update={counter: new_val})
+        write_json(user_id, "state.json", updated)
+    return new_val
+
+
+# ---------------------------------------------------------------------------
+# NeedsSetup helpers
+# ---------------------------------------------------------------------------
+
+def read_needs_setup(user_id: str) -> NeedsSetup:
+    """Return NeedsSetup (all false) if the file is missing."""
+    result = read_json(user_id, "_needs_setup.json", NeedsSetup)
+    return result if result is not None else NeedsSetup()
+
+
+def clear_needs_setup_marker(
+    user_id: str,
+    field: Literal["gallbladder", "tdee", "carbs_shape", "deficits", "nominal_deficit"],
+) -> None:
+    """Set a single setup marker to False. Atomic write."""
+    current = read_needs_setup(user_id)
+    updated = current.model_copy(update={field: False})
+    write_json(user_id, "_needs_setup.json", updated)
