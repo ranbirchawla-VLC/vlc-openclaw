@@ -43,10 +43,9 @@ def window(
 
     All boundaries are local calendar-day boundaries in the user's TZ.
 
-    Intervals are designed to be non-overlapping and contiguous:
-        today:    [today_start,           today_end)
-        yesterday:[today_start - 1 day,   today_start)
-        last_7d:  [today_start - 8 days,  today_start - 1 day)
+        today:    [today_start,         today_start + 1 day)
+        yesterday:[today_start - 1 day, today_start)
+        last_7d:  [today_start - 6 days, today_start + 1 day)  — rolling 7 days including today
     """
     zone = ZoneInfo(tz)
     local_now = now.astimezone(zone)
@@ -60,8 +59,8 @@ def window(
             start_local = local_today - timedelta(days=1)
             end_local   = local_today
         case "last_7d":
-            start_local = local_today - timedelta(days=8)
-            end_local   = local_today - timedelta(days=1)
+            start_local = local_today - timedelta(days=6)
+            end_local   = local_today + timedelta(days=1)
 
     return (
         start_local.astimezone(timezone.utc),

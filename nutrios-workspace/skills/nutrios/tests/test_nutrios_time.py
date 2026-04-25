@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 import pytest
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import nutrios_time
 
@@ -126,24 +127,37 @@ def test_window_yesterday_contiguous_with_today():
     _, yest_end    = nutrios_time.window(now_utc, _TZ, "yesterday")
     assert yest_end == today_start
 
-def test_window_last_7d_contiguous_with_yesterday():
-    now_utc = datetime(2026, 4, 25, 12, 0, 0, tzinfo=timezone.utc)
-    yest_start, _  = nutrios_time.window(now_utc, _TZ, "yesterday")
-    _, last7d_end  = nutrios_time.window(now_utc, _TZ, "last_7d")
-    assert last7d_end == yest_start
-
-def test_window_last_7d_non_overlapping_with_yesterday():
-    now_utc = datetime(2026, 4, 25, 12, 0, 0, tzinfo=timezone.utc)
-    yest_start, yest_end      = nutrios_time.window(now_utc, _TZ, "yesterday")
-    last7d_start, last7d_end  = nutrios_time.window(now_utc, _TZ, "last_7d")
-    # No overlap: last7d must end at or before yesterday start
-    assert last7d_end <= yest_start
-
 def test_window_last_7d_spans_seven_days():
-    now_utc = datetime(2026, 4, 25, 12, 0, 0, tzinfo=timezone.utc)
+    """last_7d is a rolling 7-day window ending at start-of-local-tomorrow."""
+    # Denver at UTC 2026-04-25T03:00:00 = local 2026-04-24T21:00:00 MDT
+    now_utc = datetime(2026, 4, 25, 3, 0, 0, tzinfo=timezone.utc)
     start, end = nutrios_time.window(now_utc, _TZ, "last_7d")
     delta = end - start
     assert delta.days == 7
+
+def test_window_last_7d_starts_at_local_6_days_ago():
+    """Denver user at local 2026-04-24: last_7d starts at 2026-04-18 local."""
+    now_utc = datetime(2026, 4, 25, 3, 0, 0, tzinfo=timezone.utc)  # local 2026-04-24 21:00
+    start, end = nutrios_time.window(now_utc, _TZ, "last_7d")
+    expected_start = datetime(2026, 4, 18, 0, 0, 0, tzinfo=ZoneInfo(_TZ)).astimezone(timezone.utc)
+    expected_end   = datetime(2026, 4, 25, 0, 0, 0, tzinfo=ZoneInfo(_TZ)).astimezone(timezone.utc)
+    assert start == expected_start
+    assert end == expected_end
+
+def test_window_last_7d_contains_now():
+    """The window must contain now itself."""
+    now_utc = datetime(2026, 4, 25, 3, 0, 0, tzinfo=timezone.utc)
+    start, end = nutrios_time.window(now_utc, _TZ, "last_7d")
+    assert start <= now_utc < end
+
+def test_window_last_7d_excludes_8_days_ago():
+    """An instant 7 local days + 1 minute before now must not be in the window."""
+    now_utc = datetime(2026, 4, 25, 3, 0, 0, tzinfo=timezone.utc)  # local 2026-04-24 21:00
+    start, _ = nutrios_time.window(now_utc, _TZ, "last_7d")
+    # 7 days + 1 minute before local 2026-04-24T21:00 = local 2026-04-17T20:59
+    zone = ZoneInfo(_TZ)
+    seven_days_plus = datetime(2026, 4, 17, 20, 59, 0, tzinfo=zone).astimezone(timezone.utc)
+    assert seven_days_plus < start
 
 
 def test_meal_slot_tz_independent():
