@@ -260,6 +260,45 @@ def append_jsonl(user_id: str, filename: str, model: BaseModel) -> None:
         raise
 
 
+def write_jsonl_batch(user_id: str, filename: str, models: list[BaseModel]) -> None:
+    """Atomically write a JSONL file from a list of models in one shot.
+
+    Companion to append_jsonl for migration's batch-write efficiency: append_jsonl
+    rewrites the whole file once per record, which is O(N²) over N records.
+    write_jsonl_batch serializes the full list once, writes via the same
+    tempfile + fsync + os.replace primitive append_jsonl uses, then renames.
+
+    Tripwire 2 atomicity is preserved: same path validation, same allowlist,
+    same atomic-replace pattern. Distinct from append_jsonl in that this
+    OVERWRITES whatever exists at the target path. Migration writes weigh_ins,
+    med_notes, and daily logs from scratch into a fresh user dir; runtime keeps
+    using append_jsonl. Mixing the two against the same file in a single run
+    would overwrite earlier appends — callers must pick one mode per file.
+    """
+    _validate_jsonl_filename(filename)
+    dest = user_dir(user_id) / filename
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    if not models:
+        content = ""
+    else:
+        content = "".join(m.model_dump_json() + "\n" for m in models)
+
+    fd, tmp_path = tempfile.mkstemp(dir=dest.parent)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, dest)
+    except OSError:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def tail_jsonl(user_id: str, filename: str, n: int) -> list[dict]:
     """Return last n lines of a JSONL file as parsed dicts."""
     _validate_jsonl_filename(filename)

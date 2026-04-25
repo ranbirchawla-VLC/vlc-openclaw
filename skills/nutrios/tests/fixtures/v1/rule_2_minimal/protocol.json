@@ -1,0 +1,27 @@
+{
+  "treatment": {
+    "current_medication": "Tirzepatide",
+    "brand": "Mounjaro",
+    "current_dose_mg": 5.0,
+    "dose_day_of_week": "monday",
+    "dose_time": "08:00",
+    "titration_notes": null,
+    "next_transition_plan": null,
+    "planned_stop_date": null,
+    "restart_notes": null
+  },
+  "biometrics": {
+    "start_date": "2026-03-01",
+    "start_weight_lbs": 240.0,
+    "current_weight_lbs": 235.0,
+    "target_weight_lbs": 200.0,
+    "target_date": null,
+    "long_term_goal": null,
+    "lean_mass_lbs": null,
+    "whoop_tdee_kcal": null,
+    "weigh_ins": []
+  },
+  "med_team_notes": [],
+  "thyroid_medication": false,
+  "cgm_active": false
+}

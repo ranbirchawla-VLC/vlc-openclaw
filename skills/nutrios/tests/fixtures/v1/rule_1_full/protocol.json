@@ -1,0 +1,34 @@
+{
+  "treatment": {
+    "current_medication": "Tirzepatide",
+    "brand": "Mounjaro",
+    "current_dose_mg": 10.0,
+    "dose_day_of_week": "thursday",
+    "dose_time": "07:00",
+    "titration_notes": "Increased from 7.5 on 2026-02-01",
+    "next_transition_plan": null,
+    "planned_stop_date": null,
+    "restart_notes": null
+  },
+  "biometrics": {
+    "start_date": "2026-01-01",
+    "start_weight_lbs": 220.0,
+    "current_weight_lbs": 211.5,
+    "target_weight_lbs": 180.0,
+    "target_date": "2026-08-01",
+    "long_term_goal": "Maintain after target reached.",
+    "lean_mass_lbs": null,
+    "whoop_tdee_kcal": 2600,
+    "weigh_ins": [
+      {"date": "2026-04-01", "weight_lbs": 215.0, "notes": "post-vacation"},
+      {"date": "2026-04-08", "weight_lbs": 213.5, "notes": null},
+      {"date": "2026-04-15", "weight_lbs": 211.5, "notes": null}
+    ]
+  },
+  "med_team_notes": [
+    {"date": "2026-04-10", "source": "doctor", "note": "Bloodwork on 4/30."},
+    {"date": "2026-04-18", "note": "Reminder: hydration."}
+  ],
+  "thyroid_medication": false,
+  "cgm_active": false
+}

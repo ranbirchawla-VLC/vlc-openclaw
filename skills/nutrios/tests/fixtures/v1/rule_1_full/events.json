@@ -1,0 +1,8 @@
+{
+  "events": [
+    {"date": "2026-05-15", "title": "Wisdom tooth surgery", "event_type": "surgery", "notes": "8am check-in"},
+    {"date": "2026-04-30", "title": "Bloodwork", "event_type": "appointment", "notes": null},
+    {"date": "2026-04-26", "title": "Reached 210!", "event_type": "milestone", "notes": null},
+    {"date": "2026-05-01", "title": "Mom's birthday dinner", "event_type": "family", "notes": "out of town"}
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "defaults": {
+    "protein_g": 200,
+    "protein_protected": true,
+    "fat_g_maintenance": 65,
+    "fat_g_deficit": 58,
+    "fat_protected": false
+  },
+  "weekly_schedule": {
+    "monday": "post_dose",
+    "tuesday": "rest",
+    "wednesday": "training",
+    "thursday": "rest",
+    "friday": "training",
+    "saturday": "rest",
+    "sunday": "training"
+  },
+  "day_patterns": [
+    {"day_type": "rest",      "kcal": 1900, "carbs_g": 160, "is_deficit_day": true},
+    {"day_type": "training",  "kcal": 2200, "carbs_g": 240, "is_deficit_day": false},
+    {"day_type": "post_dose", "kcal": 1700, "carbs_g": 140, "is_deficit_day": true}
+  ]
+}

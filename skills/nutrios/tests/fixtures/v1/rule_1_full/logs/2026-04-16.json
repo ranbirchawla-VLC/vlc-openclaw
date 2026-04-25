@@ -1,0 +1,12 @@
+{
+  "date": "2026-04-16",
+  "entries": [
+    {"meal_slot": "breakfast", "source": "manual", "name": "eggs", "qty": 2, "unit": "ea", "kcal": 140, "protein_g": 12, "carbs_g": 1, "fat_g": 10}
+  ],
+  "dose_logged": true,
+  "water_count": 8,
+  "day_notes": "",
+  "running_totals": {},
+  "remaining": {},
+  "targets": {}
+}

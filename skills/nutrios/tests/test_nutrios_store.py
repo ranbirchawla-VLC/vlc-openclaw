@@ -143,6 +143,53 @@ def test_read_jsonl_all_rejects_bad_filename(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# write_jsonl_batch — migration's batch-write path (Tripwire 2)
+# ---------------------------------------------------------------------------
+
+def test_write_jsonl_batch_writes_all_lines(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    rows = [_make_weigh_in(i) for i in range(1, 6)]
+    store.write_jsonl_batch("alice", "weigh_ins.jsonl", rows)
+    out = store.read_jsonl_all("alice", "weigh_ins.jsonl")
+    assert [r["id"] for r in out] == [1, 2, 3, 4, 5]
+
+
+def test_write_jsonl_batch_overwrites_existing(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    store.append_jsonl("alice", "weigh_ins.jsonl", _make_weigh_in(99))
+    store.write_jsonl_batch(
+        "alice", "weigh_ins.jsonl",
+        [_make_weigh_in(1), _make_weigh_in(2)],
+    )
+    out = store.read_jsonl_all("alice", "weigh_ins.jsonl")
+    assert [r["id"] for r in out] == [1, 2]
+
+
+def test_write_jsonl_batch_empty_list_creates_empty_file(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    store.write_jsonl_batch("alice", "weigh_ins.jsonl", [])
+    assert (tmp_path / "users" / "alice" / "weigh_ins.jsonl").read_text() == ""
+
+
+def test_write_jsonl_batch_rejects_bad_filename(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    with pytest.raises(ValueError):
+        store.write_jsonl_batch("alice", "../../secrets.jsonl", [_make_weigh_in(1)])
+
+
+def test_write_jsonl_batch_accepts_log_path(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    food = FoodLogEntry(
+        id=1, ts_iso="2026-04-24T18:00:00+00:00",
+        meal_slot="dinner", source="manual", name="x",
+        qty=1.0, unit="g", kcal=10, protein_g=1.0, carbs_g=1.0, fat_g=0.5,
+    )
+    store.write_jsonl_batch("alice", "log/2026-04-24.jsonl", [food])
+    rows = store.read_jsonl_all("alice", "log/2026-04-24.jsonl")
+    assert rows[0]["kind"] == "food"
+
+
+# ---------------------------------------------------------------------------
 # next_id()
 # ---------------------------------------------------------------------------
 
