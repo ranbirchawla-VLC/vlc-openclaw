@@ -316,6 +316,32 @@ def write_recipes(user_id: str, recipes: list[Recipe]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Aliases — flat dict mapping case-insensitive alias → resolved name
+# ---------------------------------------------------------------------------
+
+def read_aliases(user_id: str) -> dict[str, str]:
+    """Read aliases.json. Returns {} when file missing.
+
+    Wrapped format: {"version": 1, "aliases": {alias: target}}.
+    Legacy raw-dict format ({"alias": "target", ...}) is also accepted —
+    aliases.json predates v2 in some workspaces, so the read path is
+    permissive even though writes always use the wrapped form.
+    """
+    path = user_dir(user_id) / "aliases.json"
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise StoreError(f"Failed to parse aliases.json: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise StoreError(f"aliases.json must be a JSON object, got {type(raw).__name__}")
+    if "aliases" in raw and isinstance(raw["aliases"], dict):
+        return raw["aliases"]
+    return raw  # legacy flat format
+
+
+# ---------------------------------------------------------------------------
 # Atomic counter increment
 # ---------------------------------------------------------------------------
 
