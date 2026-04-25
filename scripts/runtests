@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Thin pytest wrapper — allowlisted in .claude/settings.json as Bash(scripts/runtests *)
+# Locks Claude to running pytest only, not arbitrary Python.
+# Usage: scripts/runtests [pytest args...]
+set -euo pipefail
+exec python3.12 -m pytest "$@"
