@@ -14,6 +14,7 @@ The CLI surface (main()) is exercised via subprocess for exit-code tests.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -747,3 +748,171 @@ def test_tripwire_2_no_open_w_jsonl_in_migrate(migrated_rule_1):
     # Reject any direct open('...jsonl', 'w')-shaped pattern
     pattern = re.compile(r"open\([^)]*\.jsonl[^)]*['\"]w['\"]")
     assert not pattern.search(src), "Tripwire 2: no direct open(... .jsonl, 'w') in migrate"
+
+
+# ===========================================================================
+# Corrective-pass tests — code-reviewer findings
+# ===========================================================================
+
+def test_corrupt_marker_returns_exit_2(migrated_rule_1):
+    """HIGH #2: a corrupt _migration_marker.json must trigger the same
+    refuse-without-force path, not propagate a JSONDecodeError."""
+    src = migrated_rule_1["src"]
+    dest = migrated_rule_1["dest"]
+    marker = _user_dir(dest, "alice") / "_migration_marker.json"
+    marker.write_text("{ this is not valid json")
+    result = migrate(source=src, dest=dest, user_id="alice", force=False)
+    assert result.exit_code == 2
+
+
+def test_corrupt_marker_with_force_rebuilds(migrated_rule_1):
+    """A corrupt marker plus --force must succeed: the user dir is rmtree'd
+    before re-migration, so the unparseable marker is gone too."""
+    src = migrated_rule_1["src"]
+    dest = migrated_rule_1["dest"]
+    marker = _user_dir(dest, "alice") / "_migration_marker.json"
+    marker.write_text("garbage")
+    result = migrate(source=src, dest=dest, user_id="alice", force=True)
+    assert result.exit_code == 0
+
+
+def test_source_equals_dest_exits_3(v1_root):
+    """LOW #6: --source == --dest is a no-go. Returns exit-3 before any work."""
+    src = v1_root("rule_1_full")
+    result = migrate(source=src, dest=src, user_id="alice", force=False)
+    assert result.exit_code == 3
+    assert "different paths" in (result.error or "")
+
+
+def test_env_root_restored_after_migrate(v1_root, v2_root, monkeypatch):
+    """HIGH #1: migrate() must restore NUTRIOS_DATA_ROOT to its prior value.
+    The env-mutation is a side effect callers shouldn't have to know about.
+    """
+    src = v1_root("rule_1_full")
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", "/tmp/some_other_root")
+    migrate(source=src, dest=v2_root, user_id="alice", force=False)
+    assert os.environ.get("NUTRIOS_DATA_ROOT") == "/tmp/some_other_root"
+
+
+def test_env_root_unset_state_restored(v1_root, v2_root, monkeypatch):
+    """If NUTRIOS_DATA_ROOT was unset before migrate(), it must be unset after."""
+    src = v1_root("rule_1_full")
+    monkeypatch.delenv("NUTRIOS_DATA_ROOT", raising=False)
+    migrate(source=src, dest=v2_root, user_id="alice", force=False)
+    assert "NUTRIOS_DATA_ROOT" not in os.environ
+
+
+def test_whoop_negative_lands_in_rule_2_with_warning(v1_root, v2_root):
+    """LOW #7: a negative whoop_tdee_kcal triggers Rule 2 fallback AND a report warning."""
+    src = v1_root("rule_2_minimal")
+    raw = json.loads((src / "protocol.json").read_text())
+    raw["biometrics"]["whoop_tdee_kcal"] = -100
+    (src / "protocol.json").write_text(json.dumps(raw))
+
+    result = migrate(source=src, dest=v2_root, user_id="bob", force=False)
+    assert result.exit_code == 0
+    assert result.rule_fired == 2
+    assert "non-positive" in result.report_text
+    assert "-100" in result.report_text
+
+
+def test_quarantine_slug_collision_disambiguated_by_id(v1_root, v2_root):
+    """MED #3: two quarantined recipes with names that slugify identically
+    must produce two distinct sidecar files (id-disambiguated slug)."""
+    src = v1_root("rule_1_full")
+    raw = json.loads((src / "recipes.json").read_text())
+    # Both recipes have macros stripped; both names slugify to "Mystery_Soup"
+    raw["recipes"] = [
+        {"id": 10, "name": "Mystery Soup!", "ingredients": []},
+        {"id": 11, "name": "Mystery Soup?", "ingredients": []},
+    ]
+    (src / "recipes.json").write_text(json.dumps(raw))
+
+    result = migrate(source=src, dest=v2_root, user_id="alice", force=False)
+    assert result.exit_code == 0
+    qdir = _user_dir(v2_root, "alice") / "_quarantine" / "recipes"
+    payloads = sorted(f.name for f in qdir.iterdir() if f.suffix == ".json")
+    # Two distinct files, id-disambiguated, no collision
+    assert payloads == ["Mystery_Soup_id10.json", "Mystery_Soup_id11.json"]
+
+
+def test_invalid_events_json_null_exits_1(v1_root, v2_root):
+    """MED #4: events.json containing JSON null must exit 1 with a clear error,
+    not propagate TypeError."""
+    src = v1_root("rule_1_full")
+    (src / "events.json").write_text("null")
+    result = migrate(source=src, dest=v2_root, user_id="alice", force=False)
+    assert result.exit_code == 1
+    assert "events.json" in (result.error or "")
+
+
+def test_invalid_recipes_json_string_exits_1(v1_root, v2_root):
+    """recipes.json containing a string (not list/wrapped dict) must exit 1."""
+    src = v1_root("rule_1_full")
+    (src / "recipes.json").write_text('"not a list"')
+    result = migrate(source=src, dest=v2_root, user_id="alice", force=False)
+    assert result.exit_code == 1
+    assert "recipes.json" in (result.error or "")
+
+
+def test_partial_write_failure_rolls_back_user_dir(v1_root, v2_root, monkeypatch):
+    """MED #5: a write failure mid-tree must clean up so the next run can
+    start fresh without --force. Without rollback, a half-written tree with
+    no marker would block silently."""
+    src = v1_root("rule_1_full")
+    # Inject a failure inside store.write_jsonl_batch — fires after several
+    # JSON writes have already landed under users/alice/. Verifies rollback.
+    real_batch = store.write_jsonl_batch
+    call_count = {"n": 0}
+
+    def failing_batch(uid, filename, models):
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            raise OSError("simulated disk full")
+        return real_batch(uid, filename, models)
+
+    monkeypatch.setattr(store, "write_jsonl_batch", failing_batch)
+    result = migrate(source=src, dest=v2_root, user_id="alice", force=False)
+    assert result.exit_code == 1
+    assert "write failed" in (result.error or "")
+    # After rollback the user dir is gone — next run can start clean
+    assert not (_user_dir(v2_root, "alice")).exists()
+
+
+def test_post_rollback_rerun_succeeds_without_force(v1_root, v2_root, monkeypatch):
+    """Companion to the above: after a rolled-back partial write, the next
+    run (no --force) must succeed because no marker was written."""
+    src = v1_root("rule_1_full")
+    real_batch = store.write_jsonl_batch
+    call_count = {"n": 0}
+
+    def failing_once(uid, filename, models):
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            raise OSError("simulated disk full")
+        return real_batch(uid, filename, models)
+
+    monkeypatch.setattr(store, "write_jsonl_batch", failing_once)
+    first = migrate(source=src, dest=v2_root, user_id="alice", force=False)
+    assert first.exit_code == 1
+
+    monkeypatch.setattr(store, "write_jsonl_batch", real_batch)
+    second = migrate(source=src, dest=v2_root, user_id="alice", force=False)
+    assert second.exit_code == 0
+
+
+def test_main_failure_writes_to_stderr_not_stdout(v1_root, v2_root, monkeypatch, capsys):
+    """LOW #9: failure paths must write the error to stderr; stdout stays
+    empty so machine-readable callers parsing the report path don't see noise."""
+    src = v1_root("rule_1_full")
+    monkeypatch.setattr(sys, "argv", [
+        "nutrios_migrate",
+        "--source", str(src),
+        "--dest", str(v2_root),
+        "--user-id", "../bad",  # invalid user_id → exit 3
+    ])
+    code = nutrios_migrate.main()
+    captured = capsys.readouterr()
+    assert code == 3
+    assert captured.out == ""
+    assert "Invalid user_id" in captured.err

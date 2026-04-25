@@ -31,9 +31,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import sys
+import tempfile
 from collections import Counter
 from datetime import date, datetime, time, timezone
 from pathlib import Path
@@ -283,6 +285,7 @@ def _tpl_warnings_section(
     synthesized_dose_count: int,
     synthesized_doses: list[tuple[date, str, float]],
     historical_null_tdee_cycles: list[str],
+    extra_warnings: list[str],
 ) -> str:
     out = "\n## Warnings\n\n"
     if synthesized_doses:
@@ -293,13 +296,15 @@ def _tpl_warnings_section(
         for dt, brand, mg in synthesized_doses:
             out += f"  - {dt}: brand={brand}, dose_mg={mg}\n"
     else:
-        out += f"- Historical dose lines synthesized from current protocol snapshot: 0\n"
+        out += "- Historical dose lines synthesized from current protocol snapshot: 0\n"
     if historical_null_tdee_cycles:
         out += "- Historical mesocycles with null TDEE (v1 did not carry historical TDEE; null preserved):\n"
         for cid in historical_null_tdee_cycles:
             out += f"  - {cid}\n"
     else:
         out += "- Historical mesocycles with null TDEE: none\n"
+    for warning in extra_warnings:
+        out += f"- {warning}\n"
     return out
 
 
@@ -350,6 +355,17 @@ def _err_dest_invalid(dest: Path) -> str:
 
 def _err_marker_present() -> str:
     return "User already migrated; use --force to rebuild"
+
+
+def _err_source_equals_dest(path: Path) -> str:
+    return f"--source and --dest must be different paths; both resolved to {path}"
+
+
+def _warn_whoop_negative(value: int) -> str:
+    return (
+        f"v1 whoop_tdee_kcal had non-positive value {value}; treated as null "
+        "for Rule 2 fallback. Confirm or correct via Phase 2 setup_resume."
+    )
 
 
 def _quarantine_reason_missing_macros() -> str:
@@ -476,6 +492,10 @@ def _load_v1_tree(source: Path) -> _V1Tree:
         except json.JSONDecodeError as exc:
             raise ValueError(_err_invalid_v1_file("events.json", str(exc))) from exc
         items = raw["events"] if isinstance(raw, dict) and "events" in raw else raw
+        if not isinstance(items, list):
+            raise ValueError(_err_invalid_v1_file(
+                "events.json", "expected list of events or wrapped {events: [...]}",
+            ))
         for e in items:
             try:
                 events.append(_V1Event.model_validate(e))
@@ -489,6 +509,10 @@ def _load_v1_tree(source: Path) -> _V1Tree:
         except json.JSONDecodeError as exc:
             raise ValueError(_err_invalid_v1_file("recipes.json", str(exc))) from exc
         items = raw["recipes"] if isinstance(raw, dict) and "recipes" in raw else raw
+        if not isinstance(items, list):
+            raise ValueError(_err_invalid_v1_file(
+                "recipes.json", "expected list of recipes or wrapped {recipes: [...]}",
+            ))
         recipes = list(items)
 
     daily_logs: list[_V1DailyLog] = []
@@ -833,10 +857,22 @@ def _transform_mesocycle(v1c: _V1Cycle, tdee_kcal: int | None, deficit_kcal: int
 # ---------------------------------------------------------------------------
 
 def _check_migration_marker(dest: Path, user_id: str) -> dict | None:
+    """Return the parsed marker, or a sentinel dict if the marker is present
+    but unreadable (corrupt JSON, IO error). None when no marker exists.
+
+    A corrupt marker is treated as "present" — re-run is refused without
+    --force. Without this, a partial / hand-edited / truncated marker would
+    raise JSONDecodeError out of migrate(), violating the no-exceptions-escape
+    contract. With --force the user dir is rmtree'd anyway, so a corrupt
+    marker is a recoverable state.
+    """
     p = dest / "users" / user_id / "_migration_marker.json"
     if not p.exists():
         return None
-    return json.loads(p.read_text())
+    try:
+        return json.loads(p.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {"_corrupt": True}
 
 
 # ---------------------------------------------------------------------------
@@ -888,17 +924,44 @@ def _write_v2_tree(
         store.write_jsonl_batch(user_id, f"log/{d.isoformat()}.jsonl", lines)
         files_written += 1
 
-    # Quarantined recipes — payload + sidecar reason
+    # Quarantined recipes — payload + sidecar reason. Slug disambiguated by id
+    # so two v1 recipes whose names slugify identically don't collide. Writes
+    # go through the same temp+fsync+replace primitive the rest of the writer
+    # uses (Tripwire 2 atomicity at the file level extends here too).
     if quarantined:
         qdir = udir / "_quarantine" / "recipes"
         qdir.mkdir(parents=True, exist_ok=True)
         for q in quarantined:
-            slug = re.sub(r"[^A-Za-z0-9_-]+", "_", q.name).strip("_") or "recipe"
-            (qdir / f"{slug}.json").write_text(json.dumps(q.payload, indent=2))
-            (qdir / f"{slug}.reason.txt").write_text(q.reason)
+            base = re.sub(r"[^A-Za-z0-9_-]+", "_", q.name).strip("_") or "recipe"
+            rid = q.payload.get("id")
+            slug = f"{base}_id{rid}" if rid is not None else base
+            _atomic_write_local(qdir / f"{slug}.json", json.dumps(q.payload, indent=2))
+            _atomic_write_local(qdir / f"{slug}.reason.txt", q.reason)
             files_written += 2
 
     return files_written
+
+
+def _atomic_write_local(path: Path, content: str) -> None:
+    """Atomic-write helper for non-allowlisted paths inside the user dir
+    (quarantine sidecars). Mirrors store._atomic_write_text but is local to
+    the migrator so the store's allowlist doesn't have to grow for one-off
+    sidecar files. Same primitive: tempfile.mkstemp + fsync + os.replace.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except OSError:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def _write_migration_marker(
@@ -965,6 +1028,11 @@ def migrate(*, source: Path, dest: Path, user_id: str, force: bool = False) -> M
             success=False, exit_code=3, user_dir=user_dir_str,
             error=f"{_err_dest_invalid(dest)}: {exc}",
         )
+    if source.resolve() == dest.resolve():
+        return MigrationResult(
+            success=False, exit_code=3, user_dir=user_dir_str,
+            error=_err_source_equals_dest(source),
+        )
 
     # 2. Idempotency check (exit 2 if marker present and not --force)
     existing = _check_migration_marker(dest, user_id)
@@ -991,15 +1059,47 @@ def migrate(*, source: Path, dest: Path, user_id: str, force: bool = False) -> M
             success=False, exit_code=1, user_dir=user_dir_str, error=str(exc),
         )
 
-    # 4. Pull tz from v1 profile; the migrator's own NUTRIOS_DATA_ROOT must be `dest`
+    # 4. Pull tz from v1 profile; nutrios_store reads NUTRIOS_DATA_ROOT from
+    # the env, so we point it at `dest` for the duration of the run and
+    # restore the prior value in finally so in-process callers (orchestrator,
+    # future Phase 2 invocation) don't have their env silently rewritten.
     tz = tree.profile["tz"]
-    import os
+    prior_root = os.environ.get("NUTRIOS_DATA_ROOT")
     os.environ["NUTRIOS_DATA_ROOT"] = str(dest)
+    try:
+        return _migrate_with_env(
+            source=source, dest=dest, user_id=user_id, tree=tree, tz=tz,
+            user_dir_str=user_dir_str,
+        )
+    finally:
+        if prior_root is None:
+            os.environ.pop("NUTRIOS_DATA_ROOT", None)
+        else:
+            os.environ["NUTRIOS_DATA_ROOT"] = prior_root
 
-    # 5. Determine TDEE rule
+
+def _migrate_with_env(
+    *,
+    source: Path,
+    dest: Path,
+    user_id: str,
+    tree: _V1Tree,
+    tz: str,
+    user_dir_str: str,
+) -> MigrationResult:
+    """Inner migration body. Runs with NUTRIOS_DATA_ROOT pointed at `dest`.
+    Split out so the public migrate() can wrap the env mutation in try/finally
+    while still returning a MigrationResult from any branch.
+    """
+    # 5. Determine TDEE rule. A negative whoop value falls into Rule 2 (the
+    # spec covers null/zero; negatives are treated equivalently as "missing")
+    # and a warning is recorded so the report surfaces the corruption.
     whoop = tree.protocol.biometrics.whoop_tdee_kcal
     rule_fired = 1 if (whoop is not None and whoop > 0) else 2
     active_tdee = whoop if rule_fired == 1 else None
+    extra_warnings: list[str] = []
+    if whoop is not None and whoop < 0:
+        extra_warnings.append(_warn_whoop_negative(whoop))
 
     # 6. Transform
     profile = Profile(
@@ -1081,6 +1181,7 @@ def migrate(*, source: Path, dest: Path, user_id: str, force: bool = False) -> M
             dest_root=dest,
         )
     except (OSError, ValidationError, ValueError) as exc:
+        _rollback_partial_user_dir(dest, user_id)
         return MigrationResult(
             success=False, exit_code=1, user_dir=user_dir_str,
             error=f"write failed: {exc}",
@@ -1112,6 +1213,7 @@ def migrate(*, source: Path, dest: Path, user_id: str, force: bool = False) -> M
         synthesized_doses=synthesized_doses,
         historical_null_tdee_cycles=[m.cycle_id for m in historical_mesocycles],
         markers_set=markers_set,
+        extra_warnings=extra_warnings,
     )
     report_path = _write_migration_report(dest, report)
 
@@ -1125,6 +1227,19 @@ def migrate(*, source: Path, dest: Path, user_id: str, force: bool = False) -> M
         markers_set=markers_set,
         rule_fired=rule_fired,
     )
+
+
+def _rollback_partial_user_dir(dest: Path, user_id: str) -> None:
+    """Best-effort cleanup of a partially-written user dir after a write
+    failure. Uses _scoped_user_dir_for_rm so the path-shape check still
+    fires; if that check fails we silently swallow — the original write
+    error is the operator-facing message and shouldn't be obscured."""
+    try:
+        target = _scoped_user_dir_for_rm(dest, user_id)
+        if target.exists():
+            shutil.rmtree(target)
+    except (ValueError, OSError):
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -1158,6 +1273,7 @@ def _build_report(*,
     synthesized_doses: list[tuple[date, str, float]],
     historical_null_tdee_cycles: list[str],
     markers_set: list[str],
+    extra_warnings: list[str],
 ) -> str:
     now_iso = nutrios_time.now().isoformat()
     clean_total = (
@@ -1186,6 +1302,7 @@ def _build_report(*,
         + _tpl_markers_table(marker_rows)
         + _tpl_warnings_section(
             len(synthesized_doses), synthesized_doses, historical_null_tdee_cycles,
+            extra_warnings,
         )
         + _tpl_tdee_resolution_section(rule_fired, active_tdee, deficit_table, nominal)
     )
