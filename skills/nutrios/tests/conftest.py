@@ -14,8 +14,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Make lib/ importable for every test in this tree
+# Make lib/ and tools/ importable for every test in this tree
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
 from datetime import date
 
