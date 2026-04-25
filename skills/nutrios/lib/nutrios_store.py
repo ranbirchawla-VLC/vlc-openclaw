@@ -202,6 +202,31 @@ def write_json(user_id: str, filename: str, model: BaseModel) -> None:
     _atomic_write_text(dest, model.model_dump_json(indent=2))
 
 
+def read_json_raw(user_id: str, filename: str) -> dict | None:
+    """Read a JSON file as a raw dict, bypassing model validation.
+
+    Used by setup_resume during migration Phase 2 when _pending_kcal scratch
+    fields on day_patterns would be stripped by Pydantic's extra='forbid'.
+    Filename is allowlisted via the same _validate_json_filename path.
+    """
+    _validate_json_filename(filename)
+    path = user_dir(user_id) / filename
+    if not path.exists():
+        return None
+    return json.loads(path.read_text())
+
+
+def write_json_raw(user_id: str, filename: str, data: dict) -> None:
+    """Atomically write a raw dict as JSON, bypassing model validation.
+
+    Companion to read_json_raw — used to preserve scratch fields across
+    setup_resume writes that the canonical model would otherwise strip.
+    """
+    _validate_json_filename(filename)
+    dest = user_dir(user_id) / filename
+    _atomic_write_text(dest, json.dumps(data, indent=2))
+
+
 # ---------------------------------------------------------------------------
 # JSONL append and read (Tripwire 2: no in-place rewrite)
 # ---------------------------------------------------------------------------

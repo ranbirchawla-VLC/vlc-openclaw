@@ -40,24 +40,30 @@ class ProtocolEditInput(BaseModel):
     tz: str
 
 
-def main(argv_json: str) -> ToolResult:
-    inp = ProtocolEditInput.model_validate_json(argv_json)
-    proposed = inp.payload
+def apply_protocol_edit(user_id: str, proposed: Protocol, confirm: str | None) -> ToolResult:
+    """Pure helper: gate-then-write. Both main() and setup_resume call this.
 
-    current = store.read_json(inp.user_id, "protocol.json", Protocol)
+    Exposed so nutrios_setup_resume can route the gallbladder marker
+    through the same gate path without going through JSON argv parsing.
+    """
+    current = store.read_json(user_id, "protocol.json", Protocol)
     if current is None:
-        # First-time protocol write — no current state to gate against
-        store.write_json(inp.user_id, "protocol.json", proposed)
+        store.write_json(user_id, "protocol.json", proposed)
         return ToolResult(display_text=render.render_write_confirm("protocol"))
 
-    gate = engine.protected_gate_protocol(current, proposed, inp.confirm or "")
+    gate = engine.protected_gate_protocol(current, proposed, confirm or "")
     if not gate.ok:
         return ToolResult(
             display_text=render.render_gate_error(gate),
             needs_followup=True,
         )
-    store.write_json(inp.user_id, "protocol.json", proposed)
+    store.write_json(user_id, "protocol.json", proposed)
     return ToolResult(display_text=render.render_write_confirm("protocol"))
+
+
+def main(argv_json: str) -> ToolResult:
+    inp = ProtocolEditInput.model_validate_json(argv_json)
+    return apply_protocol_edit(inp.user_id, inp.payload, inp.confirm)
 
 
 if __name__ == "__main__":
