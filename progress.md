@@ -1,9 +1,10 @@
 # NutriOS v2 — Build Progress
 
 Branch: `feature/nutrios-v2`  
-Last clean commit: `94caf51` — `fix: corrective pass on second-pass code review findings`  
-Suite: **443 passed, 0 failed**  
-Both code-reviewer passes: **PASS**
+Step 6.5 build commit: `fb27c6e` — `build: step 6.5 — nutrios_migrate.py Phase 1 structural migrator`  
+Step 6.5 corrective commit: `b56e000` — `fix: corrective pass on step 6.5 code-reviewer findings`  
+Suite: **524 passed, 0 failed**  
+Code-reviewer passes through step 6.6: **PASS** | Step 6.5 (this pass): **PASS WITH FIXES** → corrected in commit `b56e000`
 
 ---
 
@@ -26,8 +27,10 @@ Both code-reviewer passes: **PASS**
 | `tools/nutrios_recipe.py` | 201 | `test_nutrios_recipe.py` | 29 |
 | `tools/nutrios_protocol_edit.py` | 74 | `test_nutrios_protocol_edit.py` | 9 |
 | `tools/nutrios_setup_resume.py` | 377 | `test_nutrios_setup_resume.py` | 22 |
+| `lib/nutrios_migrate.py` | 1342 | `test_nutrios_migrate.py` | 76 |
+| `lib/nutrios_store.py` (delta) | +37 | `test_nutrios_store.py` (delta) | +5 |
 | `tests/conftest.py` | 122 | `test_conftest_fixtures.py` | 3 |
-| **Total production** | **3656** | **Total tests** | **443** |
+| **Total production** | **5035** | **Total tests** | **524** |
 
 ---
 
@@ -42,9 +45,9 @@ Both code-reviewer passes: **PASS**
 | 4 | `nutrios_mnemo.py` | **deferred** (Mnemo integration — explicit decision) |
 | 5 | `nutrios_render.py` | ✓ complete + corrective + 18 tool-layer templates |
 | 6 | Tool shims (10 files) | ✓ complete (read, write, log, weigh-in, dose, med-note, event, recipe, protocol-edit, setup-resume) |
-| 6.5 | `nutrios_migrate.py` | **next pass** |
+| 6.5 | `nutrios_migrate.py` | ✓ complete + corrective (HIGH 1+2, MED 3-5, LOW 6+7+9, NIT 11) |
 | 6.6 | Tool entrypoints | ✓ complete (folded into step 6) |
-| 7 | `prompts/` | **not started** |
+| 7 | `prompts/` | **next pass** (conditional on step 4 mnemo decision) |
 | 8 | `scaffold.sh` update | **not started** |
 | 9 | `INSTALL.md` update | **not started** |
 
@@ -52,7 +55,7 @@ Both code-reviewer passes: **PASS**
 
 ## Red tests
 
-None. All 426 pass. Suite runtime: 0.46s.
+None. All 524 pass. Suite runtime: ~0.9s.
 
 ---
 
@@ -60,10 +63,11 @@ None. All 426 pass. Suite runtime: 0.46s.
 
 All four pass:
 
-- **T2** `grep -rn 'open(.*\.jsonl' skills/nutrios/tools/` → no output
-- **T3a** `grep -rn 'datetime\.now\|date\.today' skills/nutrios/tools/` → 1 docstring hit (acknowledged)
+- **T2** `grep -rn 'open(.*\.jsonl' skills/nutrios/tools/ skills/nutrios/lib/nutrios_migrate.py` → no output
+- **T3a** `grep -rn 'datetime\.now(\|date\.today(' skills/nutrios/lib/nutrios_migrate.py skills/nutrios/tools/` → no output (call-form regex; bare-name docstring hits acknowledged)
 - **T3b** `grep -rn 'from nutrios_engine\|import nutrios_engine' skills/nutrios/lib/nutrios_render.py` → no output
 - **T4** `grep -rn 'f".*error\|f".*failed' skills/nutrios/tools/` → no output
+- **T5** `grep -n '_pending_kcal' skills/nutrios/lib/nutrios_models.py` → no output. Field appears in `nutrios_migrate.py` (writer) and the carry-forward strip helpers in tools/.
 
 ---
 
@@ -75,13 +79,14 @@ All four pass:
 
 ## Open / carry-forward items
 
-### Architectural (from review §6)
+### Architectural (from review §6 + step 6.5 review)
 
-- **Phase-2 read/write helper extraction.** `_pending_kcal` discipline open-coded across nutrios_setup_resume + nutrios_write._write_goals (added in corrective pass). Worth extracting before step 6.5.
+- **Phase-2 helper extraction (now 3 callers).** `_strip_pending_from_day_patterns` lives in `nutrios_setup_resume._strip_pending` and `nutrios_write._strip_pending_from_day_patterns`; `nutrios_migrate._build_goals_payload` is the writer. Three callers is the right time to extract — defer to step 7 cleanup.
 - **Tool input base class.** Common `user_id`/`now`/`tz`/`extra="forbid"` pattern across all 10 tools.
 - **`nutrios_write` ↔ `nutrios_protocol_edit` overlap.** Refactor `_write_protocol` to call `apply_protocol_edit` for one source of truth.
 - **Discriminated-union input models for action-dispatched tools** (per review §6.5). 11 `raise ValueError` sites in nutrios_recipe/event/med_note/write/read collapse to zero with per-action input types. Closes the Tripwire 4 partial gap structurally.
 - **D2 trust model on manual food path.** Future `foods.json` table for frequent foods.
+- **Step 6.5 LOW #8 + #10 deferred** — non-int recipe id coercion documented; v1 lacks per-meal timestamps so all migrated food entries share noon-local. Not worth blocking on.
 
 ### Spec / contract follow-ups
 
