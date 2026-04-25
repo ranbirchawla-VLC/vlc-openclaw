@@ -3,6 +3,10 @@
 # Named targets only. No variables, no wildcards.
 # Each target is a fixed string so it can be allowlisted in .claude/settings.json.
 #
+# `make test` runs bare $(PYTEST), which discovers all skills via pytest.ini
+# testpaths = skills. When a new skill is added, its tests are automatically
+# included in `make test` once placed under skills/<name>/tests/.
+#
 # Pattern for adding a new skill:
 #   1. Place lib and tests under skills/<skill-name>/lib/ and skills/<skill-name>/tests/
 #   2. Add a block below following the nutriOS pattern exactly:
@@ -11,9 +15,7 @@
 #        test-<skill-name>-<module>:
 #        	$(PYTEST) skills/<skill-name>/tests/test_<module>.py
 #   3. Add each new target name to the .PHONY line and to the help echo list.
-#
-# IMPORTANT: recipe lines must start with a literal tab character, not spaces.
-# Verify with: cat -A Makefile | grep -E "^\^I"
+#   4. Allowlist the new Bash(make test-<skill-name>*) patterns in .claude/settings.json.
 
 PYTEST = python3.12 -m pytest
 
@@ -29,7 +31,7 @@ help:
 	@echo "  make test-nutrios-models    - run nutrios_models tests"
 
 test:
-	$(PYTEST) skills/nutrios/tests
+	$(PYTEST)
 
 test-nutrios:
 	$(PYTEST) skills/nutrios/tests
