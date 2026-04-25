@@ -224,6 +224,29 @@ class Event(BaseModel):
         "prompt_switch_day_pattern",
         "advisory_surgery_window",
     ]] = []
+    removed: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Recipes
+# ---------------------------------------------------------------------------
+
+class RecipeMacros(BaseModel):
+    model_config = _strict
+    kcal: int
+    protein_g: float
+    carbs_g: float
+    fat_g: float
+
+
+class Recipe(BaseModel):
+    model_config = _strict
+    id: int
+    name: str
+    servings: int = 1
+    macros_per_serving: RecipeMacros
+    ingredients: list[str] = []
+    removed: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +259,7 @@ class State(BaseModel):
     last_weigh_in_id: int = 0
     last_med_note_id: int = 0
     last_event_id: int = 0
+    last_recipe_id: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -294,3 +318,21 @@ class WeighInRow(BaseModel):
     model_config = _strict
     date: date
     weight_lbs: float
+
+
+# ---------------------------------------------------------------------------
+# Tool I/O contract — single output type for every v2 tool entrypoint
+# ---------------------------------------------------------------------------
+
+class ToolResult(BaseModel):
+    """Shared output shape for every tool. Stdout contract: one JSON line via
+    model_dump_json(), exit 0. Errors carried in display_text (rendered via
+    nutrios_render templates) — NOT raised. True crashes (validation, I/O)
+    propagate up and exit non-zero.
+    """
+    model_config = _strict
+    display_text: str
+    needs_followup: bool = False
+    state_delta: dict | None = None
+    marker_cleared: str | None = None
+    next_marker: str | None = None

@@ -163,3 +163,149 @@ def test_needs_setup_defaults_all_false():
     assert ns.carbs_shape is False
     assert ns.deficits is False
     assert ns.nominal_deficit is False
+
+
+# ---------------------------------------------------------------------------
+# Recipe + RecipeMacros — required per-serving macros, removed flag
+# ---------------------------------------------------------------------------
+
+def _macros() -> "m.RecipeMacros":
+    return m.RecipeMacros(kcal=500, protein_g=40.0, carbs_g=50.0, fat_g=15.0)
+
+
+def test_recipe_macros_all_fields_required():
+    macros = m.RecipeMacros(kcal=300, protein_g=25.0, carbs_g=30.0, fat_g=8.0)
+    assert macros.kcal == 300
+    assert macros.fat_g == 8.0
+
+
+def test_recipe_macros_rejects_unknown_field():
+    with pytest.raises(ValidationError):
+        m.RecipeMacros(kcal=300, protein_g=20, carbs_g=40, fat_g=10, fiber_g=5)
+
+
+def test_recipe_macros_rejects_missing_field():
+    with pytest.raises(ValidationError):
+        m.RecipeMacros(kcal=300, protein_g=25.0, carbs_g=30.0)  # missing fat_g
+
+
+def test_recipe_minimal_valid():
+    r = m.Recipe(id=1, name="protein shake", servings=1, macros_per_serving=_macros())
+    assert r.id == 1
+    assert r.name == "protein shake"
+    assert r.removed is False  # default
+    assert r.ingredients == []  # default
+
+
+def test_recipe_with_ingredients():
+    r = m.Recipe(
+        id=2, name="oats and berries", servings=1,
+        macros_per_serving=_macros(),
+        ingredients=["50g rolled oats", "100g blueberries", "200ml milk"],
+    )
+    assert len(r.ingredients) == 3
+
+
+def test_recipe_macros_per_serving_required():
+    with pytest.raises(ValidationError):
+        m.Recipe(id=3, name="x", servings=1)  # missing macros_per_serving
+
+
+def test_recipe_removed_flag_settable():
+    r = m.Recipe(id=4, name="old recipe", servings=1, macros_per_serving=_macros(), removed=True)
+    assert r.removed is True
+
+
+def test_recipe_rejects_unknown_field():
+    with pytest.raises(ValidationError):
+        m.Recipe(id=5, name="x", servings=1, macros_per_serving=_macros(), bogus=1)
+
+
+# ---------------------------------------------------------------------------
+# Event.removed — soft-delete semantics
+# ---------------------------------------------------------------------------
+
+def test_event_removed_defaults_false():
+    e = m.Event(id=1, date=date(2026, 5, 1), title="surgery", event_type="surgery")
+    assert e.removed is False
+
+
+def test_event_removed_settable():
+    e = m.Event(
+        id=2, date=date(2026, 5, 1), title="cancelled appt",
+        event_type="appointment", removed=True,
+    )
+    assert e.removed is True
+
+
+# ---------------------------------------------------------------------------
+# State.last_recipe_id — new counter, backward-compat default
+# ---------------------------------------------------------------------------
+
+def test_state_default_includes_last_recipe_id():
+    s = m.State()
+    assert s.last_recipe_id == 0
+
+
+def test_state_backward_compat_missing_last_recipe_id():
+    """Old state.json files without last_recipe_id still parse; default to 0."""
+    legacy_json = '{"last_entry_id": 5, "last_weigh_in_id": 2, "last_med_note_id": 1, "last_event_id": 0}'
+    s = m.State.model_validate_json(legacy_json)
+    assert s.last_entry_id == 5
+    assert s.last_recipe_id == 0  # defaulted
+
+
+def test_state_with_last_recipe_id_set():
+    s = m.State(last_recipe_id=3)
+    assert s.last_recipe_id == 3
+
+
+# ---------------------------------------------------------------------------
+# ToolResult — single output contract for all v2 tools
+# ---------------------------------------------------------------------------
+
+def test_tool_result_minimal():
+    r = m.ToolResult(display_text="Logged.")
+    assert r.display_text == "Logged."
+    assert r.needs_followup is False
+    assert r.state_delta is None
+    assert r.marker_cleared is None
+    assert r.next_marker is None
+
+
+def test_tool_result_with_followup():
+    r = m.ToolResult(
+        display_text="What quantity?",
+        needs_followup=True,
+        state_delta={"awaiting": "qty"},
+    )
+    assert r.needs_followup is True
+    assert r.state_delta == {"awaiting": "qty"}
+
+
+def test_tool_result_setup_resume_fields():
+    r = m.ToolResult(
+        display_text="Got it. Next: TDEE.",
+        marker_cleared="gallbladder",
+        next_marker="tdee",
+    )
+    assert r.marker_cleared == "gallbladder"
+    assert r.next_marker == "tdee"
+
+
+def test_tool_result_rejects_unknown_field():
+    with pytest.raises(ValidationError):
+        m.ToolResult(display_text="x", bogus=1)
+
+
+def test_tool_result_serializable_roundtrip():
+    """Tools serialize via model_dump_json; assert roundtrip stability."""
+    r = m.ToolResult(
+        display_text="ok",
+        needs_followup=False,
+        state_delta={"k": 1},
+        marker_cleared=None,
+        next_marker=None,
+    )
+    parsed = m.ToolResult.model_validate_json(r.model_dump_json())
+    assert parsed == r
