@@ -17,6 +17,7 @@ from nutrios_models import (
     WeighIn, Event, NeedsSetup,
     FoodLogEntry, DoseLogEntry,
     GateResult, SetupStatus, Flag,
+    Recipe, RecipeMacros,
 )
 
 
@@ -626,3 +627,130 @@ def test_setup_status_all_cleared_complete():
     assert ss.complete is True
     assert ss.next_marker is None
     assert ss.markers_remaining == []
+
+
+# ---------------------------------------------------------------------------
+# expand_recipe — multiply per-serving macros by qty (in servings)
+# ---------------------------------------------------------------------------
+
+def _r(kcal=500, p=40.0, c=50.0, f=15.0) -> Recipe:
+    return Recipe(
+        id=1, name="protein shake", servings=1,
+        macros_per_serving=RecipeMacros(kcal=kcal, protein_g=p, carbs_g=c, fat_g=f),
+    )
+
+
+def test_expand_recipe_integer_qty():
+    result = engine.expand_recipe(_r(), qty=2)
+    assert result == {"kcal": 1000, "protein_g": 80.0, "carbs_g": 100.0, "fat_g": 30.0}
+
+
+def test_expand_recipe_qty_one():
+    result = engine.expand_recipe(_r(), qty=1)
+    assert result == {"kcal": 500, "protein_g": 40.0, "carbs_g": 50.0, "fat_g": 15.0}
+
+
+def test_expand_recipe_fractional_half_serving():
+    """0.5 servings: kcal must round to int via int(round(...))."""
+    result = engine.expand_recipe(_r(kcal=501, p=40, c=50, f=15), qty=0.5)
+    # 501 * 0.5 = 250.5 → int(round(250.5)) = 250 (banker's rounding) — but Python uses round-half-to-even
+    # Actually 501 * 0.5 = 250.5 → round(250.5) = 250 in Python 3 (banker's)
+    assert result["kcal"] == 250
+    assert result["protein_g"] == 20.0
+    assert result["carbs_g"] == 25.0
+    assert result["fat_g"] == 7.5
+
+
+def test_expand_recipe_fractional_quarter():
+    result = engine.expand_recipe(_r(kcal=500, p=40, c=50, f=15), qty=0.25)
+    assert result["kcal"] == 125
+    assert result["protein_g"] == 10.0
+    assert result["carbs_g"] == 12.5
+    assert result["fat_g"] == 3.75
+
+
+def test_expand_recipe_one_and_a_half_servings():
+    result = engine.expand_recipe(_r(), qty=1.5)
+    assert result["kcal"] == 750
+    assert result["protein_g"] == 60.0
+    assert result["carbs_g"] == 75.0
+    assert result["fat_g"] == 22.5
+
+
+def test_expand_recipe_kcal_returns_int():
+    """kcal must always be int, never float, regardless of qty."""
+    result = engine.expand_recipe(_r(kcal=500), qty=0.333)
+    assert isinstance(result["kcal"], int)
+
+
+def test_expand_recipe_macros_are_float():
+    result = engine.expand_recipe(_r(), qty=2)
+    assert isinstance(result["protein_g"], float)
+    assert isinstance(result["carbs_g"], float)
+    assert isinstance(result["fat_g"], float)
+
+
+def test_expand_recipe_rejects_zero_qty():
+    with pytest.raises(ValueError, match="qty"):
+        engine.expand_recipe(_r(), qty=0)
+
+
+def test_expand_recipe_rejects_zero_float():
+    with pytest.raises(ValueError, match="qty"):
+        engine.expand_recipe(_r(), qty=0.0)
+
+
+def test_expand_recipe_rejects_negative_qty():
+    with pytest.raises(ValueError, match="qty"):
+        engine.expand_recipe(_r(), qty=-1)
+
+
+def test_expand_recipe_rejects_negative_fractional_qty():
+    with pytest.raises(ValueError, match="qty"):
+        engine.expand_recipe(_r(), qty=-0.5)
+
+
+# ---------------------------------------------------------------------------
+# Soft-delete on Event — D3: removed=True hides from event_next, event_today,
+# and advisory_flags. Engine is the single point of truth on this filter.
+# ---------------------------------------------------------------------------
+
+def _ev_at(eid: int, days_from_now: int, *, event_type="appointment", removed=False) -> Event:
+    d = (datetime(2026, 4, 24, 0, 0, 0, tzinfo=timezone.utc) + timedelta(days=days_from_now)).date()
+    return Event(id=eid, date=d, title=f"event-{eid}", event_type=event_type, removed=removed)
+
+
+def test_event_next_filters_removed():
+    """Removed events are hidden from event_next."""
+    events = [
+        _ev_at(1, 2, removed=True),   # would-be-first if active
+        _ev_at(2, 5),
+    ]
+    result = engine.event_next(events, _NOW_EVENT, "UTC", n=5)
+    assert len(result) == 1
+    assert result[0].id == 2
+
+
+def test_event_today_filters_removed():
+    """A removed event dated today must NOT be returned by event_today."""
+    events = [_ev_at(1, 0, event_type="surgery", removed=True)]
+    assert engine.event_today(events, _NOW_EVENT, "UTC") is None
+
+
+def test_advisory_flags_ignores_removed_surgery():
+    """A removed surgery within 7 days does not produce a surgery_window flag."""
+    proto = Protocol(
+        user_id="alice",
+        treatment=Treatment(
+            medication="Tirzepatide", brand="Mounjaro", dose_mg=10.0,
+            dose_day_of_week="thursday", dose_time="07:00",
+        ),
+        biometrics=BiometricSnapshot(
+            start_date=date(2026, 1, 1), start_weight_lbs=220.0, target_weight_lbs=180.0,
+        ),
+        clinical=Clinical(),
+    )
+    meso = _make_mesocycle()
+    surgery = _ev_at(1, 3, event_type="surgery", removed=True)
+    flags = engine.advisory_flags(proto, [surgery], meso, _NOW_EVENT, "UTC")
+    assert all(f.code != "surgery_window" for f in flags)

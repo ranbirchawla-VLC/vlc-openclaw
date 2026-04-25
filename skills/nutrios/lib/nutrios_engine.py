@@ -17,6 +17,7 @@ from nutrios_models import (
     Event, NeedsSetup,
     FoodLogEntry, DoseLogEntry,
     GateResult, SetupStatus, Flag, Proximity,
+    Recipe,
 )
 
 
@@ -171,20 +172,26 @@ def event_next(events: list[Event], now: datetime, tz: str, n: int = 2) -> list[
     """Return up to n strictly-future events (date > local today), sorted ascending by date.
 
     Events dated local-today belong to event_today, not event_next.
+    Soft-deleted (removed=True) events are filtered out — engine is the single
+    point of truth on the removed-event semantics.
     """
     today = now.astimezone(ZoneInfo(tz)).date()
     upcoming = sorted(
-        [e for e in events if e.date > today],
+        [e for e in events if e.date > today and not e.removed],
         key=lambda e: e.date,
     )
     return upcoming[:n]
 
 
 def event_today(events: list[Event], now: datetime, tz: str) -> Event | None:
-    """Return the single event matching the user's local calendar date, or None."""
+    """Return the single event matching the user's local calendar date, or None.
+
+    Soft-deleted (removed=True) events are skipped — a removed event on today
+    must not surface as the day's event.
+    """
     today = now.astimezone(ZoneInfo(tz)).date()
     for e in events:
-        if e.date == today:
+        if e.date == today and not e.removed:
             return e
     return None
 
@@ -235,6 +242,8 @@ def advisory_flags(
     flags: list[Flag] = []
     today = now.astimezone(ZoneInfo(tz)).date()
     for event in events:
+        if event.removed:
+            continue
         if event.event_type == "surgery":
             delta = (event.date - today).days
             if 0 <= delta <= _SURGERY_WINDOW_DAYS:
@@ -345,3 +354,31 @@ def macro_range_check(actual: float, r: MacroRange) -> Literal["LOW", "OK", "OVE
     if r.max is not None and actual > r.max:
         return "OVER"
     return "OK"
+
+
+# ---------------------------------------------------------------------------
+# Recipe expansion — multiply per-serving macros by qty (servings)
+# ---------------------------------------------------------------------------
+
+def expand_recipe(recipe: Recipe, qty: float) -> dict:
+    """Expand a recipe to total macros for `qty` servings.
+
+    qty is in servings. Fractional servings are allowed (0.5, 0.25, 1.5).
+    Must be > 0 — zero and negative qty are rejected.
+
+    Returns {kcal, protein_g, carbs_g, fat_g}. kcal is int (rounded via
+    int(round(...))). The other macros are float.
+    """
+    if qty <= 0:
+        raise ValueError(
+            f"expand_recipe: qty must be > 0, got {qty!r}. "
+            "Recipes are expanded by serving count; zero and negative are rejected."
+        )
+
+    m = recipe.macros_per_serving
+    return {
+        "kcal":      int(round(m.kcal * qty)),
+        "protein_g": m.protein_g * qty,
+        "carbs_g":   m.carbs_g * qty,
+        "fat_g":     m.fat_g * qty,
+    }

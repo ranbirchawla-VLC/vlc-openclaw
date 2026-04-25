@@ -71,6 +71,7 @@ _COUNTER_ALLOWLIST = frozenset({
     "last_weigh_in_id",
     "last_med_note_id",
     "last_event_id",
+    "last_recipe_id",
 })
 
 
@@ -286,7 +287,7 @@ def write_events(user_id: str, events: list[Event]) -> None:
 
 def next_id(
     user_id: str,
-    counter: Literal["last_entry_id", "last_weigh_in_id", "last_med_note_id", "last_event_id"],
+    counter: Literal["last_entry_id", "last_weigh_in_id", "last_med_note_id", "last_event_id", "last_recipe_id"],
 ) -> int:
     """Atomically increment a counter in state.json and return the new value."""
     if counter not in _COUNTER_ALLOWLIST:

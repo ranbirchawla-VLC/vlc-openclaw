@@ -143,6 +143,17 @@ def test_next_id_independent_counters(monkeypatch, tmp_path):
     assert (w1, w2) == (1, 2)
 
 
+def test_next_id_last_recipe_id_counter(monkeypatch, tmp_path):
+    """last_recipe_id is a new counter on State; must increment independently."""
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    r1 = store.next_id("alice", "last_recipe_id")
+    e1 = store.next_id("alice", "last_entry_id")
+    r2 = store.next_id("alice", "last_recipe_id")
+    assert r1 == 1
+    assert r2 == 2
+    assert e1 == 1
+
+
 # ---------------------------------------------------------------------------
 # read_needs_setup() / clear_needs_setup_marker()
 # ---------------------------------------------------------------------------
