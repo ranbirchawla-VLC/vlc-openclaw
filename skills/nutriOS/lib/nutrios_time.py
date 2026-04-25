@@ -68,6 +68,15 @@ def window(
     )
 
 
+def to_local(now: datetime, tz: str) -> datetime:
+    """Convert a UTC-aware datetime to the user's local timezone.
+
+    Render uses this for display. Centralises ZoneInfo lookup so render
+    never calls astimezone directly.
+    """
+    return now.astimezone(ZoneInfo(tz))
+
+
 def parse(s: str) -> datetime:
     """Parse ISO8601 string to UTC-aware datetime. Raises ValueError on naive input."""
     # Python 3.11+ fromisoformat handles Z, but be explicit for clarity
