@@ -154,26 +154,52 @@ _NOW = datetime(2026, 4, 24, 12, 0, 0, tzinfo=timezone.utc)  # Friday
 def test_resolve_day_kcal_from_tdee_deficit():
     goals = _make_goals("rest")
     meso = _make_mesocycle(tdee=2600, deficit=400)
-    rd = engine.resolve_day(_NOW, goals, meso)
+    rd = engine.resolve_day(_NOW, "UTC", goals, meso)
     assert rd.kcal_target == 2200
 
 def test_resolve_day_kcal_none_when_tdee_none():
     goals = _make_goals("rest")
     meso = _make_mesocycle(tdee=None, deficit=400)
-    rd = engine.resolve_day(_NOW, goals, meso)
+    rd = engine.resolve_day(_NOW, "UTC", goals, meso)
     assert rd.kcal_target is None
 
 def test_resolve_day_pattern_deficit_overrides_cycle():
     goals = _make_goals("rest", pattern_deficit=600)
     meso = _make_mesocycle(tdee=2600, deficit=400)
-    rd = engine.resolve_day(_NOW, goals, meso)
+    rd = engine.resolve_day(_NOW, "UTC", goals, meso)
     assert rd.kcal_target == 2000   # 2600 - 600
 
 def test_resolve_day_pattern_protein_overrides_default():
     goals = _make_goals("rest", pattern_protein_min=200)
     meso = _make_mesocycle(tdee=2600, deficit=400)
-    rd = engine.resolve_day(_NOW, goals, meso)
+    rd = engine.resolve_day(_NOW, "UTC", goals, meso)
     assert rd.protein_g.min == 200  # pattern override
+
+def test_resolve_day_uses_local_weekday_not_utc():
+    """UTC 2026-04-27T03:00Z = local Sunday 2026-04-26T21:00 MDT.
+    Must return Sunday's day_type, not Monday's UTC day_type."""
+    # 2026-04-27 is a Monday in UTC; local in Denver it is still Sunday
+    now_utc = datetime(2026, 4, 27, 3, 0, 0, tzinfo=timezone.utc)
+    goals = Goals(
+        active_cycle_id="cyc1",
+        weekly_schedule={"sunday": "rest", "monday": "training"},
+        defaults=DayMacros(),
+    )
+    meso = _make_mesocycle(tdee=2600, deficit=400)
+    rd = engine.resolve_day(now_utc, "America/Denver", goals, meso)
+    assert rd.day_type == "rest"   # local Sunday, not UTC Monday
+
+def test_resolve_day_utc_monday_is_monday_in_utc():
+    """UTC 2026-04-27T07:00Z = local Monday 2026-04-27T01:00 MDT."""
+    now_utc = datetime(2026, 4, 27, 7, 0, 0, tzinfo=timezone.utc)
+    goals = Goals(
+        active_cycle_id="cyc1",
+        weekly_schedule={"sunday": "rest", "monday": "training"},
+        defaults=DayMacros(),
+    )
+    meso = _make_mesocycle(tdee=2600, deficit=400)
+    rd = engine.resolve_day(now_utc, "America/Denver", goals, meso)
+    assert rd.day_type == "training"   # local Monday
 
 
 # ---------------------------------------------------------------------------
@@ -256,26 +282,50 @@ _NOW_EVENT = datetime(2026, 4, 24, 12, 0, 0, tzinfo=timezone.utc)
 
 def test_event_next_returns_upcoming_sorted():
     events = [_make_event(3, 10), _make_event(1, 2), _make_event(2, 5)]
-    result = engine.event_next(events, _NOW_EVENT, n=2)
+    result = engine.event_next(events, _NOW_EVENT, "UTC", n=2)
     assert len(result) == 2
     assert result[0].id == 1
     assert result[1].id == 2
 
 def test_event_next_excludes_past():
     events = [_make_event(1, -1), _make_event(2, 3)]
-    result = engine.event_next(events, _NOW_EVENT, n=5)
+    result = engine.event_next(events, _NOW_EVENT, "UTC", n=5)
+    assert len(result) == 1
+    assert result[0].id == 2
+
+def test_event_next_excludes_today():
+    """Event dated local-today must not appear in event_next; it belongs to event_today."""
+    events = [_make_event(1, 0, "appointment"), _make_event(2, 2)]
+    result = engine.event_next(events, _NOW_EVENT, "UTC", n=5)
     assert len(result) == 1
     assert result[0].id == 2
 
 def test_event_today_match():
     events = [_make_event(1, 0, "surgery")]
-    result = engine.event_today(events, _NOW_EVENT)
+    result = engine.event_today(events, _NOW_EVENT, "UTC")
     assert result is not None
     assert result.id == 1
 
 def test_event_today_none_when_no_match():
     events = [_make_event(1, 1)]
-    assert engine.event_today(events, _NOW_EVENT) is None
+    assert engine.event_today(events, _NOW_EVENT, "UTC") is None
+
+def test_event_today_uses_local_date_not_utc():
+    """UTC 2026-04-27T03:00Z = local 2026-04-26T21:00 MDT.
+    Surgery on 2026-04-26 (local date) must be returned."""
+    now_utc = datetime(2026, 4, 27, 3, 0, 0, tzinfo=timezone.utc)
+    surgery = Event(id=1, date=date(2026, 4, 26), title="surgery", event_type="surgery")
+    result = engine.event_today([surgery], now_utc, "America/Denver")
+    assert result is not None
+    assert result.id == 1
+
+def test_event_next_uses_local_date_boundary():
+    """UTC 2026-04-27T03:00Z = local Sunday 2026-04-26T21:00 MDT.
+    An event on 2026-04-27 (local Monday) is in the future relative to local today (Sunday)."""
+    now_utc = datetime(2026, 4, 27, 3, 0, 0, tzinfo=timezone.utc)
+    future_event = Event(id=1, date=date(2026, 4, 27), title="appt", event_type="appointment")
+    result = engine.event_next([future_event], now_utc, "America/Denver", n=5)
+    assert len(result) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -310,13 +360,25 @@ _FRIDAY_PROTOCOL = _make_protocol("friday")
 _TUESDAY_PROTOCOL = _make_protocol("tuesday")
 
 def test_dose_reminder_due_true_when_dose_day_no_entry():
-    assert engine.dose_reminder_due(_FRIDAY_PROTOCOL, [], _NOW_EVENT) is True
+    assert engine.dose_reminder_due(_FRIDAY_PROTOCOL, [], _NOW_EVENT, "UTC") is True
 
 def test_dose_reminder_due_false_when_dose_logged():
-    assert engine.dose_reminder_due(_FRIDAY_PROTOCOL, [_make_dose_entry()], _NOW_EVENT) is False
+    assert engine.dose_reminder_due(_FRIDAY_PROTOCOL, [_make_dose_entry()], _NOW_EVENT, "UTC") is False
 
 def test_dose_reminder_due_false_when_not_dose_day():
-    assert engine.dose_reminder_due(_TUESDAY_PROTOCOL, [], _NOW_EVENT) is False
+    assert engine.dose_reminder_due(_TUESDAY_PROTOCOL, [], _NOW_EVENT, "UTC") is False
+
+def test_dose_reminder_due_tz_boundary_sunday_night():
+    """UTC 2026-04-27T05:00Z = local Sunday 2026-04-26T23:00 MDT. Dose day=monday → False."""
+    now_utc = datetime(2026, 4, 27, 5, 0, 0, tzinfo=timezone.utc)
+    monday_protocol = _make_protocol("monday")
+    assert engine.dose_reminder_due(monday_protocol, [], now_utc, "America/Denver") is False
+
+def test_dose_reminder_due_tz_boundary_monday_morning():
+    """UTC 2026-04-27T07:00Z = local Monday 2026-04-27T01:00 MDT. Dose day=monday → True."""
+    now_utc = datetime(2026, 4, 27, 7, 0, 0, tzinfo=timezone.utc)
+    monday_protocol = _make_protocol("monday")
+    assert engine.dose_reminder_due(monday_protocol, [], now_utc, "America/Denver") is True
 
 def test_dose_status_pending():
     # Friday protocol, no dose entries, is_dose_day=True
@@ -342,7 +404,7 @@ def test_advisory_flags_surgery_within_7_days():
     protocol = _make_protocol("friday")
     meso = _make_mesocycle(tdee=2600, deficit=400)
     events = [_make_surgery_event(5)]
-    flags = engine.advisory_flags(protocol, events, meso, _NOW_EVENT)
+    flags = engine.advisory_flags(protocol, events, meso, _NOW_EVENT, "UTC")
     assert len(flags) == 1
     assert flags[0].code == "surgery_window"
     assert flags[0].severity == "warn"
@@ -351,21 +413,41 @@ def test_advisory_flags_surgery_at_7_days():
     protocol = _make_protocol("friday")
     meso = _make_mesocycle(tdee=2600, deficit=400)
     events = [_make_surgery_event(7)]
-    flags = engine.advisory_flags(protocol, events, meso, _NOW_EVENT)
+    flags = engine.advisory_flags(protocol, events, meso, _NOW_EVENT, "UTC")
     assert len(flags) == 1
 
 def test_advisory_flags_surgery_beyond_7_days():
     protocol = _make_protocol("friday")
     meso = _make_mesocycle(tdee=2600, deficit=400)
     events = [_make_surgery_event(10)]
-    flags = engine.advisory_flags(protocol, events, meso, _NOW_EVENT)
+    flags = engine.advisory_flags(protocol, events, meso, _NOW_EVENT, "UTC")
     assert flags == []
 
 def test_advisory_flags_no_surgery_event():
     protocol = _make_protocol("friday")
     meso = _make_mesocycle(tdee=2600, deficit=400)
     events = [_make_event(1, 3, "appointment")]
-    flags = engine.advisory_flags(protocol, events, meso, _NOW_EVENT)
+    flags = engine.advisory_flags(protocol, events, meso, _NOW_EVENT, "UTC")
+    assert flags == []
+
+def test_advisory_flags_surgery_uses_local_date():
+    """Surgery 5 local days out from a Denver user at UTC 2026-04-25T03:00 must fire flag."""
+    now_utc = datetime(2026, 4, 25, 3, 0, 0, tzinfo=timezone.utc)  # local 2026-04-24
+    surgery_date = date(2026, 4, 29)  # 5 local days from 2026-04-24
+    surgery = Event(id=99, date=surgery_date, title="surgery", event_type="surgery")
+    protocol = _make_protocol("friday")
+    meso = _make_mesocycle(tdee=2600, deficit=400)
+    flags = engine.advisory_flags(protocol, [surgery], meso, now_utc, "America/Denver")
+    assert len(flags) == 1
+    assert flags[0].code == "surgery_window"
+
+def test_advisory_flags_surgery_8_local_days_no_flag():
+    now_utc = datetime(2026, 4, 25, 3, 0, 0, tzinfo=timezone.utc)  # local 2026-04-24
+    surgery_date = date(2026, 5, 2)  # 8 local days from 2026-04-24
+    surgery = Event(id=99, date=surgery_date, title="surgery", event_type="surgery")
+    protocol = _make_protocol("friday")
+    meso = _make_mesocycle(tdee=2600, deficit=400)
+    flags = engine.advisory_flags(protocol, [surgery], meso, now_utc, "America/Denver")
     assert flags == []
 
 

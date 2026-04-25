@@ -55,9 +55,9 @@ def range_proximity(
     return None
 
 
-def _weekday_name(now: datetime) -> str:
-    """Return lowercase weekday name matching Goals.weekly_schedule keys."""
-    return now.strftime("%A").lower()
+def _weekday_name(now: datetime, tz: str) -> str:
+    """Return lowercase weekday name in the user's local TZ."""
+    return now.astimezone(ZoneInfo(tz)).strftime("%A").lower()
 
 
 def _find_pattern(patterns: list[DayPattern], day_type: str) -> DayPattern | None:
@@ -67,9 +67,13 @@ def _find_pattern(patterns: list[DayPattern], day_type: str) -> DayPattern | Non
     return None
 
 
-def resolve_day(now: datetime, goals: Goals, mesocycle: Mesocycle) -> ResolvedDay:
-    """Compute the resolved day from goals and mesocycle. Follows extension spec verbatim."""
-    dow_key = _weekday_name(now)
+def resolve_day(now: datetime, tz: str, goals: Goals, mesocycle: Mesocycle) -> ResolvedDay:
+    """Compute the resolved day from goals and mesocycle. Follows extension spec verbatim.
+
+    Uses user's local TZ to determine weekday — critical for users east/west of UTC
+    at day boundaries.
+    """
+    dow_key = _weekday_name(now, tz)
     day_type = goals.weekly_schedule[dow_key]
     pattern = _find_pattern(goals.day_patterns, day_type)
     effective_deficit = (
@@ -153,19 +157,22 @@ def weight_trend(weigh_ins: list[WeighIn], last_n: int = 5) -> list[WeighInRow]:
 # Dose and events
 # ---------------------------------------------------------------------------
 
-def event_next(events: list[Event], now: datetime, n: int = 2) -> list[Event]:
-    """Return up to n upcoming events (date >= today UTC), sorted ascending by date."""
-    today = now.date()
+def event_next(events: list[Event], now: datetime, tz: str, n: int = 2) -> list[Event]:
+    """Return up to n strictly-future events (date > local today), sorted ascending by date.
+
+    Events dated local-today belong to event_today, not event_next.
+    """
+    today = now.astimezone(ZoneInfo(tz)).date()
     upcoming = sorted(
-        [e for e in events if e.date >= today],
+        [e for e in events if e.date > today],
         key=lambda e: e.date,
     )
     return upcoming[:n]
 
 
-def event_today(events: list[Event], now: datetime) -> Event | None:
-    """Return the single event matching today's UTC date, or None."""
-    today = now.date()
+def event_today(events: list[Event], now: datetime, tz: str) -> Event | None:
+    """Return the single event matching the user's local calendar date, or None."""
+    today = now.astimezone(ZoneInfo(tz)).date()
     for e in events:
         if e.date == today:
             return e
@@ -173,10 +180,10 @@ def event_today(events: list[Event], now: datetime) -> Event | None:
 
 
 def dose_reminder_due(
-    protocol: Protocol, today_log_entries: list, now: datetime
+    protocol: Protocol, today_log_entries: list, now: datetime, tz: str
 ) -> bool:
-    """True when today is the dose day of week and no DoseLogEntry exists today."""
-    today_weekday = now.strftime("%A").lower()
+    """True when local today is the dose day of week and no DoseLogEntry exists today."""
+    today_weekday = now.astimezone(ZoneInfo(tz)).strftime("%A").lower()
     if today_weekday != protocol.treatment.dose_day_of_week.lower():
         return False
     return not any(isinstance(e, DoseLogEntry) for e in today_log_entries)
@@ -209,13 +216,14 @@ def advisory_flags(
     events: list[Event],
     mesocycle: Mesocycle,
     now: datetime,
+    tz: str,
 ) -> list[Flag]:
     """Compute advisory flags. For steps 1-3: surgery_window only.
 
     Returns pre-rendered structured Flags; the LLM never authors advisory content.
     """
     flags: list[Flag] = []
-    today = now.date()
+    today = now.astimezone(ZoneInfo(tz)).date()
     for event in events:
         if event.event_type == "surgery":
             delta = (event.date - today).days
