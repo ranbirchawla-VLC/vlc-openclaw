@@ -172,7 +172,13 @@ def resolve_user_id_from_peer(channel_peer: str) -> str:
         )
     if channel_peer not in index:
         raise StoreError(f"Channel peer {channel_peer!r} not in user index")
-    return index[channel_peer]
+    resolved = index[channel_peer]
+    if not isinstance(resolved, str):
+        raise StoreError(
+            f"Index entry for {channel_peer!r} must be a str user_id, "
+            f"got {type(resolved).__name__!r}"
+        )
+    return resolved
 
 
 # ---------------------------------------------------------------------------

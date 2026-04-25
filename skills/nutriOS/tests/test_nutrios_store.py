@@ -208,6 +208,14 @@ def test_resolve_user_id_malformed_json(monkeypatch, tmp_path):
     with pytest.raises(store.StoreError, match="parse"):
         store.resolve_user_id_from_peer("telegram:12345")
 
+def test_resolve_user_id_value_not_string_raises(monkeypatch, tmp_path):
+    """Index entry with a non-string value (e.g. int) must raise StoreError."""
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    _write_index(tmp_path, {"telegram:12345": 12345})
+    with pytest.raises(store.StoreError, match="telegram:12345"):
+        store.resolve_user_id_from_peer("telegram:12345")
+
+
 def test_resolve_user_id_path_traversal_relies_on_user_dir(monkeypatch, tmp_path):
     """A peer string that is a path-traversal key in the index returns the mapped user_id.
     Defense-in-depth: user_dir() rejects the resolved value if it contains path separators.
