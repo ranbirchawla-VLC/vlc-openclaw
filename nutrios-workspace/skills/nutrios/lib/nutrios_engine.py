@@ -198,6 +198,126 @@ def dose_status(
     return "not_due"
 
 
+# ---------------------------------------------------------------------------
+# Advisory, protection, and setup
+# ---------------------------------------------------------------------------
+
+_SURGERY_WINDOW_DAYS = 7
+
+def advisory_flags(
+    protocol: Protocol,
+    events: list[Event],
+    mesocycle: Mesocycle,
+    now: datetime,
+) -> list[Flag]:
+    """Compute advisory flags. For steps 1-3: surgery_window only.
+
+    Returns pre-rendered structured Flags; the LLM never authors advisory content.
+    """
+    flags: list[Flag] = []
+    today = now.date()
+    for event in events:
+        if event.event_type == "surgery":
+            delta = (event.date - today).days
+            if 0 <= delta <= _SURGERY_WINDOW_DAYS:
+                flags.append(Flag(
+                    code="surgery_window",
+                    severity="warn",
+                    message="Surgery scheduled within 7 days.",
+                ))
+    return flags
+
+
+_PROTOCOL_CONFIRM_PHRASE = "confirm protocol change"
+_RANGE_CONFIRM_PHRASE = "confirm macro range change"
+
+
+def protected_gate_protocol(
+    current: Protocol, proposed: Protocol, confirm_phrase: str
+) -> GateResult:
+    """Gate changes to fields listed in current.protected.
+
+    Requires exact lowercase phrase if any protected field differs.
+    Non-protected diffs pass through with applied=True.
+    """
+    protected_fields = {k for k, v in current.protected.items() if v}
+    needs_gate = False
+    for field in protected_fields:
+        if getattr(current.treatment, field, None) != getattr(proposed.treatment, field, None):
+            needs_gate = True
+            break
+
+    if not needs_gate:
+        return GateResult(ok=True, reason=None, applied=True)
+
+    if confirm_phrase == _PROTOCOL_CONFIRM_PHRASE:
+        return GateResult(ok=True, reason=None, applied=True)
+
+    return GateResult(
+        ok=False,
+        reason="protected_field_change_requires_confirm_phrase",
+        applied=False,
+    )
+
+
+def protected_gate_range(
+    current: MacroRange, proposed: MacroRange, confirm_phrase: str
+) -> GateResult:
+    """Gate any change to either end of a protected MacroRange.
+
+    If current.protected=False, all changes pass through.
+    """
+    if not current.protected:
+        return GateResult(ok=True, reason=None, applied=True)
+
+    ends_changed = (current.min != proposed.min) or (current.max != proposed.max)
+    if not ends_changed:
+        return GateResult(ok=True, reason=None, applied=True)
+
+    if confirm_phrase == _RANGE_CONFIRM_PHRASE:
+        return GateResult(ok=True, reason=None, applied=True)
+
+    return GateResult(
+        ok=False,
+        reason="protected_field_change_requires_confirm_phrase",
+        applied=False,
+    )
+
+
+# Fixed marker order per spec; dependency logic enforced in setup_status.
+_MARKER_ORDER = ("gallbladder", "tdee", "carbs_shape", "deficits", "nominal_deficit")
+
+
+def setup_status(needs_setup: NeedsSetup) -> SetupStatus:
+    """Return setup status with fixed marker order and dependency logic.
+
+    Dependency rules:
+        - 'deficits' is not surfaced while 'tdee' is still True.
+        - 'nominal_deficit' is not surfaced while 'deficits' is still True.
+    """
+    marker_values = {m: getattr(needs_setup, m) for m in _MARKER_ORDER}
+    remaining: list[str] = []
+
+    for marker in _MARKER_ORDER:
+        if not marker_values[marker]:
+            continue
+        # Dependency gates
+        if marker == "deficits" and marker_values["tdee"]:
+            continue
+        if marker == "nominal_deficit" and marker_values["deficits"]:
+            continue
+        remaining.append(marker)
+
+    next_marker = remaining[0] if remaining else None
+    complete = all(not marker_values[m] for m in _MARKER_ORDER)
+
+    return SetupStatus(
+        complete=complete,
+        next_marker=next_marker,
+        markers_remaining=remaining,
+    )
+
+
 def macro_range_check(actual: float, r: MacroRange) -> Literal["LOW", "OK", "OVER", "UNSET"]:
     """Classify actual against a MacroRange. UNSET when both ends null."""
     if r.min is None and r.max is None:

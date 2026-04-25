@@ -327,3 +327,196 @@ def test_dose_status_logged():
 
 def test_dose_status_not_due():
     assert engine.dose_status([], is_dose_day=False) == "not_due"
+
+
+# ---------------------------------------------------------------------------
+# advisory_flags()
+# ---------------------------------------------------------------------------
+
+def _make_surgery_event(days_from_now: int) -> Event:
+    d = (_NOW_EVENT + timedelta(days=days_from_now)).date()
+    return Event(id=99, date=d, title="surgery", event_type="surgery")
+
+
+def test_advisory_flags_surgery_within_7_days():
+    protocol = _make_protocol("friday")
+    meso = _make_mesocycle(tdee=2600, deficit=400)
+    events = [_make_surgery_event(5)]
+    flags = engine.advisory_flags(protocol, events, meso, _NOW_EVENT)
+    assert len(flags) == 1
+    assert flags[0].code == "surgery_window"
+    assert flags[0].severity == "warn"
+
+def test_advisory_flags_surgery_at_7_days():
+    protocol = _make_protocol("friday")
+    meso = _make_mesocycle(tdee=2600, deficit=400)
+    events = [_make_surgery_event(7)]
+    flags = engine.advisory_flags(protocol, events, meso, _NOW_EVENT)
+    assert len(flags) == 1
+
+def test_advisory_flags_surgery_beyond_7_days():
+    protocol = _make_protocol("friday")
+    meso = _make_mesocycle(tdee=2600, deficit=400)
+    events = [_make_surgery_event(10)]
+    flags = engine.advisory_flags(protocol, events, meso, _NOW_EVENT)
+    assert flags == []
+
+def test_advisory_flags_no_surgery_event():
+    protocol = _make_protocol("friday")
+    meso = _make_mesocycle(tdee=2600, deficit=400)
+    events = [_make_event(1, 3, "appointment")]
+    flags = engine.advisory_flags(protocol, events, meso, _NOW_EVENT)
+    assert flags == []
+
+
+# ---------------------------------------------------------------------------
+# protected_gate_protocol()
+# ---------------------------------------------------------------------------
+
+def _make_protocol_pair(dose_mg_current=112.5, dose_mg_proposed=112.5,
+                        dose_day_current="friday", dose_day_proposed="friday",
+                        titration_current=None, titration_proposed="new notes"):
+    current = _make_protocol(dose_day_current)
+    # Build proposed by copy, then set different fields
+    proposed_treatment = Treatment(
+        medication="Levothyroxine",
+        brand="Synthroid",
+        dose_mg=dose_mg_proposed,
+        dose_day_of_week=dose_day_proposed,
+        dose_time="08:00",
+        titration_notes=titration_proposed,
+    )
+    proposed = Protocol(
+        user_id="alice",
+        treatment=proposed_treatment,
+        biometrics=BiometricSnapshot(
+            start_date=date(2026, 1, 1),
+            start_weight_lbs=230.0,
+            target_weight_lbs=195.0,
+        ),
+        clinical=Clinical(),
+    )
+    current_treatment = Treatment(
+        medication="Levothyroxine",
+        brand="Synthroid",
+        dose_mg=dose_mg_current,
+        dose_day_of_week=dose_day_current,
+        dose_time="08:00",
+        titration_notes=titration_current,
+    )
+    current_full = Protocol(
+        user_id="alice",
+        treatment=current_treatment,
+        biometrics=BiometricSnapshot(
+            start_date=date(2026, 1, 1),
+            start_weight_lbs=230.0,
+            target_weight_lbs=195.0,
+        ),
+        clinical=Clinical(),
+    )
+    return current_full, proposed
+
+
+def test_protected_gate_protocol_no_phrase_fails():
+    current, proposed = _make_protocol_pair(dose_mg_current=112.5, dose_mg_proposed=125.0)
+    result = engine.protected_gate_protocol(current, proposed, "")
+    assert result.ok is False
+    assert result.applied is False
+
+def test_protected_gate_protocol_correct_phrase_passes():
+    current, proposed = _make_protocol_pair(dose_mg_current=112.5, dose_mg_proposed=125.0)
+    result = engine.protected_gate_protocol(current, proposed, "confirm protocol change")
+    assert result.ok is True
+    assert result.applied is True
+
+def test_protected_gate_protocol_case_mismatch_fails():
+    current, proposed = _make_protocol_pair(dose_mg_current=112.5, dose_mg_proposed=125.0)
+    result = engine.protected_gate_protocol(current, proposed, "Confirm Protocol Change")
+    assert result.ok is False
+
+def test_protected_gate_protocol_non_protected_diff_passes():
+    """Changing titration_notes (not in protected dict) should pass without phrase."""
+    current, proposed = _make_protocol_pair(titration_current=None, titration_proposed="taper")
+    result = engine.protected_gate_protocol(current, proposed, "")
+    assert result.ok is True
+    assert result.applied is True
+
+
+# ---------------------------------------------------------------------------
+# protected_gate_range()
+# ---------------------------------------------------------------------------
+
+def test_protected_gate_range_no_phrase_fails():
+    current = MacroRange(min=175, protected=True)
+    proposed = MacroRange(min=180, protected=True)
+    result = engine.protected_gate_range(current, proposed, "")
+    assert result.ok is False
+    assert result.applied is False
+
+def test_protected_gate_range_correct_phrase_passes():
+    current = MacroRange(min=175, protected=True)
+    proposed = MacroRange(min=180, protected=True)
+    result = engine.protected_gate_range(current, proposed, "confirm macro range change")
+    assert result.ok is True
+    assert result.applied is True
+
+def test_protected_gate_range_adding_max_triggers_gate():
+    current = MacroRange(min=175, protected=True)
+    proposed = MacroRange(min=175, max=200, protected=True)
+    result = engine.protected_gate_range(current, proposed, "")
+    assert result.ok is False
+
+def test_protected_gate_range_unprotected_passes_without_phrase():
+    current = MacroRange(min=175, protected=False)
+    proposed = MacroRange(min=180, protected=False)
+    result = engine.protected_gate_range(current, proposed, "")
+    assert result.ok is True
+
+
+# ---------------------------------------------------------------------------
+# setup_status() — Tripwire 6: fixed order + dependency logic
+# ---------------------------------------------------------------------------
+
+def _ns(**kwargs) -> NeedsSetup:
+    defaults = dict(gallbladder=False, tdee=False, carbs_shape=False, deficits=False, nominal_deficit=False)
+    defaults.update(kwargs)
+    return NeedsSetup(**defaults)
+
+
+def test_setup_status_all_true_next_is_gallbladder():
+    ns = _ns(gallbladder=True, tdee=True, carbs_shape=True, deficits=True, nominal_deficit=True)
+    ss = engine.setup_status(ns)
+    assert ss.next_marker == "gallbladder"
+
+def test_setup_status_after_gallbladder_clears_next_is_tdee():
+    ns = _ns(tdee=True, carbs_shape=True, deficits=True, nominal_deficit=True)
+    ss = engine.setup_status(ns)
+    assert ss.next_marker == "tdee"
+
+def test_setup_status_after_gallbladder_tdee_next_is_carbs_shape():
+    ns = _ns(carbs_shape=True, deficits=True, nominal_deficit=True)
+    ss = engine.setup_status(ns)
+    assert ss.next_marker == "carbs_shape"
+
+def test_setup_status_deficits_blocked_by_tdee():
+    """With tdee=True, deficits and nominal_deficit should NOT surface; next_marker stays tdee."""
+    ns = _ns(gallbladder=False, tdee=True, carbs_shape=False, deficits=True, nominal_deficit=True)
+    ss = engine.setup_status(ns)
+    assert ss.next_marker == "tdee"
+
+def test_setup_status_nominal_deficit_blocked_by_deficits():
+    ns = _ns(deficits=True, nominal_deficit=True)
+    ss = engine.setup_status(ns)
+    assert ss.next_marker == "deficits"
+
+def test_setup_status_only_nominal_deficit_remaining():
+    ns = _ns(nominal_deficit=True)
+    ss = engine.setup_status(ns)
+    assert ss.next_marker == "nominal_deficit"
+
+def test_setup_status_all_cleared_complete():
+    ns = _ns()
+    ss = engine.setup_status(ns)
+    assert ss.complete is True
+    assert ss.next_marker is None
+    assert ss.markers_remaining == []
