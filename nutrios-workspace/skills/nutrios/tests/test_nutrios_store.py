@@ -121,3 +121,64 @@ def test_tail_jsonl_returns_last_n(monkeypatch, tmp_path):
     tail = store.tail_jsonl("alice", "weigh_ins.jsonl", 3)
     assert len(tail) == 3
     assert [r["id"] for r in tail] == [8, 9, 10]
+
+
+# ---------------------------------------------------------------------------
+# next_id()
+# ---------------------------------------------------------------------------
+
+def test_next_id_monotonic(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    ids = [store.next_id("alice", "last_entry_id") for _ in range(100)]
+    assert ids == list(range(1, 101))
+
+
+def test_next_id_independent_counters(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    e1 = store.next_id("alice", "last_entry_id")
+    w1 = store.next_id("alice", "last_weigh_in_id")
+    e2 = store.next_id("alice", "last_entry_id")
+    w2 = store.next_id("alice", "last_weigh_in_id")
+    assert (e1, e2) == (1, 2)
+    assert (w1, w2) == (1, 2)
+
+
+# ---------------------------------------------------------------------------
+# read_needs_setup() / clear_needs_setup_marker()
+# ---------------------------------------------------------------------------
+
+def test_read_needs_setup_missing_file(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    ns = store.read_needs_setup("alice")
+    assert ns == NeedsSetup()
+    assert ns.tdee is False
+
+def test_clear_needs_setup_marker_tdee_only(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    # Write a setup file with all markers true
+    all_true = NeedsSetup(
+        gallbladder=True, tdee=True, carbs_shape=True, deficits=True, nominal_deficit=True
+    )
+    store.write_json("alice", "_needs_setup.json", all_true)
+    store.clear_needs_setup_marker("alice", "tdee")
+    result = store.read_needs_setup("alice")
+    assert result.tdee is False
+    # All others still True
+    assert result.gallbladder is True
+    assert result.carbs_shape is True
+    assert result.deficits is True
+    assert result.nominal_deficit is True
+
+
+# ---------------------------------------------------------------------------
+# User isolation
+# ---------------------------------------------------------------------------
+
+def test_user_isolation(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    store.append_jsonl("alice", "weigh_ins.jsonl", _make_weigh_in(1))
+    # Bob has no weigh_ins
+    assert store.tail_jsonl("bob", "weigh_ins.jsonl", 10) == []
+    # Alice's file is unmodified
+    tail = store.tail_jsonl("alice", "weigh_ins.jsonl", 10)
+    assert len(tail) == 1
