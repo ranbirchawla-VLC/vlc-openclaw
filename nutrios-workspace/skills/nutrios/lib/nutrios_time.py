@@ -13,6 +13,27 @@ def now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def meal_slot(now: datetime, tz: str) -> Literal["breakfast", "lunch", "dinner", "snack"]:
+    """Classify a UTC-aware datetime into a meal slot for the user's local timezone.
+
+    Bins:
+        breakfast  04:00–10:59 local
+        lunch      11:00–14:59 local
+        dinner     17:00–21:59 local
+        snack      everything else
+    """
+    local_hour = now.astimezone(ZoneInfo(tz)).hour
+    match local_hour:
+        case h if 4 <= h <= 10:
+            return "breakfast"
+        case h if 11 <= h <= 14:
+            return "lunch"
+        case h if 17 <= h <= 21:
+            return "dinner"
+        case _:
+            return "snack"
+
+
 def parse(s: str) -> datetime:
     """Parse ISO8601 string to UTC-aware datetime. Raises ValueError on naive input."""
     # Python 3.11+ fromisoformat handles Z, but be explicit for clarity
