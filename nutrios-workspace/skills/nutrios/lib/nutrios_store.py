@@ -243,19 +243,34 @@ def tail_jsonl(user_id: str, filename: str, n: int) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def read_events(user_id: str) -> list[Event]:
-    """Read events.json and return the events list."""
+    """Read events.json and return the events list.
+
+    Requires wrapped format: {"events": [...], "version": 1}.
+    Raw-list format is rejected with a clear StoreError pointing at migration.
+    Returns [] when the file does not exist.
+    """
     path = user_dir(user_id) / "events.json"
     if not path.exists():
         return []
-    raw = json.loads(path.read_text())
-    events_data = raw if isinstance(raw, list) else raw.get("events", [])
-    return [Event.model_validate(e) for e in events_data]
+    try:
+        raw = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise StoreError(f"Failed to parse events.json: {exc}") from exc
+    if not isinstance(raw, dict) or "events" not in raw:
+        raise StoreError(
+            'events.json must use wrapped format {"events": [...], "version": 1}. '
+            "If migrating from raw-list format, run nutrios_migrate."
+        )
+    return [Event.model_validate(e) for e in raw["events"]]
 
 
 def write_events(user_id: str, events: list[Event]) -> None:
-    """Atomically rewrite events.json (whole-file; events are not a hot append path)."""
+    """Atomically rewrite events.json in wrapped format (whole-file write is acceptable here)."""
     dest = user_dir(user_id) / "events.json"
-    content = json.dumps([e.model_dump(mode="json") for e in events], indent=2)
+    content = json.dumps(
+        {"version": 1, "events": [e.model_dump(mode="json") for e in events]},
+        indent=2,
+    )
     _atomic_write_text(dest, content)
 
 

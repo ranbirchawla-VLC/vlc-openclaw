@@ -15,7 +15,7 @@ from datetime import date, datetime, timezone
 import nutrios_store as store
 from nutrios_models import (
     WeighIn, MedNote, FoodLogEntry, DoseLogEntry,
-    NeedsSetup, State, Profile,
+    NeedsSetup, State, Profile, Event,
 )
 
 
@@ -218,6 +218,53 @@ def test_resolve_user_id_path_traversal_relies_on_user_dir(monkeypatch, tmp_path
     # (which is a valid user_id; the hostile key is the peer, not the value)
     result = store.resolve_user_id_from_peer("../../../etc/passwd")
     assert result == "alice"
+
+
+# ---------------------------------------------------------------------------
+# read_events() / write_events() — wrapped format only
+# ---------------------------------------------------------------------------
+
+def _sample_event() -> Event:
+    return Event(id=1, date=date(2026, 5, 1), title="surgery", event_type="surgery")
+
+def test_write_events_produces_wrapped_format(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    store.write_events("alice", [_sample_event()])
+    path = tmp_path / "users" / "alice" / "events.json"
+    raw = json.loads(path.read_text())
+    assert "events" in raw
+    assert "version" in raw
+    assert raw["version"] == 1
+    assert isinstance(raw["events"], list)
+
+def test_read_events_wrapped_format(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    store.write_events("alice", [_sample_event()])
+    events = store.read_events("alice")
+    assert len(events) == 1
+    assert events[0].id == 1
+
+def test_read_events_missing_file_returns_empty(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    events = store.read_events("alice")
+    assert events == []
+
+def test_read_events_raw_list_raises(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    path = tmp_path / "users" / "alice"
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "events.json").write_text(json.dumps([{"id": 1, "date": "2026-05-01"}]))
+    with pytest.raises((ValueError, store.StoreError), match="wrapped format"):
+        store.read_events("alice")
+
+def test_read_write_events_round_trip(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    events_in = [_sample_event(), Event(id=2, date=date(2026, 6, 1), title="appt", event_type="appointment")]
+    store.write_events("alice", events_in)
+    events_out = store.read_events("alice")
+    assert len(events_out) == 2
+    assert events_out[0].id == 1
+    assert events_out[1].id == 2
 
 
 def test_user_isolation(monkeypatch, tmp_path):
