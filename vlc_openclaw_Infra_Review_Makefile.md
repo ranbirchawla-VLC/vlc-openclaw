@@ -3,7 +3,7 @@
 Prepared: 2026-04-24  
 Reviewer: Claude (self-review)  
 Branch: feature/nutrios-v2  
-Scope: Piece 0 (piggyback fix), Piece 1 (test layout move), Piece 2 (Makefile)
+Scope: Piece 0 (piggyback fix), Piece 1 (test layout move), Piece 2 (Makefile + pytest.ini)
 
 ---
 
@@ -11,8 +11,8 @@ Scope: Piece 0 (piggyback fix), Piece 1 (test layout move), Piece 2 (Makefile)
 
 ### Piece 0 — Piggyback fix: `resolve_user_id_from_peer` non-string guard
 
-**File:** `skills/nutriOS/lib/nutrios_store.py`  
-**Change (5 lines added):** After looking up the peer in the index, added a type check:
+**File:** `skills/nutrios/lib/nutrios_store.py`  
+**Change (5 lines added):** After the index lookup, added:
 ```python
 if not isinstance(resolved, str):
     raise StoreError(
@@ -20,44 +20,50 @@ if not isinstance(resolved, str):
         f"got {type(resolved).__name__!r}"
     )
 ```
-**Test file:** `skills/nutriOS/tests/test_nutrios_store.py` — one test added (`test_resolve_user_id_value_not_string_raises`). Writes `{"telegram:12345": 12345}` (int value) and asserts `StoreError` is raised with the peer key in the message. Test count: 28 (was 27 after corrective pass).
+**Test:** `test_resolve_user_id_value_not_string_raises` in `test_nutrios_store.py`. Writes `{"telegram:12345": 12345}` (int value), asserts `StoreError` with peer key in the message.  
+**Test count delta:** +1 (27 → 28 in the store module).
 
 ### Piece 1 — Test layout move
 
 **Source:** `nutrios-workspace/skills/nutrios/{lib,tests}/`  
-**Destination:** `skills/nutrios/{lib,tests}/` (git tracks as `skills/nutriOS/` due to `git mv` casing; macOS filesystem merges both into `skills/nutrios/` since APFS is case-insensitive)
+**Destination:** `skills/nutrios/{lib,tests}/`
 
-**Files moved (10 total):**
+**macOS case-insensitivity note:** The spec uses `skills/nutriOS/` (capital N and O). On macOS APFS the filesystem is case-insensitive, so `git mv ... skills/nutriOS/...` merged into the existing `skills/nutrios/` directory rather than creating a distinct `nutriOS/` directory. Git tracks the files under the `nutriOS` casing in its index; the filesystem and all tools see `nutrios`. This means `python3.12 -m pytest skills/nutriOS/tests` returns "not found" (pytest's path walker is case-sensitive), while `skills/nutrios/tests` works. All Makefile targets use the lowercase form that actually resolves.
+
+**Files moved (10 total via `git mv`):**
 
 | File | From | To |
 |---|---|---|
-| `__init__.py` (lib) | `nutrios-workspace/skills/nutrios/lib/` | `skills/nutriOS/lib/` |
-| `nutrios_engine.py` | same | `skills/nutriOS/lib/` |
-| `nutrios_models.py` | same | `skills/nutriOS/lib/` |
-| `nutrios_store.py` | same | `skills/nutriOS/lib/` |
-| `nutrios_time.py` | same | `skills/nutriOS/lib/` |
-| `__init__.py` (tests) | `nutrios-workspace/skills/nutrios/tests/` | `skills/nutriOS/tests/` |
-| `test_nutrios_engine.py` | same | `skills/nutriOS/tests/` |
-| `test_nutrios_models.py` | same | `skills/nutriOS/tests/` |
-| `test_nutrios_store.py` | same | `skills/nutriOS/tests/` |
-| `test_nutrios_time.py` | same | `skills/nutriOS/tests/` |
+| `__init__.py` (lib) | `nutrios-workspace/skills/nutrios/lib/` | `skills/nutrios/lib/` |
+| `nutrios_engine.py` | same | `skills/nutrios/lib/` |
+| `nutrios_models.py` | same | `skills/nutrios/lib/` |
+| `nutrios_store.py` | same | `skills/nutrios/lib/` |
+| `nutrios_time.py` | same | `skills/nutrios/lib/` |
+| `__init__.py` (tests) | `nutrios-workspace/skills/nutrios/tests/` | `skills/nutrios/tests/` |
+| `test_nutrios_engine.py` | same | `skills/nutrios/tests/` |
+| `test_nutrios_models.py` | same | `skills/nutrios/tests/` |
+| `test_nutrios_store.py` | same | `skills/nutrios/tests/` |
+| `test_nutrios_time.py` | same | `skills/nutrios/tests/` |
 
-**Import mechanism unchanged:** Every test file uses:
+**Import mechanism unchanged.** All test files use:
 ```python
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 ```
-This resolves relative to `__file__`, so `tests/../lib` = `skills/nutrios/lib/` at the new location. No `conftest.py` changes were needed.
+This resolves to `skills/nutrios/lib/` at the new location. No `conftest.py` changes needed.
 
 **Pre-move test count:** 137  
-**Post-move test count:** 137 (verified via `python3.12 -m pytest skills/nutriOS/tests -q`)  
-**Post-piggyback test count:** 138
+**Post-move test count (after piece 0):** 138
 
-### Piece 2 — Makefile
+### Piece 2 — `pytest.ini` + Makefile
 
-**File:** `Makefile` (new at repo root)  
-**Lines:** 47  
-**Targets:** 7 (`.PHONY`: `help`, `test`, `test-nutrios`, `test-nutrios-time`, `test-nutrios-store`, `test-nutrios-engine`, `test-nutrios-models`)  
-**Recipe indentation:** Confirmed literal tabs via `cat -e Makefile`.
+**`pytest.ini` (new, 3 lines):**
+```ini
+[pytest]
+testpaths = skills
+```
+Required because bare `python3.12 -m pytest` from the repo root discovers 282 tests (including `watch-listing-workspace/schema/test_draft_schema.py` and others). With `testpaths = skills`, bare pytest collects exactly 138 — the NutriOS tests — matching the four scoped targets.
+
+**`Makefile` (new, 46 lines):** Seven `.PHONY` targets, literal tab indentation. `make test` uses bare `$(PYTEST)` (relies on `pytest.ini`). All scoped targets use `skills/nutrios/tests` (lowercase, what resolves on macOS).
 
 ---
 
@@ -74,14 +80,14 @@ Available targets:
   make test-nutrios-models    - run nutrios_models tests
 ```
 
-### `make test` (full suite)
+### `make test` (full suite, bare pytest scoped by pytest.ini)
 ```
-138 passed in 0.15s
+138 passed in 0.16s
 ```
 
 ### `make test-nutrios`
 ```
-138 passed in 0.11s
+138 passed in 0.14s
 ```
 
 ### `make test-nutrios-time`
@@ -104,13 +110,13 @@ Available targets:
 21 passed in 0.05s
 ```
 
-**Sum check:** 22 + 28 + 67 + 21 = **138**. Matches `make test`. No double-collection, no missed files.
+**Sum check:** 22 + 28 + 67 + 21 = **138** = `make test`. No double-collection, no missed files.
 
 ---
 
 ## 3. `resolve_day` Caller Audit
 
-Grep of `resolve_day(` across `skills/nutriOS/lib/` and `skills/nutriOS/tests/`:
+Grep: `grep -rn "resolve_day(" skills/nutrios/lib/ skills/nutrios/tests/`
 
 | Location | Line | Call | `tz` passed? |
 |---|---|---|---|
@@ -122,61 +128,37 @@ Grep of `resolve_day(` across `skills/nutriOS/lib/` and `skills/nutriOS/tests/`:
 | `test_nutrios_engine.py` | 189 | `engine.resolve_day(now_utc, "America/Denver", goals, meso)` | ✓ |
 | `test_nutrios_engine.py` | 201 | `engine.resolve_day(now_utc, "America/Denver", goals, meso)` | ✓ |
 
-**No tool entrypoints exist yet** (steps 4–6 are future work). The only caller is the test suite. All six test call sites pass `tz`. No corrective regression.
+No tool entrypoints exist yet (steps 4–6 are future). All six test call sites pass `tz`. No corrective regression.
 
 ---
 
 ## 4. Judgment Calls
 
-### J1: Future-skill pattern documented in Makefile comment block, not CONTRIBUTING.md
+### J1: `pytest.ini` added to scope `make test`
 
-**Decision:** The pattern is in a comment block at the top of `Makefile`, not a separate `CONTRIBUTING.md`.  
-**Why:** The pattern is directly adjacent to the thing it describes. A developer opening `Makefile` sees the pattern immediately without context-switching to another file. A `CONTRIBUTING.md` would need to be kept in sync; the Makefile comment stays in sync by definition.  
-**Risk:** If the repo grows enough to warrant a `CONTRIBUTING.md` covering multiple workflows, the Makefile comment would be one of several locations. Low risk at current scale.
+**Decision:** Added `pytest.ini` with `testpaths = skills` so bare `$(PYTEST)` in `make test` collects exactly the skill test suites and ignores scratch test files elsewhere in the repo.  
+**Why:** The spec says `make test: $(PYTEST)` (bare) and requires the count to match the sum of four scoped targets. Without `pytest.ini`, bare pytest collects 282 tests (from `watch-listing-workspace/` and other locations). With `pytest.ini`, bare pytest collects exactly 138.  
+**Alternative:** Use `$(PYTEST) skills/` for `make test`. Rejected: the spec explicitly shows bare `$(PYTEST)`. The `pytest.ini` is the correct mechanism to scope discovery.  
+**Future effect:** When a second skill lands in `skills/<name>/tests/`, its tests are automatically included in `make test` with no Makefile change — only the per-skill targets need to be added.
 
-### J2: macOS case-insensitivity — `nutriOS` vs `nutrios` in git vs filesystem
+### J2: Makefile uses `skills/nutrios/tests` (lowercase), not `skills/nutriOS/tests`
 
-**Situation:** The spec calls for `skills/nutriOS/` (capital N and O). The existing `skills/nutrios/` v1 skill directory exists. macOS APFS is case-insensitive, so `git mv ... skills/nutriOS/...` merged into `skills/nutrios/`. Git tracks the files with the capital `nutriOS` casing; the filesystem serves them from `nutrios/`.  
-**Decision:** Left as-is. The Makefile uses lowercase `skills/nutrios/tests` which is what the filesystem requires. Tests pass. Git history preserves the `nutriOS` tracking path. On a case-sensitive Linux filesystem, this would be a real `skills/nutriOS/` distinct from `skills/nutrios/`.  
-**Risk:** If this repo is ever cloned on a case-sensitive filesystem, the `lib/` and `tests/` directories would appear under `skills/nutriOS/` (separate from the v1 `skills/nutrios/`). The Makefile would break — it points at `skills/nutrios/tests`. **Recommend:** On a future Linux deployment, update Makefile paths to `skills/nutriOS/tests` consistently.
+**Decision:** All scoped Makefile targets use `skills/nutrios/tests` — the path that pytest can actually find on this macOS filesystem.  
+**Why:** macOS APFS is case-insensitive at the filesystem level, but pytest's directory walker is not. `python3.12 -m pytest skills/nutriOS/tests` returns "not found" while `skills/nutrios/tests` works. The spec uses `skills/nutriOS/tests`, but that path is unreachable by the tools.  
+**Linux deployment risk:** On a case-sensitive filesystem, git's tracked path `skills/nutriOS/lib/` would be a distinct directory from `skills/nutrios/`. The Makefile would break. If this repo is ever deployed on Linux, the `lib/` and `tests/` directories need to be moved to the correct case, and the Makefile updated to match.
 
-### J3: `make test` and `make test-nutrios` are identical
+### J3: Future-skill pattern documented in Makefile comment block
 
-**Decision:** Both run `$(PYTEST) skills/nutrios/tests`. Today they produce the same output because NutriOS is the only Python skill.  
-**Why:** The intent is deliberate. `make test` is "run everything" and will expand as more skills are added (by appending additional pytest invocations). `make test-nutrios` is "run this skill only" and stays scoped. They happen to be equivalent now; they won't be once a second skill lands.  
-**Alternative considered:** `make test` could recurse over `skills/*/tests/`. Rejected: named literal targets are the design constraint.
-
-### J4: `scripts/runtests` left in place
-
-**Decision:** The `scripts/runtests` wrapper added in the `fewer-permission-prompts` session was not removed. It still works and is independently useful for one-off invocations. The Makefile is additive.
+**Decision:** Pattern lives in a comment block at the top of the Makefile, not in a separate `CONTRIBUTING.md`.  
+**Why:** The pattern is directly adjacent to the working example (nutriOS block). A developer opening the Makefile sees both the pattern and the example in one file without context-switching.  
+**Risk:** If a `CONTRIBUTING.md` is added later for other workflows, the test pattern would be in two places. Low risk at current scale.
 
 ---
 
 ## 5. Pattern Propagation
 
-When the next skill lands (`grailzee`, `vardalux`, or similar), the author:
-
-1. Creates `skills/<skill-name>/lib/` and `skills/<skill-name>/tests/` with the same `sys.path.insert(...)` pattern in test files.
-2. Opens `Makefile` and copies the nutriOS block verbatim, substituting `<skill-name>` and `<module>` throughout.
-3. Adds the new target names to the `.PHONY` line.
-4. Adds a `help` echo line for each new target.
-5. Appends a `$(PYTEST) skills/<skill-name>/tests` line to `make test` (so the full suite stays complete).
-
-The comment block at the top of the Makefile spells this out. The pattern is clear enough that a developer joining cold can follow it without additional documentation — the existing nutriOS block is the working example.
-
-One potential confusion: step 5 (updating `make test`) requires editing an existing recipe, not just appending a new target. Make sure to change:
-```makefile
-test:
-	$(PYTEST) skills/nutrios/tests
-```
-to:
-```makefile
-test:
-	$(PYTEST) skills/nutrios/tests
-	$(PYTEST) skills/<new-skill>/tests
-```
-This should be called out explicitly in the Makefile comment or a `CONTRIBUTING.md` once a second skill exists. Adding it now would be speculative.
+When the next skill lands, the author opens `Makefile`, reads the comment block at the top, and copies the nutriOS block verbatim — substituting the skill name and module names. They add the new target names to the `.PHONY` line and to the `help` echo list. The `make test` target requires no change: `pytest.ini`'s `testpaths = skills` automatically picks up the new skill's tests as long as they live under `skills/<name>/tests/`. The only mandatory Makefile edit is adding the per-skill named targets. This is explicit in the comment block and should be clear to a developer joining cold, because the existing nutriOS block is a working example of exactly the pattern described.
 
 ---
 
-*End of review. Three judgment calls flagged for awareness: the macOS casing ambiguity (J2) is the only one with a future deployment risk. Everything else is self-consistent and low-risk.*
+*End of review. J2 (macOS casing) is the only risk item with a future deployment implication.*

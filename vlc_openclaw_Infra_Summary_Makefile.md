@@ -9,12 +9,12 @@ Branch: feature/nutrios-v2
 
 | File | Action | Lines |
 |---|---|---|
-| `skills/nutriOS/lib/nutrios_store.py` | +5 (non-string guard) | 319 |
-| `skills/nutriOS/tests/test_nutrios_store.py` | +1 test | 288 |
-| `Makefile` | created | 47 |
-| `skills/nutriOS/lib/*` (5 files) | moved from nutrios-workspace | — |
-| `skills/nutriOS/tests/*` (5 files) | moved from nutrios-workspace | — |
-| `vlc_openclaw_Infra_Review_Makefile.md` | created | — |
+| `skills/nutrios/lib/nutrios_store.py` | +5 (non-string guard in resolve_user_id_from_peer) | 324 |
+| `skills/nutrios/tests/test_nutrios_store.py` | +7 (one new test) | 295 |
+| `pytest.ini` | created — restricts bare pytest to `skills/` | 3 |
+| `Makefile` | created — 7 named test targets | 46 |
+| `skills/nutrios/lib/*` (5 files) | moved from `nutrios-workspace/skills/nutrios/lib/` | — |
+| `skills/nutrios/tests/*` (5 files) | moved from `nutrios-workspace/skills/nutrios/tests/` | — |
 
 ---
 
@@ -30,7 +30,7 @@ Branch: feature/nutrios-v2
 | `make test-nutrios-engine` | **67 passed** |
 | `make test-nutrios-models` | **21 passed** |
 
-Sum of scoped targets: 22 + 28 + 67 + 21 = **138** = `make test`. No double-collection.
+Sum of scoped targets: 22 + 28 + 67 + 21 = **138** = `make test`. Exact match.
 
 ---
 
@@ -39,14 +39,14 @@ Sum of scoped targets: 22 + 28 + 67 + 21 = **138** = `make test`. No double-coll
 ```
 refactor: move nutrios v2 lib+tests to skills/nutriOS — 137 tests pass at new location
 fix(store): validate resolve_user_id_from_peer returns str — StoreError on non-string index value
-build: Makefile — named test targets for nutriOS, pattern documented for future skills
+build: Makefile + pytest.ini — bare make test collects all skills via testpaths=skills
 ```
 
 ---
 
 ## Allowlist targets (Ranbir's step)
 
-After this clears review, add these to `.claude/settings.json` `permissions.allow`:
+After this clears review, add to `.claude/settings.json` `permissions.allow`:
 
 ```json
 "Bash(make help)",
@@ -58,4 +58,4 @@ After this clears review, add these to `.claude/settings.json` `permissions.allo
 "Bash(make test-nutrios-models)"
 ```
 
-Branch holds. Step 4 (Mnemo) starts after gate clears.
+Branch holds. Step 4 (Mnemo) starts after the gate clears.
