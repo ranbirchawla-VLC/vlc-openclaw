@@ -674,6 +674,11 @@ def render_supersedes_not_found(target_id: int, kind: str) -> str:
     return f"Edit failed: {kind} #{target_id} doesn't exist."
 
 
+def render_invalid_weight(weight_lbs: float) -> str:
+    """Reject a weigh-in whose value is out of the plausible range."""
+    return f"Invalid weight: {weight_lbs} lbs. Weight must be between 0 and 1000 lbs."
+
+
 def render_protocol_not_initialized() -> str:
     """Tool ran but no protocol exists for the user."""
     return "Protocol not set. Run setup before logging doses or editing protocol."

@@ -807,6 +807,17 @@ def test_render_supersedes_not_found():
     assert "doesn't exist" in s.lower() or "does not exist" in s.lower()
 
 
+def test_render_invalid_weight():
+    s = render.render_invalid_weight(0)
+    assert "0" in s
+    assert "lbs" in s.lower() or "weight" in s.lower()
+
+
+def test_render_invalid_weight_negative():
+    s = render.render_invalid_weight(-50.0)
+    assert "-50" in s
+
+
 def test_render_protocol_not_initialized():
     s = render.render_protocol_not_initialized()
     assert "protocol" in s.lower()
