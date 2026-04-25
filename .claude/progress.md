@@ -1,192 +1,126 @@
 # Grailzee Eval v2 Build Progress
 
-Branch: `feature/grailzee-eval-v2` (27 commits ahead of `main`; last 3 not yet pushed)
-Build guide: `skills/grailzee-eval/Grailzee_Eval_v2_Implementation.md`
-Authoritative schema spec: `state/grailzee_schema_design_v1_1.md`; v1 doc at `state/grailzee_schema_design_v1.md` remains byte-identical and is flagged as redundant
-Test count: 1039 passing
-Last phase completed: **A.cleanup.3 post-Phase-A hygiene sweep on 2026-04-21.** Phase A + cleanup complete.
-Working tree: clean
+Branch: `feature/grailzee-eval-v2` (single long-lived; unpushed).
+Canonical state doc: `GRAILZEE_SYSTEM_STATE.md` at repo root. Historical build log (through 2026-04-24 schema Phase 1 discovery + B.8) preserved at `.claude/progress-v0.md`.
 
-## Completed Phases
+Session-open read-back rule (per global CLAUDE.md): read `GRAILZEE_SYSTEM_STATE.md` first, then this file for the current sub-phase context.
 
-| Phase | Commit | What |
-|-------|--------|------|
-| 0 | `eaa8654` | Preflight audit, plan doc rename, gitignore cleanup |
-| 1 | `f03b176` | grailzee_common.py (578 lines); all constants, formulas, ref matching, DJ configs, quality filter, name cache, cycle helpers, presentation premium, OTel tracer. 64 tests. |
-| 2 | `531fee2` | Name cache seed (22 entries to Drive), requirements.txt, OTel packages installed. 73 tests. |
-| 3 | `4845d6d` | read_ledger.py + ledger_manager.py; LedgerRow dataclass, CSV I/O, 4 CLI subcommands (log/summary/premium/cycle_rollup). Fixture cycle_ids corrected from weekly to biweekly. 123 tests. |
-| 4 | `9cdef96` | backfill_ledger.py; validate/preview/commit CLI, 15 validation rules, atomic commits. No historical data written. 165 tests. |
-| 5 | `b6f913b` | ingest_report.py; Excel to CSV with sell-through join. Programmatic fixture builder. 5 normalizers. 216 tests. |
-| 6 | `b006c44` | analyze_references.py; scoring engine extracted from v1. calc_risk, analyze_reference, score_all_references, DJ config breakout. v1/v2 equivalence confirmed. 243 tests. |
-| 7 | `7dd8ce0` | analyze_trends.py; compare_periods extracted from v1, momentum_score new per guide 7.6. v1/v2 equivalence confirmed. 278 tests. |
-| 8 | `a5c9094` | analyze_changes.py; emerged/shifted/faded/unnamed detection. New in v2 (no v1 equivalent). 298 tests. |
-| 9 | `403c379` | analyze_breakouts.py; median >8%, volume >2x, sell-through +15pp. New in v2. 322 tests. |
-| 10 | `3aa537f` | analyze_watchlist.py; 1-2 sale refs with no prior activity. New in v2 (v1 labeled these "Low data" and dropped). 346 tests. |
-| 11 | `13703c8` | analyze_brands.py; brand-level momentum rollups. New in v2. Guide Section 12 fixed: run() now takes (all_results, trends). 371 tests. |
-| 12 | `ce6f6ab` | roll_cycle.py; cycle_outcome.json production. New in v2 (no v1 cycle concept). Thin wrapper around read_ledger.cycle_rollup(). 388 tests. |
-| 13 | `e10c95f` | build_spreadsheet.py + build_summary.py + build_brief.py; spreadsheet (3 sheets), markdown summary, dual-output sourcing brief. 438 tests. |
-| 14 | `a2e9244` | write_cache.py; v2 cache schema (Section 13), backup rotation (10), run history (50). CACHE_SCHEMA_VERSION=2 in grailzee_common.py. 469 tests. |
-| 15 | `b0793ea` | run_analysis.py; full pipeline orchestrator. cycle_id_from_csv() + apply_premium_adjustment() added to grailzee_common.py. 19 integration tests on 27k-row fixtures. 488 tests. |
-| 16 | `f093f3a` | evaluate_deal.py v2 (724 lines); 8 private helpers, 4-pass cache lookup, on-demand CSV fallback, confidence enrichment, cycle focus alignment, premium status surfacing. 528 tests. |
-| 17 | `af1e1f2` | query_targets.py v2 (599 lines); cycle discipline gate, override mode, focus filtering, momentum sort, confidence enrichment. 562 tests. |
-| 18-19 | `dc955c0` | MNEMO seeding (10 memories) + 4 capability files (report, deal, targets, ledger). |
-| 20 | `5814701` | SKILL.md top-level intent dispatcher. |
-| 21 | `ed8af9d` | Pre-deletion audit — clean post-remediation. |
-| 22-23 | `286d58b` | Migration: v2 replaces v1; legacy grailzee-eval deleted. |
-| 24a | `f0b3b62` | grailzee-cowork: outbound bundle builder + inbound handler + tests. |
-| 24b | `4fc11ff` | grailzee-cowork code-review pass + grailzee-strategy Chat skill (strategy_output_v1 schema, dual-input dispatch, JSON apply pipeline). |
-| A (old) | `30a60ce` → `ee6d4f4` | Backfill script rewrite + 14-row historical seed CSV. Real write executed. |
-| A.5 (old) | `2c7e0a5` → `e511d52` | Per-cycle outcome files. Stale `cycle_outcome.json` (singular) removed. |
-| A.7 | `15c431d` → `d0f8052` | Cowork bundle + strategist wiring; `resolve_previous_cycle_outcome()` walks prev_cycle() chain. |
-| A.8 | `45fe96f` → `73407c0` | Full-ledger bundling. Strategist reads full ledger + splits into current-cycle slice + full-history view. |
-| 0.1 | `fd86981` | OTEL coverage audit. Report tracked at `state/grailzee_otel_audit.md`. |
-| 0.2 | `1766872` | backfill_ledger.py instrumentation. 1 top-level + 6 inner spans with canonical attrs. |
-| A.1 | `758e3f9` | config_helper.py module + 51 tests. `read_config`, `write_config`, `mark_field_set`, `is_defaulted`, `schema_version_or_fail`, `defaulted_fields_of`. |
-| A.2 | `10f2569` | analyzer_config.json + consumer migration. Externalized 6 tuning constants; 2 loader helpers added; 5 consumers switched to config reads; 44 tests added. |
-| A.3 | `5d5a23c` | brand_floors.json + installer + walker + tests. Pure file creation; no consumer yet (B.6 target). 5 brand entries per v1.1 §1 Item 1. |
-| A.4 + cleanup.2 | `ca9effd` | A.4: sourcing_rules.json + build_brief hybrid migration + load_sourcing_rules loader. A.cleanup.2: 6-item consistency sweep. 895 tests. |
-| cleanup.1 | `276cd98`, `6b5d068`, `2d5490e`, `fd86981` | Four hygiene commits. |
-| permissions | `35d5964` | Read-only permissions allowlist added to `.claude/settings.json`. |
-| A.5 Surface 1 | `02d1143` | Three installers (cycle_focus, monthly_goals, quarterly_allocation) with Drive-backed defaults, 76 new tests + load_cycle_focus v1-shape compat. Resolves cowork KNOWN_ISSUES #1 placeholder fabrication. 973 tests. |
-| A.5 Surface 2 | `3514549` | Cowork bundle includes all 6 configs with analyzer-native naming; role rename `cycle_focus_current` → `cycle_focus` + legacy archive alias; `workspace_state_dir` kwarg + CLI flag; 11 new bundle tests. 985 tests. |
-| A.6 Surface 1 | `20b8cb0` | Cowork `_parse_cycle_id` biweekly-semantics fix. `_cycle_calendar_position` delegates to analyzer-side `cycle_date_range`; 6 regression tests covering NN 1-26 and month-spanning cycles; 2 bug-encoding tests updated. 991 tests. |
-| A.6 Surface 2 | `47c3867` | Ledger schema migration v1 → v2. LEDGER_COLUMNS, LedgerRow, parse_ledger_csv (hard-cutover reject on v1 header), ledger_manager.log signature (`--buy-date` required, `--sell-date` default today), read_ledger (groups on sell_cycle_id), backfill_ledger, write_cache all updated. New `migrate_ledger_v2.py` with backup + cycle-mismatch abort + idempotence. 1008 tests. |
-| A.6 execute | (no commit; 2026-04-21) | Live Drive ledger migrated. 14 rows, all legacy (blank buy_date/buy_cycle_id per S6). Backup at `trade_ledger.csv.v1_backup` on Drive. Six-gate verification all green: parse_ledger_csv read-back, read_ledger enrichment, roll_cycle per-cycle, write_cache confidence, cowork bundle. |
-| A.cleanup.3/C1 | `99f6204` | fsync port in `backfill_ledger.write_ledger_atomic` + `roll_cycle.run` (kill -9 / crash / power-loss durability). 7 unreferenced backfill_sample/backfill_template fixtures deleted. |
-| A.cleanup.3/C2 | `cf22307` | `migrate_ledger_v2` dry-run preview uses `csv.writer(sys.stdout)` instead of `",".join` (quote-safety for comma-containing values; 1 new test). `test_evaluate_deal._write_ledger` helper + 9 row literals rewritten to v2-native keys (pure rename). |
-| A.cleanup.3/C3 | `eac745b` | Installer `main()` CLI test suite: shared `_installer_main_helpers.py` + parametrized `test_installers_main_cli.py` covering all 6 Phase A installers × 5 checks = 30 new tests (--help, --dry-run default target, --force fresh, --force overwrite, unknown flag). 1039 tests. |
-| A.cleanup.3 filesystem-only | (no commit; 2026-04-21) | Items 1+2: accidental empty `.git` phantom removed from `skills/grailzee-eval/` (no commits, no remote); `/tmp/a5_drive_backup/*.pre_a5` deleted (48h window expired). |
+---
 
-## Phase A + cleanup complete.
+## Session 2026-04-24 (evening): ingest_report full-column patch + Phase 2a v3 ingest module
 
-All five strategy-writable config files present, cowork bundle carries all six (three workspace + three Drive), ledger is v2, cowork boundary-detection bug fixed. Branch pushed to origin.
+Two ships in one session: the prerequisite patch unblocking 2a, then 2a itself end-to-end.
+
+### Ship 1: commit `f7ecab8` (prerequisite patch)
+
+Phase 2a v1 prompt received with two open gaps. Resolved:
+- **Gap 1**: `Grailzee_Schema_v3_Decision_Lock_2026-04-24_v1.md` not at workspace root; operator pointed to `/Users/ranbirchawla/Downloads/GZ Agent/Phase 2/`. Seven locked decisions absorbed.
+- **Gap 2**: v2 prompt referenced `GrailzeeData/reports_csv/`; operator directive "ignore the input; keep the existing root". Drive root resolved from `discovery/schema_v3/load.py`.
+
+Pre-discovery structural surface: `reports_csv/` was empty (Phase 1 cleaned it) and existing `ingest_report.py` stripped `Dial`/`Dial Numbers`. Operator chose option (B): patch ingest_report.py to preserve all source columns.
+
+Patch shipped: `OUTPUT_COLUMNS` extended from 8 to 13 (`model, year, box, dial_numerals_raw, url` appended), `SOLD_AT_ALIASES`/`DIAL_ALIASES` for W1/W2 header variants, raw passthrough preserves NBSP. Tests 957 -> 960 (+3 new + 1 modified pin). Live W1+W2 ingested cleanly. Subject-line em-dash caught and amended to semicolon (`87f5c03` -> `f7ecab8`).
+
+Plan-review flags both accepted: (a) `Dial` and `Dial Numbers` are one canonical column not two; (b) `Model` was the unnamed fifth stripped column.
+
+### Ship 2: commit `9777199` (Phase 2a)
+
+v2 2a prompt resumed against the patched CSVs. Five investigation phases ran cleanly (P2a_I[1-5]_findings.md under `discovery/schema_v3/phase_2a/`):
+
+- **I.1** header surface: 12-col xlsx, 2 known variances absorbed by ingest patch; canonical mapping locked.
+- **I.2** NBSP: 47+59=106 NR-prefix rows (delta -3 vs Phase 1's 109; within tolerance). NBSP only in `title`. `re.UNICODE` + Python 3.12 catches U+00A0.
+- **I.3** asset-class: 0+3=3 LV handbag matches in W2; 0 false positives, 0 false negatives. Phase 1 reproduced exactly.
+- **I.4** dedup: 6 W1 + 4 W2 = 10 within-report 4-tuple collisions surfaced (real, not future-proofing); 15 W1 + 18 W2 = 33 within-report 3-tuple near-collisions catalogued (dial-color/year/bracelet variants); cross-report 4-tuple overlap 8,837 (delta -2 vs Phase 1).
+- **I.5** numerals fall-through: 9+13=22 rows (6 distinct values: `No Numbers` x10, `Sapphire Numerals` x4, `Plexiglass` x2, `Abaric Numerals` x2, `Other` x1, `Gemstone Numerals` x2).
+
+Operator adjustments at gate: ship within-report dedup as locked + log via summary counter; leave 3-tuple near-collisions in-bucket (4-axis 2b will resolve dial-color and NR-vs-RES; year/bracelet stay as-is); cascade extension for `no numbers` -> `No Numerals` and `abaric` -> `Arabic`; drop the rest as Decision-5-equivalent.
+
+Plan-review tightened the named_special tiebreak: longest-match-wins (not first-match-by-vocabulary-order). Reason: vocabulary contains both `panda` and `reverse_panda`; first-match returns `panda` on a "Reverse Panda" descriptor, silently wrong on every Reverse Panda listing. Pinned by `TestNamedSpecial::test_reverse_panda_not_panda`.
+
+Module shape: single file `skills/grailzee-eval/scripts/ingest.py` (685 lines), parity with sibling scripts. `CanonicalRow` as `@dataclass(frozen=True, slots=True)`; `IngestSummary` as `@dataclass` with 11 counters + source_reports list. Pure `load_and_canonicalize` plus side-effect wrapper `ingest_and_archive`. CLI with `validate` and `ingest` subcommands.
+
+Pipeline order locked per v2 prompt: load -> header validation -> NBSP normalization (load-bearing) -> asset-class filter -> dial-numerals cascade -> dial-color parsing + named_special detection -> auction-type detection -> 4-tuple dedup (within-report first-seen, cross-report prefer-most-recent) -> 3-tuple near-collision count.
+
+Two OTel spans (`ingest.load_and_canonicalize`, `ingest.ingest_and_archive`) emit all 11 summary counters as flat attributes plus `outcome`.
+
+#### Test delta
+
+960 baseline -> **1,046 passing** (+86). Above the +35-to-+55 prompt band; flagged at close-out. Reasoning: heavy parametrization for vocabulary coverage (15-case named_special vocab, 9-case numerals exact-match, etc.); each case is a distinct pytest instance. No tests wasted; consolidating to lists-in-loops would lose per-case failure granularity. Operator accepted.
+
+#### Live spot-check (Part A + Part B)
+
+**Part A** (W1+W2 union, validation): 19,335 source -> 10,440 canonical. Cross-report dedup overlap 8,801 (delta -36 vs Phase 1's 8,837). Delta is filter-aware semantics: pre-filter drops (asset_class + blank + fallthrough = 84 rows) on one report's side prevent the cross-report counter from incrementing for matching keys. Not a regression; documented in `P2a_spotcheck_partA.md`. `dial_color_unknown=1,116` exceeds Phase 1's 392 because v2 prompt's parsed-vs-unknown simplification collapses Phase 1's 1,286 ambiguous bucket into unknown (multi-color-in-window cases). Expected.
+
+**Part B** (W2-only operational rehearsal in tmp tree): 9,895 -> 9,846. Archival happy path works (source moved, original filename preserved, byte-fidelity intact). Idempotency block raises `FileExistsError` and leaves source in place. Live `reports_csv/` untouched; both CSVs still present at session close.
+
+#### Em-dash hygiene
+
+Pre-commit sweep on Phase 2a artifacts: 8 em-dashes in markdown findings + 6 in `discover_2a.py` (script that generated some of them). All replaced with semicolons. Code (`ingest.py`, `test_ingest.py`) was always clean. Subject line of commit `9777199` confirmed clean.
+
+### State of the tree post-session
+
+- Two unpushed commits on `feature/grailzee-eval-v2`: `f7ecab8` (ingest patch), `9777199` (Phase 2a ingest module).
+- Live `reports_csv/`: `grailzee_2026-04-06.csv` and `grailzee_2026-04-21.csv` both present, no `archive/` subdir on Drive yet.
+- Phase 1 artifacts (`schema_v3/load.py`, `discover.py`, `findings/`) still untracked per default-delete-at-Phase-2-close convention.
+- `GRAILZEE_SYSTEM_STATE.md` Section 4 not yet updated; held for operator preference. Both commits ready to be cited in a single STATE entry.
+
+## Session 2026-04-24 (late): Phase 2b; v3 bucket construction, scoring, write_cache reshape
+
+### Shipped (T1-T9 + CACHE_SCHEMA_VERSION bump + T6 skip markers + T7 tests + T8 schema doc)
+
+**T1/T2/T3/T5/G8**: `scripts/analyze_buckets.py` (new, ~390 lines). Four-axis bucket construction (`bucket_key`, `build_buckets`), per-bucket scoring (`score_bucket` delegates to `analyze_reference`), named_special threading (longest-slug-wins, alphabetical tiebreak), DJ config breakout (`_score_dj_configs`), full `score_all_references` with OTel span (`reference_count`, `total_bucket_count`, `scored_bucket_count`, `below_threshold_bucket_count`, `dj_config_count`, `outcome`). CLI entry point.
+
+**T4**: `scripts/write_cache.py` reshaped to v3. New helpers: `_dominant_median` (highest-volume eligible bucket proxy for B.2/B.3 `current_median`); `_best_signal` (best signal across reference's buckets for summary counts); `_SIGNAL_RANK` dict. Per-reference entry: market fields removed, `buckets: rd.get("buckets", {})` added, trend/momentum at reference level per Patch 2. DJ config loop: adds `confidence=None`, `trend_signal="No prior data"`, `trend_median_change=0`, `trend_median_pct=0`, `momentum=None`. Summary counts via `_best_signal`. Docstring updated.
+
+**CACHE_SCHEMA_VERSION bump**: `grailzee_common.py` line 87: `2` -> `3`.
+
+**T9**: `scripts/run_analysis.py` updated. `analyze_references` import removed; `analyze_buckets` + `load_and_canonicalize` added. Step 6 now runs `load_and_canonicalize` + `analyze_buckets.run`; B.4/B.5 OTel attributes adapted to bucket-level counts. Steps 9 (brands), 14 (spreadsheet, summary, brief), 16 (shortlist): wrapped with log-and-skip (2c-restore); `summary_path` defaults to `""`. `import logging` + module-level `_log` added.
+
+**T6 skip markers**:
+- `test_analyze_references.py`: module-level `pytestmark` skip
+- `test_build_shortlist.py`: module-level `pytestmark` skip
+- `test_write_cache.py`: 19 targeted `@pytest.mark.skip` on tests that pin v2 flat shape or depend on `_dominant_median` returning non-None from flat `_ref()` fixtures
+- `test_run_analysis.py`: 9 targeted skips (flat-shape pins, output-builder-skipped file assertions, median-dependent pct assertions); `test_no_qualifying_refs` updated to v3 behavior (below-threshold refs ARE in cache with Low data signal)
+
+**Fixture update**: 3 large fixture CSVs + `sales_sample.csv` updated with 5 new v3 ingest columns (`model`, `year`, `box`, `dial_numerals_raw="Arabic Numerals"`, `url=""`). Required by `ingest.py`'s `EXPECTED_CSV_COLUMNS` check.
+
+**T7**: `tests/test_analyze_buckets.py` (new, 49 tests). Covers: `bucket_key` serialization, `build_buckets` grouping, `_named_special_for_bucket` (longest/tiebreak), `_st_pct_for_rows`, `score_bucket` (below/above threshold, key fields, named_special, axes), `score_all_references` (return shape, named/unnamed, multi-ref, two-bucket, empty), DJ config path (config_breakout flag), `_row_to_sale`, W2-scale smoke test (3 tests via real fixture CSV).
+
+**T8**: `grailzee_schema_design_v2_0.md` written; supersedes v1/v1_1. Covers keying, top-level shape, reference entry, bucket entry, DJ configs, summary, producing modules, 2c consumer list, `_dominant_median` interim note.
+
+#### Test delta
+
+Baseline: 1,046 (Phase 2a). Phase 2b close: **997 passed, 98 skipped**. Net change: +49 new tests (T7), 98 tests now carry 2c-restore skip markers (19 test_write_cache.py + 9 test_run_analysis.py + entire test_analyze_references.py + entire test_build_shortlist.py). Skipped tests are greppable via `rg "2c-restore"`.
+
+#### State of tree post-session
+
+- Phase 2b complete; no commit yet (per repo CLAUDE.md: operator commits after review).
+- Modified: `scripts/analyze_buckets.py` (new), `scripts/write_cache.py`, `scripts/run_analysis.py`, `scripts/grailzee_common.py` (CACHE_SCHEMA_VERSION=3), `grailzee_schema_design_v2_0.md` (new), `tests/test_analyze_buckets.py` (new), `tests/test_write_cache.py`, `tests/test_run_analysis.py`, `tests/test_analyze_references.py`, `tests/test_build_shortlist.py`, `tests/fixtures/grailzee_2026-04-06.csv`, `tests/fixtures/grailzee_2026-03-23.csv`, `tests/fixtures/grailzee_2026-03-09.csv`, `tests/fixtures/sales_sample.csv`.
+- Discovery findings (written this session): `discovery/schema_v3/phase_2b/findings/01_scorer_call_graph.md`, `02_dj_config_pipeline.md`, `03_consumer_contract_surface.md`, `04_bucket_population_census.md`.
+
+#### 2b not-done (deferred to 2c per plan)
+
+- `evaluate_deal.py` bucket-aware lookup
+- `build_shortlist.py` `_flatten_row` bucket read-path
+- `analyze_brands.py`, `build_spreadsheet.py`, `build_summary.py`, `build_brief.py` v3 read-paths
+- Proper per-bucket ledger lookup replacing `_dominant_median`
+- `GRAILZEE_SYSTEM_STATE.md` Section 4 update
+- Part A + Part B spot-checks and §1.7 analytical-quality benchmark (operator review step, not implementation)
 
 ## Next phases
 
-- **C.1** — cycle_focus schema_version v1 → v2. Target entries grow from reference strings to objects carrying stamped predictions (`predicted_nr_clear_prob`, `expected_net_at_median`, `dollar_per_hour`, `capital_required`, `max_buy_nr`, `max_buy_res`, `notes`). Per schema v1 §2.4. Strategy commits the numbers; analyzer doesn't predict. Requires C.2+ (cycle_targets archive, grading) to complete the prediction loop.
-- **B.1+** — consumer wiring for A.4-written fields (labor, monthly_return, premium_model close_count_floor, premium_model.min_trade_count).
+- **Operator review + commit**: review Phase 2b diff (`git --no-pager diff HEAD`), then commit. Two commits expected: one for Phase 2a ingest patch artifacts already staged, one for Phase 2b.
+- **GRAILZEE_SYSTEM_STATE.md Section 4 update**: append entries for `f7ecab8` (ingest_report patch), `9777199` (Phase 2a ingest module), and Phase 2b bucket scorer + write_cache reshape. Each entry: shipped surface, test delta, architecture notes.
+- **Part A + Part B spot-checks**: W1+W2 union run against live CSVs; verify ~722 eligible buckets (3% tolerance). W2-only pipeline run; confirm v3 cache `schema_version: 3`, 5 DJ config entries, `dj_configs[*].trend_signal == "No prior data"`.
+- **§1.7 analytical-quality benchmark**: 10 references side-by-side v2 vs v3 scoring comparison (operator review step).
+- **Phase 2c** (after spot-checks pass): `evaluate_deal.py` bucket-aware four-axis lookup; `build_shortlist.py` `_flatten_row` bucket read-path; `analyze_brands.py`, `build_spreadsheet.py`, `build_summary.py`, `build_brief.py` v3 read-paths; proper per-bucket ledger lookup replacing `_dominant_median`; restore 98 skipped tests.
+- **Backlog ready-to-execute** (STATE §6): live `sourcing_brief_cycle_2026-06.json` Drive-state gap; `apply_premium_adjustment` + `adjusted_max_buy` dead-code pair; `analyzer_config.premium_model.*` zero-consumer subtree; B.9 watchlist rename (deferred).
 
-## Scripts Built So Far
+## Pointers
 
-```
-scripts/
-  grailzee_common.py             (~980 lines; shared constants, formulas, loaders, utilities; LedgerRow v2 shape)
-  config_helper.py               (470 lines; v1.1 §2 defaulted_fields helper, A.1)
-  install_analyzer_config.py     (134 lines; A.2 installer)
-  install_brand_floors.py        (179 lines; A.3 installer)
-  install_sourcing_rules.py      (135 lines; A.4 installer)
-  install_cycle_focus.py         (189 lines; A.5 Surface 1 installer; Drive-backed default)
-  install_monthly_goals.py       (151 lines; A.5 Surface 1 installer; Drive-backed default)
-  install_quarterly_allocation.py (168 lines; A.5 Surface 1 installer; Drive-backed default)
-  migrate_ledger_v2.py           (264 lines; A.6 Surface 2 one-shot v1→v2 rewrite; backup + idempotence)
-  seed_name_cache.py             (109 lines; fixture seeder)
-  read_ledger.py                 (~290 lines; groups on sell_cycle_id; emits buy_* + sell_* keys)
-  ledger_manager.py              (~285 lines; --buy-date required, --sell-date default today)
-  backfill_ledger.py             (~555 lines; v2 OUTPUT_COLUMNS; input schema unchanged; dedup on sell_date)
-  ingest_report.py               (431 lines)
-  analyze_references.py          (355 lines; reads scoring config)
-  analyze_trends.py              (247 lines)
-  analyze_changes.py             (135 lines)
-  analyze_breakouts.py           (129 lines)
-  analyze_watchlist.py           (65 lines)
-  analyze_brands.py              (79 lines)
-  roll_cycle.py                  (~80 lines; atomic-write cleanup + fsync ported)
-  build_spreadsheet.py           (262 lines)
-  build_summary.py               (163 lines)
-  build_brief.py                 (~290 lines; hybrid _resolved_sourcing_rules)
-  write_cache.py                 (155 lines; last_trade reads t["sell_date"])
-  run_analysis.py                (~145 lines; outer CLI span emits analyzer_config_source + sourcing_rules_source)
-  evaluate_deal.py               (~725 lines; reads risk_reserve_threshold from config)
-  query_targets.py               (599 lines)
-  report_pipeline.py             (~145 lines; --trend-window reads from analyzer_config)
-```
-
-## State Files
-
-```
-Repo state/ (workspace):
-  analyzer_config.json           (A.2; tracked)
-  brand_floors.json              (A.3; tracked)
-  sourcing_rules.json            (A.4; tracked)
-  grailzee_schema_design_v1.md   (tracked; byte-identical with v1.1)
-  grailzee_schema_design_v1_1.md (authoritative; tracked)
-  grailzee_otel_audit.md         (Task 0.1 report; tracked)
-
-Drive STATE_PATH (not in git):
-  trade_ledger.csv               (v2 shape post-A.6; 14 rows all with blank buy_*)
-  trade_ledger.csv.v1_backup     (A.6 rollback path; v1 shape; preserved)
-  cycle_focus.json               (A.5 starter; cycle_id="starter", epoch date range)
-  monthly_goals.json             (A.5 starter; month="starter")
-  quarterly_allocation.json      (A.5 starter; quarter="starter")
-  analysis_cache.json            (analyzer output)
-  cycle_outcome_cycle_*.json     (per-cycle rollups)
-  run_history.json               (analyzer audit trail)
-  name_cache.json                (display lookup)
-```
-
-## Architecture Decisions
-
-- **Config files — Drive vs workspace.** A.2–A.4 configs live in workspace state (repo-tracked, shipped with code). A.5 configs (cycle_focus/monthly/quarterly) live on Drive STATE_PATH because cowork apply rewrites them at strategy commits. The `CYCLE_FOCUS_PATH` / `MONTHLY_GOALS_PATH` / `QUARTERLY_PATH` constants in grailzee_common match the Drive location; A.5 installers default there too.
-- **Hard cutover for ledger schema (A.6).** `parse_ledger_csv` raises ValueError on any CSV missing `sell_date`/`sell_cycle_id` columns. No silent compat shim. Migration vehicle (`migrate_ledger_v2.py`) is a one-shot rewrite with explicit `.v1_backup` copy and cycle-mismatch abort.
-- **Biweekly cycle semantics (A.6 Surface 1).** NN in `cycle_YYYY-NN` is a biweekly counter (1-26+ per year), NOT a calendar month. Cowork `_cycle_calendar_position` delegates to analyzer-side `cycle_date_range` to derive month/quarter from the cycle's START date. Single source of truth for biweekly math stays in grailzee_common.
-- **Cowork bundle scope (A.5 Surface 2).** Six config files from two locations (three workspace + three Drive) carried byte-faithful. `workspace_state_dir` kwarg + `--workspace-state-dir` CLI flag. Legacy `cycle_focus_current.json` archive alias (not a manifest role) retained for one cycle while strategy-side docs migrate.
-- **Memoized loaders with fallback.** Each config has a `load_*` function with module-level memoization, a `*_source()` accessor (`"file"` | `"fallback"`), and a `_reset_*_cache()` test helper. Fallback is always a deep copy of `*_FACTORY_DEFAULTS`. Cache-once-per-process matches the cycle-boundary change-propagation rule.
-- **Installers follow a shared pattern.** `--target`, `--force`, `--dry-run` flags; exit codes 0/1/2; OTel span with `outcome` attribute; refuse-overwrite by default. Writes via `config_helper.write_config` (atomic tmp+fsync+os.replace with cleanup leg).
-- **`defaulted_fields` construction.** A.2/A.4 use `config_helper.leaf_paths`. A.3 uses a purpose-built `_floor_pct_paths` walker (only `floor_pct` subkeys are tunable). A.5 cycle_focus uses an inline collapse helper for `cycle_date_range` (parent path, not start/end). A.5 quarterly_allocation uses a custom walker to inject empty-dict parent paths that `leaf_paths` alone drops.
-- **Hybrid migration for build_brief (A.4).** `_resolved_sourcing_rules()` merges build_brief-internal fields with file-backed fields; emitted JSON brief shape unchanged.
-- **Span attribute standardization.** Application-level span attributes use `outcome`, never `status`. Returned dicts may still carry `"status"` as public API.
-- **Narrowed loader except.** Loaders catch `(OSError, json.JSONDecodeError, SchemaVersionError, ValueError)`; `TypeError` and other bugs propagate.
-
-## Key Decisions Made (carried forward)
-
-- RISK_RESERVE_THRESHOLD = 0.40 (fraction); v1 was 20 (percent).
-- CORE_REFERENCES dropped; every ref with 3+ sales scored.
-- Fixture cycle_ids use biweekly numbering.
-- `classify_dj_config` returns `None` (not "Other") for unclassifiable titles.
-- `QUALITY_CONDITIONS = {"very good", "like new", "new", "excellent"}`. Not externalized yet.
-- Name cache seed: 22 entries.
-- OTel: single span per CLI entry point plus per-phase spans where operation is visible; `outcome` attribute on every span with multi-branch termination.
-- All tests use `--ledger` / `--cache` / `--output-dir` overrides; no test touches real Drive paths.
-- v1 frozen; changes under `skills/grailzee-eval/` only in commissioned A-phase scope.
-- CACHE_SCHEMA_VERSION = 2.
-- `cycle_id_from_csv` parses date from CSV filename, falls back to today.
-- evaluate_deal Decision 1: not_found returns comp_search_hint + formula; LLM does web research.
-- evaluate_deal Decision 2: stale cycle focus returns `state="stale_focus"`; deal eval always completes.
-- evaluate_deal Decision 3: no confidence caching.
-- query_targets cycle discipline: `status="gate"` blocks list unless `--ignore-cycle`.
-- A.5: `cycle_id="starter"`, `month="starter"`, `quarter="starter"`, epoch `cycle_date_range` sentinels. `is_cycle_focus_current("starter")` returns False by design.
-- A.6 / S6: legacy ledger rows (buy_date=blank, buy_cycle_id=blank) still enter cycle_outcome rollups via sell_cycle_id. Grading (C-phase) skips them.
-
-## Standing rule: plan-review divergence surfacing
-
-When a task spec says X and I plan Y for consistency with prior phase or codebase convention, surface the divergence at plan-review (before build), not only in close-out. Phrase as "Spec says X; I plan Y because Z — confirm or override." Memory saved at `~/.claude/projects/-Users-ranbirchawla--openclaw-workspace/memory/feedback_plan_review_divergences.md`.
-
-## Backlog (open; not blocking C.1)
-
-- **Cowork OTEL instrumentation.** `build_bundle.py` has zero OTel spans. Separate cowork OTel audit + instrumentation task. Flagged during A.5 and A.6 plan-review; explicitly deferred.
-- **Strategy-skill docs migration.** `grailzee-strategy/SKILL.md:37`, `references/strategy-framework.md:63,130`, `TESTING.md:72,179`, and cowork docs still reference `cycle_focus_current.json`. Migrate docs and drop the `cycle_focus_current.json` archive alias from `build_bundle.py` in a follow-up.
-- **QUALITY_CONDITIONS externalization.** `grailzee_common.QUALITY_CONDITIONS` is scoring-relevant but not in any Phase A config.
-- **`premium_model.min_trade_count`.** `calculate_presentation_premium` still has a hardcoded `count >= 10` check while `premium_model.close_count_floor` (=5) exists unused.
-- **A.4 unused config fields.** `labor.hours_per_piece`, `margin.monthly_return_target_fraction`, `premium_model.{lookback_days, close_count_floor, recent_weighted}` ship as defaults with no consumer.
-- **Markdown footer inconsistency.** `build_brief` markdown footer strings hardcoded while JSON brief `sourcing_rules` fields come from config.
-- **`--name-cache` threading residual.** `backfill_ledger` accepts `--name-cache` but downstream hooks (`ledger_manager`, `roll_cycle`) don't take that flag.
-- **`hook_failed` per-hook granularity.** Single boolean latch per `post_write_hooks` span; can't distinguish subset failures among multiple hooks.
-- **A.cleanup.1 leftover.** `.claude/settings.json` PreToolUse hook references `~/ai-code/vlc-openclaw` but repo is at `~/.openclaw/workspace`. Latent; branch-check hits wrong repo.
-- **Duplicate schema docs.** `state/grailzee_schema_design_v1.md` and `v1_1.md` are byte-identical; v1 is an authoring artifact. Resolve before schema v2 reference lands.
-- **`Grailzee_Eval_v2_Implementation.md` rewrite.** Archival build plan referencing v1 ledger shape throughout. Out-of-date post-A.6; rewrite if a maintainable plan-doc is wanted.
-- **March 2026 closes — optional buy_date backfill.** The two March-closed trades (2026-03-24 M79830RB-0001; 2026-03-25 M28500-0003) could have their buy_date filled in by hand if Ranbir has the data. Until then they grade-skip under C.4.
-- **REVIEW_phase4.md fixture references.** Archival doc names 7 backfill sample fixtures that were deleted in A.cleanup.3. Harmless but may confuse future readers.
-- **`analyzer_config.premium_model.*` subtree has zero live consumers** (backlog #10, surfaced in B.1). Every path in the subtree (`min_trade_count`, `avg_premium_threshold_pct`, `lookback_days`, `close_count_floor`, `recent_weighted`) ships as a factory default and is never read by code. `calculate_presentation_premium` uses hardcoded `count >= 10` and `avg >= 8.0`; no other module reads the subtree. Distinct from backlog #4 (narrowly about the `count >= 10` hardcode inside the function). Decision: either wire the hardcoded constants to read from config, or rip the subtree out. Trigger: Phase B cleanup pass or schema-v2 hygiene work.
-- **Post-B.1 dead code in `grailzee_common.py`.** `apply_premium_adjustment` (line 862) has zero live callers; `adjusted_max_buy` (line 220) has zero production callers (only exercised by a direct unit test). Removable as a pair in a future cleanup pass. `calculate_presentation_premium` stays — two non-pipeline callers remain; see function docstring for the reminder.
-
-Cleared in A.cleanup.3 (2026-04-21): nested `.git` phantom, `/tmp/a5_drive_backup/*.pre_a5`, fsync drift, unreferenced backfill fixtures, installer main() CLI tests. Count 14 → 12 → 13 (B.1 surfaced item #10 and post-B.1 dead code) open items.
-
-## Phase B sequencing note (reviewer input, 2026-04-21)
-
-B.1 disables `apply_premium_adjustment`; B.3 adds `realized_premium_pct` as the replacement observational signal strategy reads. Between B.1 shipping and B.3 shipping, references with realized-premium history get conservative max_buy values and the strategy layer loses the premium signal entirely — a tactical window of systematically under-bidding on premium-capable references. Reviewer recommendation: **pull B.3 forward in the B.2-B.6 interleave** rather than letting the gap persist. Not a block on committing B.1 (direction is locked per schema §3.1); captured here as a sequencing input for when B.2+ planning starts.
-
-Live-data check on the first post-B.1 day (2026-04-21): 79830RB ledger has 1 trade, ledger aggregate has 7 trades at 20.8% avg premium — threshold (10 trades) not yet met on live data, so the pre-B.1 adjustment pipeline had never fired in production. The "value shift on premium-capable references" is currently a theoretical shift, not a realized one. The tactical window still matters prospectively as volume accumulates.
-
-## Session log (2026-04-21)
-
-Landed A.5 Surface 1 (`02d1143`), A.5 Surface 2 (`3514549`), A.6 Surface 1 cowork fix (`20b8cb0`), A.6 Surface 2 ledger migration (`47c3867`). Executed live Drive ledger migration via six-gate verification; all gates green. Followed with A.cleanup.3 post-Phase-A hygiene sweep (`99f6204`, `cf22307`, `eac745b`): fsync port in atomic ledger/cycle writes, 7 unreferenced fixture deletions, migrate_ledger_v2 dry-run quote-safety, test_evaluate_deal v2-native key rewrite, 30-test installer main() CLI suite (shared helper + parametrized), filesystem-only cleanup of nested `.git` phantom + `/tmp/a5_drive_backup`. Tests 895 → 1039 across the session (+144 net). `feature/grailzee-eval-v2` now 27 commits ahead of main (last 3 unpushed). **Phase A + cleanup complete.** Ready for C.1.
+- Canonical current-state truth: `GRAILZEE_SYSTEM_STATE.md` at repo root.
+- Full prior build history (Phase 0 through B.8 + schema Phase 1 discovery): `.claude/progress-v0.md`.
+- Schema v3 lock: `/Users/ranbirchawla/Downloads/GZ Agent/Phase 2/Grailzee_Schema_v3_Decision_Lock_2026-04-24_v1.md`.
+- Phase 1 evidence: `skills/grailzee-eval/discovery/schema_v3/findings/PHASE1_REPORT.md`.
+- Ingest patch artifacts: `skills/grailzee-eval/discovery/ingest_full_column_patch/findings.md` + `spotcheck.md`.
+- Phase 2a artifacts: `skills/grailzee-eval/discovery/schema_v3/phase_2a/` (5 P2a_I*_findings.md + P2a_spotcheck_part[A,B].md + discover_2a.py).
