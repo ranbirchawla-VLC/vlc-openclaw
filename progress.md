@@ -1,8 +1,9 @@
 # NutriOS v2 — Build Progress
 
 Branch: `feature/nutrios-v2`  
-Last clean commit: pending — corrective pass on second-pass review findings  
-Suite: **443 passed, 0 failed**
+Last clean commit: `94caf51` — `fix: corrective pass on second-pass code review findings`  
+Suite: **443 passed, 0 failed**  
+Both code-reviewer passes: **PASS**
 
 ---
 
