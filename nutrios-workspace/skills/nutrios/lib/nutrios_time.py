@@ -34,6 +34,41 @@ def meal_slot(now: datetime, tz: str) -> Literal["breakfast", "lunch", "dinner",
             return "snack"
 
 
+def window(
+    now: datetime,
+    tz: str,
+    kind: Literal["today", "yesterday", "last_7d"],
+) -> tuple[datetime, datetime]:
+    """Return a half-open UTC interval [start, end) for the requested window.
+
+    All boundaries are local calendar-day boundaries in the user's TZ.
+
+    Intervals are designed to be non-overlapping and contiguous:
+        today:    [today_start,           today_end)
+        yesterday:[today_start - 1 day,   today_start)
+        last_7d:  [today_start - 8 days,  today_start - 1 day)
+    """
+    zone = ZoneInfo(tz)
+    local_now = now.astimezone(zone)
+    local_today = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    match kind:
+        case "today":
+            start_local = local_today
+            end_local   = local_today + timedelta(days=1)
+        case "yesterday":
+            start_local = local_today - timedelta(days=1)
+            end_local   = local_today
+        case "last_7d":
+            start_local = local_today - timedelta(days=8)
+            end_local   = local_today - timedelta(days=1)
+
+    return (
+        start_local.astimezone(timezone.utc),
+        end_local.astimezone(timezone.utc),
+    )
+
+
 def parse(s: str) -> datetime:
     """Parse ISO8601 string to UTC-aware datetime. Raises ValueError on naive input."""
     # Python 3.11+ fromisoformat handles Z, but be explicit for clarity

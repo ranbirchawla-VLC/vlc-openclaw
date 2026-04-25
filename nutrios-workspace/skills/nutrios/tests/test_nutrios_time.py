@@ -97,6 +97,55 @@ def test_meal_slot_snack_early_morning():
     # 03:00 local → snack
     assert nutrios_time.meal_slot(_utc_for_local_hour(3), _TZ) == "snack"
 
+# ---------------------------------------------------------------------------
+# window()
+# Half-open intervals [start_utc, end_utc). Boundaries are local calendar days.
+# ---------------------------------------------------------------------------
+
+def test_window_today_respects_local_date():
+    """UTC 03:00 on the 25th is local 21:00 on the 24th in Denver (MDT -06:00).
+    window('today') must return the 24th's boundaries, not the UTC 25th's."""
+    from zoneinfo import ZoneInfo
+    # 2026-04-25T03:00:00Z = 2026-04-24T21:00:00 MDT
+    now_utc = datetime(2026, 4, 25, 3, 0, 0, tzinfo=timezone.utc)
+    start, end = nutrios_time.window(now_utc, _TZ, "today")
+    # Expect boundaries of 2026-04-24 in Denver
+    expected_start = datetime(2026, 4, 24, 0, 0, 0, tzinfo=ZoneInfo(_TZ)).astimezone(timezone.utc)
+    expected_end   = datetime(2026, 4, 25, 0, 0, 0, tzinfo=ZoneInfo(_TZ)).astimezone(timezone.utc)
+    assert start == expected_start
+    assert end == expected_end
+
+def test_window_today_is_half_open():
+    now_utc = datetime(2026, 4, 25, 12, 0, 0, tzinfo=timezone.utc)
+    start, end = nutrios_time.window(now_utc, _TZ, "today")
+    assert start < end
+
+def test_window_yesterday_contiguous_with_today():
+    now_utc = datetime(2026, 4, 25, 12, 0, 0, tzinfo=timezone.utc)
+    today_start, _ = nutrios_time.window(now_utc, _TZ, "today")
+    _, yest_end    = nutrios_time.window(now_utc, _TZ, "yesterday")
+    assert yest_end == today_start
+
+def test_window_last_7d_contiguous_with_yesterday():
+    now_utc = datetime(2026, 4, 25, 12, 0, 0, tzinfo=timezone.utc)
+    yest_start, _  = nutrios_time.window(now_utc, _TZ, "yesterday")
+    _, last7d_end  = nutrios_time.window(now_utc, _TZ, "last_7d")
+    assert last7d_end == yest_start
+
+def test_window_last_7d_non_overlapping_with_yesterday():
+    now_utc = datetime(2026, 4, 25, 12, 0, 0, tzinfo=timezone.utc)
+    yest_start, yest_end      = nutrios_time.window(now_utc, _TZ, "yesterday")
+    last7d_start, last7d_end  = nutrios_time.window(now_utc, _TZ, "last_7d")
+    # No overlap: last7d must end at or before yesterday start
+    assert last7d_end <= yest_start
+
+def test_window_last_7d_spans_seven_days():
+    now_utc = datetime(2026, 4, 25, 12, 0, 0, tzinfo=timezone.utc)
+    start, end = nutrios_time.window(now_utc, _TZ, "last_7d")
+    delta = end - start
+    assert delta.days == 7
+
+
 def test_meal_slot_tz_independent():
     """Same instant must produce the same slot regardless of input tzinfo."""
     from zoneinfo import ZoneInfo
