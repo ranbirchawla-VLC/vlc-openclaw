@@ -1,20 +1,13 @@
 # CLAUDE.md — vlc-openclaw
 
 ## Project Overview
-Vardalux Collections OpenClaw workspace. Multi-agent system for luxury watch 
-listing automation. Currently decomposing a monolithic 775-line skill into 
-micro-skills + Python tools per the spec in 
-`Vardalux_Listing_Pipeline_Decomposition_Spec.md`.
+Vardalux Collections OpenClaw workspace. Multi-agent system for running our luxury business and some personal time management skills
 
 ## Core Principle
 LLM = synthesis + human judgment. Python = everything deterministic.
 If it's math, formatting, templating, or substitutions → Python.
 If it's writing, visual assessment, or strategic decisions → micro-skill.
 
-## Current Focus
-Building the decomposed pipeline in `watch-listing-workspace/`. 
-Do NOT modify the existing monolith in `skills/watch-listing-openclaw/` — 
-it stays intact until the new pipeline is validated end-to-end.
 
 ## Build Order (follow strictly)
 1. schema/draft_schema.json
@@ -32,9 +25,11 @@ Python tools first, micro-skills second, orchestrator last.
 
 ## Testing Requirements
 - Every Python tool MUST have tests before it is considered complete
+- Always use `make test-*` targets (not raw pytest) to run tests.
+- It is always safe to run `make test`, `make test-nutrios-*` without asking.
+- For TDD, prefer the most specific target (e.g., `make test-nutrios-time`).
 - Every tool must be runnable standalone: `python tool_name.py /path/to/_draft.json`
 - Every tool validates _draft.json against the schema before operating
-- Test against real listing data (Tudor BB GMT 79830RB numbers for pricing)
 - Do NOT present code as complete until tests pass
 - Run tests after every edit to a test file
 
@@ -67,4 +62,6 @@ Python tools first, micro-skills second, orchestrator last.
 - Do not delete or modify the monolith skill
 - Do not skip test validation
 - Do not combine multiple build steps without confirmation
+
+
 
