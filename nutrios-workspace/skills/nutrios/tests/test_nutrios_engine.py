@@ -241,3 +241,89 @@ def test_weight_trend_last_n():
     # last_n=5 means the 5 entries with highest ids
     ids = [r.weight_lbs for r in rows]
     assert len(ids) == 5
+
+
+# ---------------------------------------------------------------------------
+# event_next() / event_today()
+# ---------------------------------------------------------------------------
+
+def _make_event(id: int, days_from_now: int, event_type: str = "appointment") -> Event:
+    d = (datetime(2026, 4, 24, 0, 0, 0, tzinfo=timezone.utc) + timedelta(days=days_from_now)).date()
+    return Event(id=id, date=d, title=f"event-{id}", event_type=event_type)
+
+
+_NOW_EVENT = datetime(2026, 4, 24, 12, 0, 0, tzinfo=timezone.utc)
+
+def test_event_next_returns_upcoming_sorted():
+    events = [_make_event(3, 10), _make_event(1, 2), _make_event(2, 5)]
+    result = engine.event_next(events, _NOW_EVENT, n=2)
+    assert len(result) == 2
+    assert result[0].id == 1
+    assert result[1].id == 2
+
+def test_event_next_excludes_past():
+    events = [_make_event(1, -1), _make_event(2, 3)]
+    result = engine.event_next(events, _NOW_EVENT, n=5)
+    assert len(result) == 1
+    assert result[0].id == 2
+
+def test_event_today_match():
+    events = [_make_event(1, 0, "surgery")]
+    result = engine.event_today(events, _NOW_EVENT)
+    assert result is not None
+    assert result.id == 1
+
+def test_event_today_none_when_no_match():
+    events = [_make_event(1, 1)]
+    assert engine.event_today(events, _NOW_EVENT) is None
+
+
+# ---------------------------------------------------------------------------
+# dose_reminder_due() / dose_status()
+# ---------------------------------------------------------------------------
+
+def _make_protocol(dose_day: str) -> Protocol:
+    return Protocol(
+        user_id="alice",
+        treatment=Treatment(
+            medication="Levothyroxine",
+            brand="Synthroid",
+            dose_mg=112.5,
+            dose_day_of_week=dose_day,
+            dose_time="08:00",
+        ),
+        biometrics=BiometricSnapshot(
+            start_date=date(2026, 1, 1),
+            start_weight_lbs=230.0,
+            target_weight_lbs=195.0,
+        ),
+        clinical=Clinical(),
+    )
+
+
+def _make_dose_entry() -> DoseLogEntry:
+    return DoseLogEntry(id=1, ts_iso="2026-04-24T08:00:00Z", dose_mg=112.5, brand="Synthroid")
+
+
+# _NOW_EVENT is 2026-04-24 which is a Friday
+_FRIDAY_PROTOCOL = _make_protocol("friday")
+_TUESDAY_PROTOCOL = _make_protocol("tuesday")
+
+def test_dose_reminder_due_true_when_dose_day_no_entry():
+    assert engine.dose_reminder_due(_FRIDAY_PROTOCOL, [], _NOW_EVENT) is True
+
+def test_dose_reminder_due_false_when_dose_logged():
+    assert engine.dose_reminder_due(_FRIDAY_PROTOCOL, [_make_dose_entry()], _NOW_EVENT) is False
+
+def test_dose_reminder_due_false_when_not_dose_day():
+    assert engine.dose_reminder_due(_TUESDAY_PROTOCOL, [], _NOW_EVENT) is False
+
+def test_dose_status_pending():
+    # Friday protocol, no dose entries, is_dose_day=True
+    assert engine.dose_status([], is_dose_day=True) == "pending"
+
+def test_dose_status_logged():
+    assert engine.dose_status([_make_dose_entry()], is_dose_day=True) == "logged"
+
+def test_dose_status_not_due():
+    assert engine.dose_status([], is_dose_day=False) == "not_due"

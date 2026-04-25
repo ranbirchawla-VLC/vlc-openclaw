@@ -149,6 +149,55 @@ def weight_trend(weigh_ins: list[WeighIn], last_n: int = 5) -> list[WeighInRow]:
     ]
 
 
+# ---------------------------------------------------------------------------
+# Dose and events
+# ---------------------------------------------------------------------------
+
+def event_next(events: list[Event], now: datetime, n: int = 2) -> list[Event]:
+    """Return up to n upcoming events (date >= today UTC), sorted ascending by date."""
+    today = now.date()
+    upcoming = sorted(
+        [e for e in events if e.date >= today],
+        key=lambda e: e.date,
+    )
+    return upcoming[:n]
+
+
+def event_today(events: list[Event], now: datetime) -> Event | None:
+    """Return the single event matching today's UTC date, or None."""
+    today = now.date()
+    for e in events:
+        if e.date == today:
+            return e
+    return None
+
+
+def dose_reminder_due(
+    protocol: Protocol, today_log_entries: list, now: datetime
+) -> bool:
+    """True when today is the dose day of week and no DoseLogEntry exists today."""
+    today_weekday = now.strftime("%A").lower()
+    if today_weekday != protocol.treatment.dose_day_of_week.lower():
+        return False
+    return not any(isinstance(e, DoseLogEntry) for e in today_log_entries)
+
+
+def dose_status(
+    today_log_entries: list, is_dose_day: bool
+) -> Literal["logged", "pending", "not_due"]:
+    """Classify dose status from today's entries and whether today is the dose day.
+
+    is_dose_day is computed by the caller (who has protocol + now) and passed in.
+    This keeps the function pure without requiring protocol as a parameter.
+    """
+    has_dose = any(isinstance(e, DoseLogEntry) for e in today_log_entries)
+    if has_dose:
+        return "logged"
+    if is_dose_day:
+        return "pending"
+    return "not_due"
+
+
 def macro_range_check(actual: float, r: MacroRange) -> Literal["LOW", "OK", "OVER", "UNSET"]:
     """Classify actual against a MacroRange. UNSET when both ends null."""
     if r.min is None and r.max is None:
