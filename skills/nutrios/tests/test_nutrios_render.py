@@ -15,6 +15,7 @@ from nutrios_models import (
     WeighIn, WeighInRow, WeightChange,
     MedNote, Event, FoodLogEntry, DoseLogEntry,
     GateResult, Flag,
+    Recipe, RecipeMacros,
 )
 import nutrios_render as render
 
@@ -532,3 +533,306 @@ def test_render_daily_summary_weigh_in_position():
     weigh_pos = result.find("Weighed in")
     calories_pos = result.find("Calories")
     assert date_pos < weigh_pos < calories_pos
+
+
+# ---------------------------------------------------------------------------
+# render_log_confirm — single line, qty + unit + macros
+# ---------------------------------------------------------------------------
+
+def _food(name="chicken breast", qty=150.0, unit="g", kcal=248,
+          p=46.5, c=0.0, f=5.4, mid=1, slot="lunch") -> FoodLogEntry:
+    return FoodLogEntry(
+        kind="food", id=mid, ts_iso="2026-04-24T18:00:00Z",
+        meal_slot=slot, source="manual",
+        name=name, qty=qty, unit=unit,
+        kcal=kcal, protein_g=p, carbs_g=c, fat_g=f,
+    )
+
+
+def test_render_log_confirm_basic():
+    s = render.render_log_confirm(_food())
+    assert s == "Logged: chicken breast 150g — 248 kcal · 46.5g P / 0g C / 5.4g F"
+
+
+def test_render_log_confirm_drops_trailing_zero_on_qty():
+    s = render.render_log_confirm(_food(qty=100.0))
+    assert "100g" in s
+    assert "100.0g" not in s
+
+
+def test_render_log_confirm_fractional_qty():
+    s = render.render_log_confirm(_food(qty=1.5, unit="cup"))
+    assert "1.5cup" in s
+
+
+# ---------------------------------------------------------------------------
+# render_quantity_clarify
+# ---------------------------------------------------------------------------
+
+def test_render_quantity_clarify():
+    assert render.render_quantity_clarify("chicken breast") == "How much chicken breast?"
+
+
+# ---------------------------------------------------------------------------
+# render_macros_required
+# ---------------------------------------------------------------------------
+
+def test_render_macros_required():
+    s = render.render_macros_required("dragonfruit smoothie")
+    assert "dragonfruit smoothie" in s
+    assert "kcal" in s
+    assert "protein" in s.lower()
+
+
+# ---------------------------------------------------------------------------
+# render_dose_already_logged
+# ---------------------------------------------------------------------------
+
+def test_render_dose_already_logged():
+    s = render.render_dose_already_logged()
+    assert "already logged" in s.lower()
+
+
+# ---------------------------------------------------------------------------
+# render_event_list / render_event_removed_confirm
+# ---------------------------------------------------------------------------
+
+def _ev(eid=1, d=date(2026, 5, 1), title="surgery", typ="surgery") -> Event:
+    return Event(id=eid, date=d, title=title, event_type=typ)
+
+
+def test_render_event_list_two_events():
+    events = [_ev(1, date(2026, 5, 1), "gallbladder surgery"),
+              _ev(2, date(2026, 6, 15), "follow-up", "appointment")]
+    s = render.render_event_list(events)
+    assert "2026-05-01" in s
+    assert "gallbladder surgery" in s
+    assert "2026-06-15" in s
+    assert "follow-up" in s
+
+
+def test_render_event_list_empty():
+    s = render.render_event_list([])
+    assert s == "No upcoming events."
+
+
+def test_render_event_removed_confirm():
+    e = _ev(7, date(2026, 7, 1), "old surgery")
+    s = render.render_event_removed_confirm(e)
+    assert "old surgery" in s
+    assert "2026-07-01" in s
+    assert "removed" in s.lower()
+
+
+# ---------------------------------------------------------------------------
+# render_med_notes_list
+# ---------------------------------------------------------------------------
+
+def test_render_med_notes_list_two_notes():
+    notes = [
+        MedNote(id=1, ts_iso="2026-04-23T15:00:00Z", source="doctor", note="Watch for nausea."),
+        MedNote(id=2, ts_iso="2026-04-24T10:00:00Z", source="self", note="Felt tired."),
+    ]
+    s = render.render_med_notes_list(notes)
+    assert "doctor" in s
+    assert "Watch for nausea" in s
+    assert "self" in s
+    assert "Felt tired" in s
+    assert "2026-04-23" in s
+    assert "2026-04-24" in s
+
+
+def test_render_med_notes_list_empty():
+    assert render.render_med_notes_list([]) == "No notes."
+
+
+# ---------------------------------------------------------------------------
+# render_goals_view + render_mesocycle_view
+# ---------------------------------------------------------------------------
+
+def _goals_fixture() -> Goals:
+    return Goals(
+        active_cycle_id="cycle1",
+        weekly_schedule={
+            "monday": "rest", "tuesday": "training", "wednesday": "rest",
+            "thursday": "training", "friday": "rest", "saturday": "training",
+            "sunday": "rest",
+        },
+        defaults=DayMacros(
+            protein_g=MacroRange(min=175, protected=True),
+            fat_g=MacroRange(max=65, protected=True),
+        ),
+        day_patterns=[
+            DayPattern(day_type="rest", carbs_g=MacroRange(min=180)),
+            DayPattern(day_type="training", carbs_g=MacroRange(min=220)),
+        ],
+    )
+
+
+def _mesocycle_fixture(tdee=2600, deficit=500) -> Mesocycle:
+    return Mesocycle(
+        cycle_id="cycle1", phase="cut",
+        start_date=date(2026, 1, 1), tdee_kcal=tdee, deficit_kcal=deficit,
+    )
+
+
+def test_render_goals_view_includes_cycle_and_defaults():
+    s = render.render_goals_view(_goals_fixture(), _mesocycle_fixture())
+    assert "cycle1" in s
+    assert "cut" in s
+    assert "2600" in s
+    assert "500" in s
+    assert "Protein" in s
+    assert "175" in s
+    assert "Fat" in s
+    assert "65" in s
+    assert "rest" in s
+    assert "training" in s
+
+
+def test_render_goals_view_marks_protected():
+    s = render.render_goals_view(_goals_fixture(), _mesocycle_fixture())
+    assert "(protected)" in s
+
+
+def test_render_goals_view_with_null_tdee():
+    meso = Mesocycle(cycle_id="cycle1", phase="cut", start_date=date(2026, 1, 1))
+    s = render.render_goals_view(_goals_fixture(), meso)
+    assert "TDEE: setup needed" in s or "setup needed" in s
+
+
+def test_render_mesocycle_view_basic():
+    s = render.render_mesocycle_view(_mesocycle_fixture())
+    assert "cycle1" in s
+    assert "cut" in s
+    assert "2600" in s
+    assert "500" in s
+    assert "2026-01-01" in s
+
+
+def test_render_mesocycle_view_null_tdee():
+    meso = Mesocycle(cycle_id="cycle1", phase="cut", start_date=date(2026, 1, 1))
+    s = render.render_mesocycle_view(meso)
+    assert "setup needed" in s
+
+
+# ---------------------------------------------------------------------------
+# Recipe renderers
+# ---------------------------------------------------------------------------
+
+def _macros() -> RecipeMacros:
+    return RecipeMacros(kcal=500, protein_g=40.0, carbs_g=50.0, fat_g=15.0)
+
+
+def _recipe(rid=1, name="protein shake", removed=False, ingredients=None) -> Recipe:
+    return Recipe(
+        id=rid, name=name, servings=1,
+        macros_per_serving=_macros(),
+        ingredients=ingredients or [],
+        removed=removed,
+    )
+
+
+def test_render_recipe_save_confirm():
+    s = render.render_recipe_save_confirm(_recipe())
+    assert "saved" in s.lower()
+    assert "protein shake" in s
+    assert "500" in s
+
+
+def test_render_recipe_update_confirm():
+    s = render.render_recipe_update_confirm(_recipe())
+    assert "updated" in s.lower()
+    assert "protein shake" in s
+
+
+def test_render_recipe_delete_confirm():
+    s = render.render_recipe_delete_confirm(_recipe())
+    assert "deleted" in s.lower()
+    assert "protein shake" in s
+
+
+def test_render_recipe_list_includes_active_only():
+    recipes = [
+        _recipe(1, "protein shake"),
+        _recipe(2, "old recipe", removed=True),
+        _recipe(3, "oats"),
+    ]
+    s = render.render_recipe_list(recipes)
+    assert "protein shake" in s
+    assert "oats" in s
+    assert "old recipe" not in s
+
+
+def test_render_recipe_list_empty():
+    assert render.render_recipe_list([]) == "No recipes saved."
+
+
+def test_render_recipe_list_all_removed():
+    recipes = [_recipe(1, "old", removed=True)]
+    assert render.render_recipe_list(recipes) == "No recipes saved."
+
+
+def test_render_recipe_view_with_ingredients():
+    r = _recipe(ingredients=["50g whey", "200ml milk"])
+    s = render.render_recipe_view(r)
+    assert "protein shake" in s
+    assert "500" in s
+    assert "40" in s
+    assert "50g whey" in s
+    assert "200ml milk" in s
+
+
+def test_render_recipe_view_no_ingredients():
+    s = render.render_recipe_view(_recipe(ingredients=[]))
+    assert "protein shake" in s
+    assert "500" in s
+
+
+def test_render_recipe_duplicate_name_error():
+    s = render.render_recipe_duplicate_name_error("protein shake")
+    assert "protein shake" in s
+    assert "already exists" in s.lower()
+    assert "update" in s.lower()
+
+
+# ---------------------------------------------------------------------------
+# render_supersedes_not_found / render_protocol_not_initialized
+# ---------------------------------------------------------------------------
+
+def test_render_supersedes_not_found():
+    s = render.render_supersedes_not_found(target_id=5, kind="weigh-in")
+    assert "5" in s
+    assert "weigh-in" in s
+    assert "doesn't exist" in s.lower() or "does not exist" in s.lower()
+
+
+def test_render_protocol_not_initialized():
+    s = render.render_protocol_not_initialized()
+    assert "protocol" in s.lower()
+    assert "setup" in s.lower()
+
+
+# ---------------------------------------------------------------------------
+# render_write_confirm — scope-routed
+# ---------------------------------------------------------------------------
+
+def test_render_write_confirm_goals():
+    assert render.render_write_confirm("goals") == "Goals updated."
+
+
+def test_render_write_confirm_protocol():
+    assert render.render_write_confirm("protocol") == "Protocol updated."
+
+
+def test_render_write_confirm_mesocycle():
+    assert render.render_write_confirm("mesocycle") == "Mesocycle updated."
+
+
+def test_render_write_confirm_recipes():
+    assert render.render_write_confirm("recipes") == "Recipes updated."
+
+
+def test_render_write_confirm_unknown_scope_raises():
+    with pytest.raises(ValueError):
+        render.render_write_confirm("bogus")

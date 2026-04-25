@@ -15,10 +15,11 @@ from typing import Literal
 
 from nutrios_models import (
     MacroRange, ResolvedDay,
-    Protocol,
+    Protocol, Mesocycle, Goals,
     WeighIn, WeighInRow, WeightChange,
     MedNote, Event, FoodLogEntry, DoseLogEntry,
     GateResult, Flag,
+    Recipe,
 )
 import nutrios_time
 
@@ -449,3 +450,248 @@ def render_daily_summary(
         sections.append("Upcoming:\n" + "\n".join(event_lines))
 
     return "\n".join(sections)
+
+
+# ---------------------------------------------------------------------------
+# Tool-layer renderers — added in step 6+6.6 for the Python tool entrypoints
+# ---------------------------------------------------------------------------
+
+def _fmt_g(x: float) -> str:
+    """Format a gram quantity: drop trailing zeros, no unit suffix."""
+    return f"{x:g}"
+
+
+def render_log_confirm(entry: FoodLogEntry) -> str:
+    """Confirm a single food log entry. One-line, name + qty + macros."""
+    return (
+        f"Logged: {entry.name} {_fmt_g(entry.qty)}{entry.unit} — "
+        f"{entry.kcal} kcal · "
+        f"{_fmt_g(entry.protein_g)}g P / "
+        f"{_fmt_g(entry.carbs_g)}g C / "
+        f"{_fmt_g(entry.fat_g)}g F"
+    )
+
+
+def render_quantity_clarify(name: str) -> str:
+    """Followup prompt when a food was logged without a quantity."""
+    return f"How much {name}?"
+
+
+def render_macros_required(name: str) -> str:
+    """Followup prompt when an unknown food needs macros from the LLM/user.
+
+    Tool layer cannot resolve foods → macros (D2 decision: macros always
+    arrive on input). When the orchestrator's resolution step skips this,
+    the tool surfaces this message so the next turn carries them.
+    """
+    return (
+        f"I don't have macros for '{name}'. "
+        f"Provide kcal, protein, carbs, and fat to log it."
+    )
+
+
+def render_dose_already_logged() -> str:
+    """Rejection when a dose log is attempted but today already has one."""
+    return "Dose already logged today. Edit via supersedes if you need to correct it."
+
+
+def render_event_list(events: list[Event]) -> str:
+    """Render a compact list of upcoming events. Suppresses removed entries."""
+    active = [e for e in events if not e.removed]
+    if not active:
+        return "No upcoming events."
+    lines = ["Upcoming events:"]
+    for e in active:
+        lines.append(f"  {e.date}  {e.event_type}: {e.title}")
+    return "\n".join(lines)
+
+
+def render_event_removed_confirm(event: Event) -> str:
+    """Confirm an event was soft-deleted."""
+    return f"Event removed: {event.title} ({event.date})"
+
+
+def render_med_notes_list(notes: list[MedNote]) -> str:
+    """Render a med-notes list with date, source, and note text per row."""
+    if not notes:
+        return "No notes."
+    lines = ["Recent notes:"]
+    for n in notes:
+        note_date = nutrios_time.parse(n.ts_iso).date()
+        lines.append(f"  {note_date}  {n.source}: {n.note}")
+    return "\n".join(lines)
+
+
+def render_goals_view(goals: Goals, mesocycle: Mesocycle) -> str:
+    """Multi-section view of the goals state plus mesocycle TDEE/deficit context."""
+    lines = ["Goals", f"  Cycle: {mesocycle.cycle_id} ({mesocycle.phase})"]
+
+    if mesocycle.tdee_kcal is None:
+        lines.append("  TDEE: setup needed")
+    else:
+        lines.append(f"  TDEE: {mesocycle.tdee_kcal} / Deficit: {mesocycle.deficit_kcal}")
+
+    lines += ["", "Defaults"]
+    for label, r in (
+        ("Protein", goals.defaults.protein_g),
+        ("Carbs",   goals.defaults.carbs_g),
+        ("Fat",     goals.defaults.fat_g),
+    ):
+        if r.min is None and r.max is None:
+            continue
+        if r.min is not None and r.max is not None:
+            shape = f"{r.min}{_EN_DASH}{r.max}g"
+        elif r.min is not None:
+            shape = f"min {r.min}g"
+        else:
+            shape = f"max {r.max}g"
+        suffix = " (protected)" if r.protected else ""
+        lines.append(f"  {label}: {shape}{suffix}")
+
+    if goals.day_patterns:
+        lines += ["", "Day patterns"]
+        for dp in goals.day_patterns:
+            parts = []
+            for label, r in (
+                ("protein", dp.protein_g),
+                ("carbs",   dp.carbs_g),
+                ("fat",     dp.fat_g),
+            ):
+                if r.min is None and r.max is None:
+                    continue
+                if r.min is not None and r.max is not None:
+                    parts.append(f"{label} {r.min}{_EN_DASH}{r.max}g")
+                elif r.min is not None:
+                    parts.append(f"{label} min {r.min}g")
+                else:
+                    parts.append(f"{label} max {r.max}g")
+            if dp.deficit_kcal is not None:
+                parts.append(f"deficit {dp.deficit_kcal}")
+            tail = ", ".join(parts) if parts else "(no overrides)"
+            lines.append(f"  {dp.day_type}: {tail}")
+
+    lines += ["", "Weekly schedule"]
+    _DOW_SHORT = {
+        "monday": "Mon", "tuesday": "Tue", "wednesday": "Wed",
+        "thursday": "Thu", "friday": "Fri", "saturday": "Sat", "sunday": "Sun",
+    }
+    _DOW_ORDER = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+    for dow in _DOW_ORDER:
+        if dow in goals.weekly_schedule:
+            lines.append(f"  {_DOW_SHORT[dow]}: {goals.weekly_schedule[dow]}")
+
+    return "\n".join(lines)
+
+
+def render_mesocycle_view(mesocycle: Mesocycle) -> str:
+    """Compact view of a single mesocycle."""
+    lines = [
+        "Mesocycle",
+        f"  ID: {mesocycle.cycle_id}",
+        f"  Phase: {mesocycle.phase}",
+        f"  Started: {mesocycle.start_date}",
+    ]
+    if mesocycle.end_date is not None:
+        lines.append(f"  Ended: {mesocycle.end_date}")
+    if mesocycle.tdee_kcal is None:
+        lines.append("  TDEE: setup needed")
+    else:
+        lines.append(f"  TDEE: {mesocycle.tdee_kcal}")
+    lines.append(f"  Deficit: {mesocycle.deficit_kcal}")
+    if mesocycle.label is not None:
+        lines.append(f"  Label: {mesocycle.label}")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Recipe renderers
+# ---------------------------------------------------------------------------
+
+def _recipe_macro_summary(r: Recipe) -> str:
+    """Compact one-line macros summary for a single recipe row."""
+    m = r.macros_per_serving
+    return (
+        f"{m.kcal} kcal, "
+        f"{_fmt_g(m.protein_g)}g P / "
+        f"{_fmt_g(m.carbs_g)}g C / "
+        f"{_fmt_g(m.fat_g)}g F"
+    )
+
+
+def render_recipe_save_confirm(recipe: Recipe) -> str:
+    """Confirm a new recipe was saved."""
+    return f"Recipe saved: {recipe.name} ({recipe.macros_per_serving.kcal} kcal/serving)"
+
+
+def render_recipe_update_confirm(recipe: Recipe) -> str:
+    """Confirm an existing recipe was updated."""
+    return f"Recipe updated: {recipe.name} ({recipe.macros_per_serving.kcal} kcal/serving)"
+
+
+def render_recipe_delete_confirm(recipe: Recipe) -> str:
+    """Confirm a recipe was soft-deleted."""
+    return f"Recipe deleted: {recipe.name}"
+
+
+def render_recipe_list(recipes: list[Recipe]) -> str:
+    """Compact list of active recipes (filters out removed=True)."""
+    active = [r for r in recipes if not r.removed]
+    if not active:
+        return "No recipes saved."
+    lines = [f"Recipes ({len(active)}):"]
+    for r in active:
+        lines.append(f"  {r.name} — {_recipe_macro_summary(r)}")
+    return "\n".join(lines)
+
+
+def render_recipe_view(recipe: Recipe) -> str:
+    """Full detail view of a single recipe."""
+    lines = [
+        f"{recipe.name} ({recipe.servings} serving{'' if recipe.servings == 1 else 's'})",
+        f"  {_recipe_macro_summary(recipe)}",
+    ]
+    if recipe.ingredients:
+        lines.append("Ingredients:")
+        for ing in recipe.ingredients:
+            lines.append(f"  - {ing}")
+    return "\n".join(lines)
+
+
+def render_recipe_duplicate_name_error(name: str) -> str:
+    """Reject a save that would duplicate an existing recipe name."""
+    return (
+        f"Recipe '{name}' already exists. "
+        f"Use update to change it, or save under a different name."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Operation errors — Tripwire 4 (no f-string error composition in tools)
+# ---------------------------------------------------------------------------
+
+def render_supersedes_not_found(target_id: int, kind: str) -> str:
+    """Reject an edit whose supersedes target doesn't exist."""
+    return f"Edit failed: {kind} #{target_id} doesn't exist."
+
+
+def render_protocol_not_initialized() -> str:
+    """Tool ran but no protocol exists for the user."""
+    return "Protocol not set. Run setup before logging doses or editing protocol."
+
+
+def render_write_confirm(scope: str) -> str:
+    """Generic write-confirm rendered per scope. Single source of truth."""
+    match scope:
+        case "goals":
+            return "Goals updated."
+        case "protocol":
+            return "Protocol updated."
+        case "mesocycle":
+            return "Mesocycle updated."
+        case "recipes":
+            return "Recipes updated."
+        case _:
+            raise ValueError(
+                f"render_write_confirm: unknown scope {scope!r}. "
+                "Add a branch when introducing a new write scope."
+            )
