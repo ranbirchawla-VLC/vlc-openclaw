@@ -171,3 +171,39 @@ def test_meal_slot_tz_independent():
     ist_dt = utc_dt.astimezone(ist)
     assert nutrios_time.meal_slot(utc_dt, _TZ) == "dinner"
     assert nutrios_time.meal_slot(ist_dt, _TZ) == "dinner"
+
+
+# ---------------------------------------------------------------------------
+# to_local — added in step 5 to satisfy Tripwire 3 (no astimezone in render).
+# Indirectly exercised via render_daily_summary tests; this direct test
+# pins the contract.
+# ---------------------------------------------------------------------------
+
+def test_to_local_returns_correct_hour_for_denver_mdt():
+    """18:00 UTC late April = 12:00 MDT (UTC-6)."""
+    from zoneinfo import ZoneInfo
+    utc_dt = datetime(2026, 4, 24, 18, 0, 0, tzinfo=timezone.utc)
+    local = nutrios_time.to_local(utc_dt, "America/Denver")
+    assert local.hour == 12
+    assert local.tzinfo == ZoneInfo("America/Denver")
+
+
+def test_to_local_preserves_instant():
+    """to_local must not shift the absolute instant — only the displayed offset."""
+    utc_dt = datetime(2026, 4, 24, 18, 0, 0, tzinfo=timezone.utc)
+    local = nutrios_time.to_local(utc_dt, "Asia/Kolkata")
+    assert local == utc_dt   # equality compares underlying instants
+
+
+def test_to_local_handles_dst_summer():
+    """July in Denver: MDT (UTC-6); 12:00 UTC = 06:00 local."""
+    utc_dt = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
+    local = nutrios_time.to_local(utc_dt, "America/Denver")
+    assert local.hour == 6
+
+
+def test_to_local_handles_winter_standard_time():
+    """January in Denver: MST (UTC-7); 12:00 UTC = 05:00 local."""
+    utc_dt = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+    local = nutrios_time.to_local(utc_dt, "America/Denver")
+    assert local.hour == 5
