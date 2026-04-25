@@ -117,17 +117,27 @@ def current_weight(weigh_ins: list[WeighIn]) -> float | None:
 
 def weight_change(
     weigh_ins: list[WeighIn], now: datetime, since_days: int = 7
-) -> WeightChange:
-    """Return delta between current weight and the most recent entry older than since_days."""
+) -> WeightChange | None:
+    """Return delta between current weight and the most recent entry older than since_days.
+
+    Returns None when: weigh_ins is empty, or no entry exists older than since_days
+    relative to now.
+    """
+    if not weigh_ins:
+        return None
     superseded_ids = {w.supersedes for w in weigh_ins if w.supersedes is not None}
     active = sorted(
         [w for w in weigh_ins if w.id not in superseded_ids],
         key=lambda w: w.id,
     )
+    if not active:
+        return None
     current = active[-1].weight_lbs
     cutoff = now - timedelta(days=since_days)
     older = [w for w in active if datetime.fromisoformat(w.ts_iso.replace("Z", "+00:00")) < cutoff]
-    prior = older[-1].weight_lbs if older else current
+    if not older:
+        return None
+    prior = older[-1].weight_lbs
     return WeightChange(
         since_days=since_days,
         delta_lbs=round(current - prior, 4),

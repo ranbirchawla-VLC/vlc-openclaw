@@ -239,6 +239,30 @@ def _wi_at(id: int, weight: float, days_ago: int) -> WeighIn:
     return WeighIn(id=id, ts_iso=ts.isoformat(), weight_lbs=weight)
 
 
+def test_weight_change_empty_list_returns_none():
+    now = datetime(2026, 4, 24, 12, 0, 0, tzinfo=timezone.utc)
+    assert engine.weight_change([], now) is None
+
+def test_weight_change_no_entry_older_than_window_returns_none():
+    """Single entry from yesterday; no entry older than 7 days → None."""
+    now = datetime(2026, 4, 24, 12, 0, 0, tzinfo=timezone.utc)
+    assert engine.weight_change([_wi_at(1, 218.0, 1)], now, since_days=7) is None
+
+def test_weight_change_all_entries_recent_returns_none():
+    """All entries within 3 days; since_days=7 → None."""
+    now = datetime(2026, 4, 24, 12, 0, 0, tzinfo=timezone.utc)
+    entries = [_wi_at(1, 220.0, 3), _wi_at(2, 219.0, 2), _wi_at(3, 218.0, 1)]
+    assert engine.weight_change(entries, now, since_days=7) is None
+
+def test_weight_change_two_entries_8_days_apart():
+    now = datetime(2026, 4, 24, 12, 0, 0, tzinfo=timezone.utc)
+    entries = [_wi_at(1, 220.0, 8), _wi_at(2, 218.0, 0)]
+    wc = engine.weight_change(entries, now, since_days=7)
+    assert wc is not None
+    assert wc.current_lbs == 218.0
+    assert wc.prior_lbs == 220.0
+    assert abs(wc.delta_lbs - (-2.0)) < 0.01
+
 def test_weight_change_since_7_days():
     """5 entries spanning 14 days; since_days=7 should use the most recent entry older than 7 days."""
     now = datetime(2026, 4, 24, 12, 0, 0, tzinfo=timezone.utc)
