@@ -174,3 +174,70 @@ def test_resolve_day_pattern_protein_overrides_default():
     meso = _make_mesocycle(tdee=2600, deficit=400)
     rd = engine.resolve_day(_NOW, goals, meso)
     assert rd.protein_g.min == 200  # pattern override
+
+
+# ---------------------------------------------------------------------------
+# current_weight()
+# ---------------------------------------------------------------------------
+
+def _wi(id: int, weight: float, supersedes: int | None = None) -> WeighIn:
+    return WeighIn(id=id, ts_iso="2026-04-24T12:00:00Z", weight_lbs=weight, supersedes=supersedes)
+
+
+def test_current_weight_empty():
+    assert engine.current_weight([]) is None
+
+def test_current_weight_single():
+    assert engine.current_weight([_wi(1, 218.0)]) == 218.0
+
+def test_current_weight_supersedes_chain():
+    """Entry 1 is superseded by entry 2. Entry 3 is independent. Most recent active = 3."""
+    entries = [
+        _wi(1, 220.0),
+        _wi(2, 219.0, supersedes=1),  # supersedes 1 — entry 1 is now inactive
+        _wi(3, 218.0),                # most recent active
+    ]
+    assert engine.current_weight(entries) == 218.0
+
+def test_current_weight_all_active_returns_highest_id():
+    entries = [_wi(1, 220.0), _wi(2, 219.0), _wi(3, 218.0)]
+    assert engine.current_weight(entries) == 218.0
+
+
+# ---------------------------------------------------------------------------
+# weight_change()
+# ---------------------------------------------------------------------------
+
+def _wi_at(id: int, weight: float, days_ago: int) -> WeighIn:
+    ts = (datetime(2026, 4, 24, 12, 0, 0, tzinfo=timezone.utc) - timedelta(days=days_ago))
+    return WeighIn(id=id, ts_iso=ts.isoformat(), weight_lbs=weight)
+
+
+def test_weight_change_since_7_days():
+    """5 entries spanning 14 days; since_days=7 should use the most recent entry older than 7 days."""
+    now = datetime(2026, 4, 24, 12, 0, 0, tzinfo=timezone.utc)
+    entries = [
+        _wi_at(1, 222.0, 14),
+        _wi_at(2, 221.0, 10),
+        _wi_at(3, 220.0, 8),   # most recent older than 7 days
+        _wi_at(4, 219.0, 3),
+        _wi_at(5, 218.0, 0),   # current
+    ]
+    wc = engine.weight_change(entries, now, since_days=7)
+    assert wc.current_lbs == 218.0
+    assert wc.prior_lbs == 220.0
+    assert abs(wc.delta_lbs - (-2.0)) < 0.01
+    assert wc.since_days == 7
+
+
+# ---------------------------------------------------------------------------
+# weight_trend()
+# ---------------------------------------------------------------------------
+
+def test_weight_trend_last_n():
+    entries = [_wi_at(i, 220.0 - i, i) for i in range(10)]
+    rows = engine.weight_trend(entries, last_n=5)
+    assert len(rows) == 5
+    # last_n=5 means the 5 entries with highest ids
+    ids = [r.weight_lbs for r in rows]
+    assert len(ids) == 5

@@ -93,6 +93,62 @@ def resolve_day(now: datetime, goals: Goals, mesocycle: Mesocycle) -> ResolvedDa
     )
 
 
+# ---------------------------------------------------------------------------
+# Protocol and weight
+# ---------------------------------------------------------------------------
+
+def current_weight(weigh_ins: list[WeighIn]) -> float | None:
+    """Return the most recent active weigh-in weight. Honors the supersedes chain.
+
+    An entry is inactive if another entry's supersedes field points at its id.
+    """
+    if not weigh_ins:
+        return None
+    superseded_ids = {w.supersedes for w in weigh_ins if w.supersedes is not None}
+    active = [w for w in weigh_ins if w.id not in superseded_ids]
+    if not active:
+        return None
+    return max(active, key=lambda w: w.id).weight_lbs
+
+
+def weight_change(
+    weigh_ins: list[WeighIn], now: datetime, since_days: int = 7
+) -> WeightChange:
+    """Return delta between current weight and the most recent entry older than since_days."""
+    superseded_ids = {w.supersedes for w in weigh_ins if w.supersedes is not None}
+    active = sorted(
+        [w for w in weigh_ins if w.id not in superseded_ids],
+        key=lambda w: w.id,
+    )
+    current = active[-1].weight_lbs
+    cutoff = now - timedelta(days=since_days)
+    older = [w for w in active if datetime.fromisoformat(w.ts_iso.replace("Z", "+00:00")) < cutoff]
+    prior = older[-1].weight_lbs if older else current
+    return WeightChange(
+        since_days=since_days,
+        delta_lbs=round(current - prior, 4),
+        current_lbs=current,
+        prior_lbs=prior,
+    )
+
+
+def weight_trend(weigh_ins: list[WeighIn], last_n: int = 5) -> list[WeighInRow]:
+    """Return last n active weigh-ins as date+weight rows, oldest first."""
+    superseded_ids = {w.supersedes for w in weigh_ins if w.supersedes is not None}
+    active = sorted(
+        [w for w in weigh_ins if w.id not in superseded_ids],
+        key=lambda w: w.id,
+    )
+    selected = active[-last_n:]
+    return [
+        WeighInRow(
+            date=datetime.fromisoformat(w.ts_iso.replace("Z", "+00:00")).date(),
+            weight_lbs=w.weight_lbs,
+        )
+        for w in selected
+    ]
+
+
 def macro_range_check(actual: float, r: MacroRange) -> Literal["LOW", "OK", "OVER", "UNSET"]:
     """Classify actual against a MacroRange. UNSET when both ends null."""
     if r.min is None and r.max is None:
