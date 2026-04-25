@@ -2,7 +2,7 @@
 
 Branch: `feature/nutrios-v2`  
 Last clean commit: `c57b155` — `docs: step 5 render review + summary`  
-Suite: **176 passed, 0 failed**
+Suite: **183 passed, 0 failed**
 
 ---
 
@@ -14,8 +14,8 @@ Suite: **176 passed, 0 failed**
 | `lib/nutrios_models.py` | 296 | `test_nutrios_models.py` (165) | 21 |
 | `lib/nutrios_store.py` | 320 | `test_nutrios_store.py` (285) | 28 |
 | `lib/nutrios_engine.py` | 347 | `test_nutrios_engine.py` (628) | 67 |
-| `lib/nutrios_render.py` | 436 | `test_nutrios_render.py` (376) | 38 |
-| **Total production** | **1486** | **Total test** | **1627 / 176** |
+| `lib/nutrios_render.py` | 451 | `test_nutrios_render.py` (534) | 45 |
+| **Total production** | **1501** | **Total test** | **1785 / 183** |
 
 ---
 
@@ -28,7 +28,7 @@ Suite: **176 passed, 0 failed**
 | 2b | `nutrios_store.py` | ✓ complete + corrective |
 | 3 | `nutrios_engine.py` | ✓ complete + corrective |
 | 4 | `nutrios_mnemo.py` | **deferred** (Mnemo integration — explicit decision) |
-| 5 | `nutrios_render.py` | ✓ complete — 3 known issues below |
+| 5 | `nutrios_render.py` | ✓ complete + corrective — all 3 issues resolved |
 | 6 | Tool shims (9 files) | **not started** |
 | 6.5 | `nutrios_migrate.py` | **not started** |
 | 6.6 | Tool entrypoints | **not started** |
@@ -42,7 +42,7 @@ Step 4 deferred by explicit decision (this session's brief). Step 6 starts after
 
 ## Red tests
 
-None. All 176 pass.
+None. All 183 pass.
 
 ---
 
@@ -64,23 +64,16 @@ None. All 176 pass.
 
 ## Open issues before clearing step 5 gate
 
-### Issue 1 — `render_daily_summary` calls `nutrios_engine` directly (spec violation)
-**File:** `nutrios_render.py:370–373`  
-**What:** `from nutrios_engine import macro_range_check` inside the function body. The spec says render must not call engine — all engine outputs are passed in by the caller.  
-**Fix:** Extend `render_daily_summary` signature with `prot_status`, `carbs_status`, `fat_status: Literal["LOW","OK","OVER","UNSET"]`. Move `macro_range_check` calls to the tool shim (step 6).  
-**Impact:** Signature change. No test breakage — tests don't call `render_daily_summary` through the tool shim yet.
+All three issues resolved in step 5 corrective.
 
-### Issue 2 — `render_gate_error` raises `KeyError` on `reason=None`
-**File:** `nutrios_render.py:253`  
-**What:** `None not in _GATE_ERROR_TEMPLATES` would produce `KeyError`, not the documented `ValueError`. A `GateResult(ok=False, reason=None, applied=False)` (technically constructable) hits this path.  
-**Fix:** Add at line 252: `if code is None: raise ValueError("GateResult.reason is None but ok is False — malformed result")`.  
-**Impact:** One line. No test change needed beyond adding a test for it.
+### Issue 1 — RESOLVED
+`render_daily_summary` signature extended: `weigh_in_change`, `protein_status`, `carbs_status`, `fat_status`, `protein_actual`, `carbs_actual`, `fat_actual`, `kcal_actual`. Engine import removed. Engine calls moved to step 6 tool shim (not yet built).
 
-### Issue 3 — `weigh_in_today` parameter accepted but unused
-**File:** `nutrios_render.py:351`  
-**What:** `render_daily_summary` accepts `weigh_in_today: WeighIn | None` but does nothing with it. No position in the layout is specified for same-day weigh-in display.  
-**Decision needed:** Where should a same-day weigh-in appear in the daily summary layout? Options: (a) after the macro block as "Today: 218.5 lbs", (b) suppress (don't show in summary, show in weigh-in confirm only), (c) remove the parameter until step 6 defines the contract.  
-**Current state:** Parameter present, no rendering. No crash.
+### Issue 2 — RESOLVED
+Explicit `if result.reason is None: raise ValueError(...)` guard added before template lookup. Raises clear ValueError with "reason is None" message.
+
+### Issue 3 — RESOLVED
+`weigh_in_today` now renders between date header and kcal line. `weigh_in_change` added as explicit parameter. Format: `"Weighed in: 184.2 lbs (−0.3 from last)"` with delta, or `"Weighed in: 184.2 lbs"` without. None suppresses line.
 
 ---
 
@@ -114,4 +107,4 @@ Added to satisfy Tripwire 3 grep. The function is a one-liner (`now.astimezone(Z
 | `nutrios_store` | `StoreError` typed exceptions; `resolve_user_id_from_peer` non-string guard; `events.json` wrapped format |
 | `nutrios_engine` | TZ propagation to all date/weekday functions; `weight_change` null guard; `event_next` strict `>` |
 | `nutrios_models` | No correctives |
-| `nutrios_render` | Built in step 5; 3 known issues flagged above |
+| `nutrios_render` | Built in step 5; corrective cleared all 3 issues |

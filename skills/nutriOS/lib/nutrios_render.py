@@ -243,18 +243,22 @@ def render_gate_error(result: GateResult) -> str:
     """Map a GateResult to a user-facing error string.
 
     Returns "" for ok=True results.
-    Raises ValueError for unknown reason codes — spec drift must not produce
-    generic fallback text.
+    Raises ValueError for None reason or unknown reason codes — spec drift must
+    not produce generic fallback text.
     """
     if result.ok:
         return ""
-    code = result.reason
-    if code not in _GATE_ERROR_TEMPLATES:
+    if result.reason is None:
         raise ValueError(
-            f"No render template for GateResult.reason={code!r}. "
+            "render_gate_error requires GateResult.reason to be set; "
+            "ok=False but reason is None — malformed GateResult"
+        )
+    if result.reason not in _GATE_ERROR_TEMPLATES:
+        raise ValueError(
+            f"No render template for GateResult.reason={result.reason!r}. "
             "Add a template branch in nutrios_render._GATE_ERROR_TEMPLATES."
         )
-    return _GATE_ERROR_TEMPLATES[code]
+    return _GATE_ERROR_TEMPLATES[result.reason]
 
 
 # ---------------------------------------------------------------------------
@@ -349,28 +353,27 @@ def render_daily_summary(
     upcoming_events: list[Event],
     advisory: list[Flag],
     weigh_in_today: WeighIn | None,
+    weigh_in_change: WeightChange | None,
+    protein_status: Literal["LOW", "OK", "OVER", "UNSET"],
+    carbs_status: Literal["LOW", "OK", "OVER", "UNSET"],
+    fat_status: Literal["LOW", "OK", "OVER", "UNSET"],
+    protein_actual: float,
+    carbs_actual: float,
+    fat_actual: float,
+    kcal_actual: int,
     now: datetime,
     tz: str,
 ) -> str:
     """Compose full daily summary top-to-bottom.
 
-    Layout: advisory, date header, macro lines, meal list, dose, events.
-    Empty strings are filtered before joining. No trailing newline.
+    Caller pre-computes macro totals and statuses via nutrios_engine; render
+    consumes them. No engine import here.
+
+    Layout: advisory, date header, weigh-in, kcal, macro lines, meal list,
+    dose, events. Empty strings are filtered before joining. No trailing newline.
     """
     local_now = nutrios_time.to_local(now, tz)
     date_header = local_now.strftime("%a %b %d").lstrip("0")
-
-    # Compute totals from food entries
-    total_kcal   = sum(e.kcal      for e in meals)
-    total_prot   = sum(e.protein_g for e in meals)
-    total_carbs  = sum(e.carbs_g   for e in meals)
-    total_fat    = sum(e.fat_g     for e in meals)
-
-    # Macro statuses (engine would supply these; here we recompute for display)
-    from nutrios_engine import macro_range_check
-    prot_status  = macro_range_check(total_prot,  resolved.protein_g)
-    carbs_status = macro_range_check(total_carbs, resolved.carbs_g)
-    fat_status   = macro_range_check(total_fat,   resolved.fat_g)
 
     # Dose line
     match dose_status:
@@ -382,9 +385,7 @@ def render_daily_summary(
             dose_line = ""
 
     # Upcoming events (≤14 days, compact)
-    event_lines = []
-    for ev in upcoming_events:
-        event_lines.append(f"  {ev.date}  {ev.title}")
+    event_lines = [f"  {ev.date}  {ev.title}" for ev in upcoming_events]
 
     # Meal list grouped by slot
     by_slot: dict[str, list[FoodLogEntry]] = {s: [] for s in _SLOT_ORDER}
@@ -399,6 +400,17 @@ def render_daily_summary(
             for entry in entries:
                 meal_block_lines.append(f"  {entry.name}   {entry.kcal} kcal")
 
+    # Weigh-in line
+    if weigh_in_today is not None:
+        if weigh_in_change is not None:
+            sign = _MINUS if weigh_in_change.delta_lbs < 0 else "+"
+            abs_delta = abs(weigh_in_change.delta_lbs)
+            weigh_line = f"Weighed in: {weigh_in_today.weight_lbs} lbs ({sign}{abs_delta} from last)"
+        else:
+            weigh_line = f"Weighed in: {weigh_in_today.weight_lbs} lbs"
+    else:
+        weigh_line = ""
+
     sections = []
 
     # 1. Advisory (if non-empty)
@@ -409,27 +421,30 @@ def render_daily_summary(
     # 2. Date header and day type
     sections.append(f"{date_header}  [{resolved.day_type}]")
 
-    # 3. Macro lines — kcal first, then protein, carbs, fat (suppress unset)
-    kcal_line = render_kcal_line(total_kcal, resolved.kcal_target, resolved.tdee_kcal, resolved.deficit_kcal)
-    sections.append(kcal_line)
+    # 3. Weigh-in (between date header and macro lines)
+    if weigh_line:
+        sections.append(weigh_line)
+
+    # 4. Macro lines — kcal first, then protein, carbs, fat (suppress unset)
+    sections.append(render_kcal_line(kcal_actual, resolved.kcal_target, resolved.tdee_kcal, resolved.deficit_kcal))
 
     for line in [
-        render_macro_line("Protein", total_prot,  resolved.protein_g, prot_status),
-        render_macro_line("Carbs",   total_carbs, resolved.carbs_g,   carbs_status),
-        render_macro_line("Fat",     total_fat,   resolved.fat_g,     fat_status),
+        render_macro_line("Protein", protein_actual, resolved.protein_g, protein_status),
+        render_macro_line("Carbs",   carbs_actual,   resolved.carbs_g,   carbs_status),
+        render_macro_line("Fat",     fat_actual,     resolved.fat_g,     fat_status),
     ]:
         if line:
             sections.append(line)
 
-    # 4. Meal list
+    # 5. Meal list
     if meal_block_lines:
         sections.append("\n".join(meal_block_lines))
 
-    # 5. Dose status
+    # 6. Dose status
     if dose_line:
         sections.append(dose_line)
 
-    # 6. Upcoming events
+    # 7. Upcoming events
     if event_lines:
         sections.append("Upcoming:\n" + "\n".join(event_lines))
 

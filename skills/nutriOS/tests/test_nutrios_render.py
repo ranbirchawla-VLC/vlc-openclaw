@@ -253,6 +253,16 @@ def test_render_gate_error_ok_result_returns_empty():
     result = GateResult(ok=True, reason=None, applied=True)
     assert render.render_gate_error(result) == ""
 
+def test_render_gate_error_raises_on_none_reason():
+    result = GateResult(ok=False, reason=None, applied=False)
+    with pytest.raises(ValueError, match="reason is None"):
+        render.render_gate_error(result)
+
+def test_render_gate_error_raises_on_unknown_reason():
+    result = GateResult(ok=False, reason="bogus_code", applied=False)
+    with pytest.raises(ValueError, match="bogus_code"):
+        render.render_gate_error(result)
+
 
 # ---------------------------------------------------------------------------
 # render_setup_resume_prompt — one test per marker + unknown raises
@@ -304,7 +314,7 @@ def test_render_setup_complete():
 
 
 # ---------------------------------------------------------------------------
-# render_daily_summary — structure smoke test
+# render_daily_summary — structure and weigh-in tests
 # ---------------------------------------------------------------------------
 
 def _resolved() -> ResolvedDay:
@@ -318,6 +328,17 @@ def _resolved() -> ResolvedDay:
         deficit_kcal=400,
     )
 
+def _resolved_unset() -> ResolvedDay:
+    return ResolvedDay(
+        day_type="rest",
+        kcal_target=None,
+        protein_g=MacroRange(),
+        carbs_g=MacroRange(),
+        fat_g=MacroRange(),
+        tdee_kcal=None,
+        deficit_kcal=0,
+    )
+
 def _food_entry(slot: str = "lunch", name: str = "Chicken breast", kcal: int = 250,
                 protein: float = 46.5, carbs: float = 0.0, fat: float = 5.4) -> FoodLogEntry:
     return FoodLogEntry(
@@ -327,6 +348,8 @@ def _food_entry(slot: str = "lunch", name: str = "Chicken breast", kcal: int = 2
         kcal=kcal, protein_g=protein, carbs_g=carbs, fat_g=fat,
     )
 
+_NOW = datetime(2026, 4, 24, 12, 0, 0, tzinfo=timezone.utc)
+
 def test_render_daily_summary_basic():
     result = render.render_daily_summary(
         resolved=_resolved(),
@@ -335,14 +358,21 @@ def test_render_daily_summary_basic():
         upcoming_events=[],
         advisory=[],
         weigh_in_today=None,
-        now=datetime(2026, 4, 24, 12, 0, 0, tzinfo=timezone.utc),
+        weigh_in_change=None,
+        protein_status="LOW",
+        carbs_status="LOW",
+        fat_status="OK",
+        protein_actual=46.5,
+        carbs_actual=0.0,
+        fat_actual=5.4,
+        kcal_actual=250,
+        now=_NOW,
         tz="UTC",
     )
     assert "rest" in result.lower() or "Rest" in result
     assert "Calories" in result
     assert "Protein" in result
     assert "Chicken breast" in result
-    # No trailing newline
     assert not result.endswith("\n")
 
 def test_render_daily_summary_advisory_first():
@@ -354,10 +384,17 @@ def test_render_daily_summary_advisory_first():
         upcoming_events=[],
         advisory=flags,
         weigh_in_today=None,
-        now=datetime(2026, 4, 24, 12, 0, 0, tzinfo=timezone.utc),
+        weigh_in_change=None,
+        protein_status="LOW",
+        carbs_status="LOW",
+        fat_status="OK",
+        protein_actual=0.0,
+        carbs_actual=0.0,
+        fat_actual=0.0,
+        kcal_actual=0,
+        now=_NOW,
         tz="UTC",
     )
-    # Advisory block must appear before the date header
     adv_pos = result.find("[warn]")
     date_pos = result.find("Apr")
     assert adv_pos < date_pos
@@ -370,7 +407,128 @@ def test_render_daily_summary_no_trailing_newline():
         upcoming_events=[],
         advisory=[],
         weigh_in_today=None,
-        now=datetime(2026, 4, 24, 12, 0, 0, tzinfo=timezone.utc),
+        weigh_in_change=None,
+        protein_status="LOW",
+        carbs_status="LOW",
+        fat_status="OK",
+        protein_actual=0.0,
+        carbs_actual=0.0,
+        fat_actual=0.0,
+        kcal_actual=0,
+        now=_NOW,
         tz="UTC",
     )
     assert not result.endswith("\n")
+
+def test_render_daily_summary_all_unset_suppresses_macro_lines():
+    result = render.render_daily_summary(
+        resolved=_resolved_unset(),
+        meals=[],
+        dose_status="not_due",
+        upcoming_events=[],
+        advisory=[],
+        weigh_in_today=None,
+        weigh_in_change=None,
+        protein_status="UNSET",
+        carbs_status="UNSET",
+        fat_status="UNSET",
+        protein_actual=0.0,
+        carbs_actual=0.0,
+        fat_actual=0.0,
+        kcal_actual=0,
+        now=_NOW,
+        tz="UTC",
+    )
+    assert "Protein" not in result
+    assert "Carbs" not in result
+    assert "Fat" not in result
+
+def test_render_daily_summary_weigh_in_with_delta():
+    result = render.render_daily_summary(
+        resolved=_resolved(),
+        meals=[],
+        dose_status="not_due",
+        upcoming_events=[],
+        advisory=[],
+        weigh_in_today=_wi(184.2),
+        weigh_in_change=_wc(-0.3, 184.2, 184.5),
+        protein_status="LOW",
+        carbs_status="LOW",
+        fat_status="OK",
+        protein_actual=0.0,
+        carbs_actual=0.0,
+        fat_actual=0.0,
+        kcal_actual=0,
+        now=_NOW,
+        tz="UTC",
+    )
+    assert "Weighed in: 184.2 lbs" in result
+    assert "0.3" in result
+    assert "from last" in result
+
+def test_render_daily_summary_weigh_in_no_delta():
+    result = render.render_daily_summary(
+        resolved=_resolved(),
+        meals=[],
+        dose_status="not_due",
+        upcoming_events=[],
+        advisory=[],
+        weigh_in_today=_wi(184.2),
+        weigh_in_change=None,
+        protein_status="LOW",
+        carbs_status="LOW",
+        fat_status="OK",
+        protein_actual=0.0,
+        carbs_actual=0.0,
+        fat_actual=0.0,
+        kcal_actual=0,
+        now=_NOW,
+        tz="UTC",
+    )
+    assert "Weighed in: 184.2 lbs" in result
+    assert "from last" not in result
+
+def test_render_daily_summary_no_weigh_in():
+    result = render.render_daily_summary(
+        resolved=_resolved(),
+        meals=[],
+        dose_status="not_due",
+        upcoming_events=[],
+        advisory=[],
+        weigh_in_today=None,
+        weigh_in_change=None,
+        protein_status="LOW",
+        carbs_status="LOW",
+        fat_status="OK",
+        protein_actual=0.0,
+        carbs_actual=0.0,
+        fat_actual=0.0,
+        kcal_actual=0,
+        now=_NOW,
+        tz="UTC",
+    )
+    assert "Weighed in" not in result
+
+def test_render_daily_summary_weigh_in_position():
+    result = render.render_daily_summary(
+        resolved=_resolved(),
+        meals=[],
+        dose_status="not_due",
+        upcoming_events=[],
+        advisory=[],
+        weigh_in_today=_wi(184.2),
+        weigh_in_change=None,
+        protein_status="LOW",
+        carbs_status="LOW",
+        fat_status="OK",
+        protein_actual=0.0,
+        carbs_actual=0.0,
+        fat_actual=0.0,
+        kcal_actual=0,
+        now=_NOW,
+        tz="UTC",
+    )
+    date_pos = result.find("Apr")
+    weigh_pos = result.find("Weighed in")
+    calories_pos = result.find("Calories")
+    assert date_pos < weigh_pos < calories_pos
