@@ -40,7 +40,7 @@ Suite: **426 passed, 0 failed, 0 skipped, 0.46s.**
 | # | Condition | Finding |
 |---|---|---|
 | 1 | Secrets in code or committed config | None. No credentials, keys, or tokens. NUTRIOS_DATA_ROOT is a path env var read in `data_root()`; tests monkeypatch via tmp_path. |
-| 2 | `except Exception:` without re-raise / bare `except:` | None. Exception handlers are scoped (`json.JSONDecodeError` in `read_events`/`read_aliases`, `OSError` only on the cleanup path of atomic-write helpers, all re-raise via `raise StoreError(...) from exc` or pass through). |
+| 2 | `except Exception:` without re-raise / bare `except:` | None. After the corrective pass, exception handlers are narrow: `json.JSONDecodeError` in `read_events`/`read_aliases`/`read_recipes` (re-raised as `StoreError`), and `except OSError:` on the cleanup paths in `_atomic_write_text`/`append_jsonl` (re-raised). The original review wording said "scoped"; an independent reviewer found two `except Exception:` blocks (now narrowed). |
 | 3 | External call without timeout | None. Tools are local-disk only; no HTTP, LLM, DB, or subprocess. |
 | 4 | New behavior without a test | None. TDD per tool; 243 new tests added against the 183 step-5 baseline. |
 | 5 | New LLM call / external integration without log event | N/A — no LLM calls in this pass. |
@@ -86,7 +86,25 @@ skills/nutrios/tools/nutrios_read.py:13:    3. now and tz are inputs; never date
 (no output)
 ```
 
-**Zero hits.** Every user-facing error string in the tool layer is produced by a `nutrios_render` template:
+**Zero hits on the literal grep,** but the grep is too narrow to capture the full picture. There are 11 `raise ValueError(...)` call sites in the tool layer with f-string messages that DO surface to the user via OpenClaw's exception-capture path:
+
+- `nutrios_recipe.py:74,97,99,135,150` — action-dispatch missing-field errors
+- `nutrios_event.py:62,90` — same
+- `nutrios_med_note.py:43` — empty `note_text` on add
+- `nutrios_read.py:263` — `log_date` scope without `target_date`
+- `nutrios_write.py:128,131` — `recipes` scope payload shape errors
+
+These are caller-side input-shape errors (the orchestrator's LLM passed an action-dispatched argv with a required field missing for that action). They're not "true crashes" in the file/IO sense; they're user-input-validation failures. Per the brief's letter ("validation failure on user input → render"), they should arguably be rendered. In practice, they're LLM-side bugs (the orchestrator's prompt template should enforce shape) rather than user-typing bugs, so raises are defensible — but the self-review's claim "Tripwire 4 is zero" was overstated.
+
+**Honest posture:**
+- Render-template errors: gate rejections, dose-not-due, dose-already-logged, supersedes-not-found, invalid-weight, protocol-not-initialized, recipe-duplicate-name, quantity-clarify, macros-required. These follow the contract.
+- Exception-capture errors: 11 raise sites listed above. These bypass the render layer; user sees OpenClaw's framing of the message string.
+
+The structural fix is documented in §6.5 below: discriminated-union input models would let Pydantic enforce per-action required fields at argv parse time, eliminating these raise sites entirely. Until that lands, the contract has a partial gap.
+
+### Render-template error catalog (for completeness)
+
+The following errors DO go through `nutrios_render`:
 
 - `render_gate_error` (existing) — protected gate rejections
 - `render_dose_not_due` (existing) — non-dose-day dose attempt
@@ -96,8 +114,6 @@ skills/nutrios/tools/nutrios_read.py:13:    3. now and tz are inputs; never date
 - `render_protocol_not_initialized` (NEW) — missing protocol/goals
 - `render_recipe_duplicate_name_error` (NEW) — recipe name collision
 - `render_quantity_clarify`, `render_macros_required` (NEW) — followup paths
-
-ValueError is raised in tools only for true crash paths (missing required field on action-dispatched input), per the contract: "Internal exceptions (validation failures, file errors) propagate up; the OpenClaw runtime handles those."
 
 ---
 
@@ -186,6 +202,53 @@ The current contract — manual food path requires the LLM to provide `kcal/prot
 
 **Why it matters:** Not for this pass — D2 is a deferred decision. Worth flagging that the trust model on the manual path is "trust LLM macros entirely," and that's the path that gets exercised every time the user logs an unfamiliar food.
 
+### 6.5 Discriminated-union input models would close the Tripwire 4 gap
+
+Tools with multi-action dispatch (`nutrios_recipe`, `nutrios_event`, `nutrios_med_note`, `nutrios_write`) currently use a single input model with optional fields per action, and rely on runtime `raise ValueError` checks to enforce per-action shape. This creates the Tripwire 4 gap documented in §2 — 11 raise sites with f-string messages that bypass the render layer.
+
+The structural fix is per-action input models stitched together via Pydantic's discriminated union, mirroring the `LogEntry = FoodLogEntry | DoseLogEntry` pattern that already exists for log entries. For example:
+
+```python
+class _RecipeSaveInput(BaseModel):
+    action: Literal["save"]
+    user_id: str
+    name: str               # required by the model, not by a runtime check
+    macros_per_serving: RecipeMacros
+    ingredients: list[str] = []
+
+class _RecipeUpdateInput(BaseModel):
+    action: Literal["update"]
+    user_id: str
+    id: int | None = None
+    name: str | None = None
+    macros_per_serving: RecipeMacros
+    # field_validator enforces "id or name required"
+
+RecipeInput = Annotated[
+    _RecipeSaveInput | _RecipeUpdateInput | _RecipeListInput | _RecipeGetInput | _RecipeDeleteInput,
+    Field(discriminator="action"),
+]
+```
+
+Then `RecipeInput.model_validate_json(argv)` raises `ValidationError` with a structured Pydantic error at parse time — the OpenClaw runtime captures it the same way, but the message is uniform and the per-action shape is enforced declaratively. The 11 `raise ValueError` call sites collapse into zero. Render-template error path still exists for semantic rejections (gate, dose-not-due, etc.); shape errors become a single contract.
+
+**Why it matters:** This is the cleanest way to honor the brief's "all user-facing strings flow through render" intent without adding 11 new render templates for what are really LLM-side malformations. Worth doing before tool 11 lands and the pattern multiplies.
+
+### 6.6 Resolved findings from the post-build code review
+
+A second-pass independent code review (run after the self-review was first drafted) surfaced four STRONG findings; all four are resolved in this pass before gating:
+
+- **Recipe leak via `_get` / `_update`** — `_find_by_id_or_name` now defaults to active-only; `_delete` opts in via `include_removed=True`. New tests pin the bug.
+- **`_pending_kcal` exposed to `nutrios_write` clobber** — `_write_goals` now reads disk raw, validates a stripped copy for gating, preserves `_pending_kcal` forward via `write_json_raw`. Payload's `_pending_kcal` (if any) is stripped — disk is authoritative for migration scratch.
+- **Dose tool duplicating engine weekday logic + magic `_LARGE_N`** — `engine.is_dose_day` extracted; `nutrios_dose` calls it directly. `store.read_jsonl_all` added; the magic constant removed across `nutrios_read`, `nutrios_weigh_in`, `nutrios_dose`, `nutrios_med_note`.
+- **Tripwire 4 graded too generously** — wording corrected in §2 above; structural fix tracked as §6.5.
+
+Plus three NIT findings, also resolved:
+
+- `nutrios_setup_resume.main` match arm now has `case _: raise ValueError(...)` exhaustiveness guard.
+- `nutrios_store._atomic_write_text` and `append_jsonl` cleanup paths now narrow to `except OSError:` instead of `except Exception:`.
+- `render_event_list` no longer double-filters `removed=True` — engine's `event_next` is the single source of truth; render trusts its input.
+
 ---
 
 ## 7. Resilience: Failure Mode Enumeration (review.md §5)
@@ -241,4 +304,4 @@ Tools are local-disk only; the only external dependency is the filesystem. Per r
 
 ## 10. Verdict
 
-**PASS.** All four tripwires clear, every stop condition green, every tool's contract conformance verified, the full setup-resume marker walk lands at completion, the path canonicalization holds, three structural refinements documented for follow-up. Step 6.5 (migration) gate: pending Ranbir review.
+**PASS** — after the corrective pass that resolved the four STRONG findings and three nits surfaced by an independent post-build code review (see §6.6). Tripwire grep is concretely zero; the wider Tripwire 4 contract has a known partial gap that §6.5 documents the structural fix for. Every stop condition green, every tool's contract conformance verified, the full setup-resume marker walk lands at completion, the path canonicalization holds. Step 6.5 (migration) gate: pending Ranbir review.

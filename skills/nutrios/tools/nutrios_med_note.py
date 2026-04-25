@@ -22,9 +22,6 @@ import nutrios_render as render
 import nutrios_store as store
 
 
-_LARGE_N = 10_000
-
-
 class MedNoteInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     user_id: str
@@ -61,7 +58,7 @@ def _view(inp: MedNoteInput) -> ToolResult:
     protocol = store.read_json(inp.user_id, "protocol.json", Protocol)
     if protocol is None:
         return ToolResult(display_text=render.render_protocol_not_initialized())
-    raw = store.tail_jsonl(inp.user_id, "med_notes.jsonl", _LARGE_N)
+    raw = store.read_jsonl_all(inp.user_id, "med_notes.jsonl")
     notes = [MedNote.model_validate(r) for r in raw]
     recent = notes[-3:] if notes else []
     return ToolResult(display_text=render.render_protocol_view(protocol, recent))

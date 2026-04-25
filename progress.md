@@ -1,8 +1,8 @@
 # NutriOS v2 — Build Progress
 
 Branch: `feature/nutrios-v2`  
-Last clean commit: `f1c9950` — `test(time): direct tests for nutrios_time.to_local`  
-Suite: **426 passed, 0 failed**
+Last clean commit: pending — corrective pass on second-pass review findings  
+Suite: **443 passed, 0 failed**
 
 ---
 
@@ -12,21 +12,21 @@ Suite: **426 passed, 0 failed**
 |---|---|---|---|
 | `lib/nutrios_time.py` | 87 | `test_nutrios_time.py` | 26 |
 | `lib/nutrios_models.py` | 338 | `test_nutrios_models.py` | 39 |
-| `lib/nutrios_store.py` | 406 | `test_nutrios_store.py` | 29 |
-| `lib/nutrios_engine.py` | 384 | `test_nutrios_engine.py` | 81 |
-| `lib/nutrios_render.py` | 702 | `test_nutrios_render.py` | 79 |
-| `tools/nutrios_read.py` | 286 | `test_nutrios_read.py` | 27 |
-| `tools/nutrios_write.py` | 159 | `test_nutrios_write.py` | 16 |
+| `lib/nutrios_store.py` | 422 | `test_nutrios_store.py` | 32 |
+| `lib/nutrios_engine.py` | 396 | `test_nutrios_engine.py` | 87 |
+| `lib/nutrios_render.py` | 707 | `test_nutrios_render.py` | 79 |
+| `tools/nutrios_read.py` | 282 | `test_nutrios_read.py` | 27 |
+| `tools/nutrios_write.py` | 199 | `test_nutrios_write.py` | 20 |
 | `tools/nutrios_log.py` | 162 | `test_nutrios_log.py` | 16 |
-| `tools/nutrios_weigh_in.py` | 101 | `test_nutrios_weigh_in.py` | 14 |
-| `tools/nutrios_dose.py` | 111 | `test_nutrios_dose.py` | 10 |
-| `tools/nutrios_med_note.py` | 84 | `test_nutrios_med_note.py` | 15 |
+| `tools/nutrios_weigh_in.py` | 98 | `test_nutrios_weigh_in.py` | 14 |
+| `tools/nutrios_dose.py` | 109 | `test_nutrios_dose.py` | 10 |
+| `tools/nutrios_med_note.py` | 81 | `test_nutrios_med_note.py` | 15 |
 | `tools/nutrios_event.py` | 123 | `test_nutrios_event.py` | 15 |
-| `tools/nutrios_recipe.py` | 190 | `test_nutrios_recipe.py` | 25 |
+| `tools/nutrios_recipe.py` | 201 | `test_nutrios_recipe.py` | 29 |
 | `tools/nutrios_protocol_edit.py` | 74 | `test_nutrios_protocol_edit.py` | 9 |
-| `tools/nutrios_setup_resume.py` | 369 | `test_nutrios_setup_resume.py` | 22 |
+| `tools/nutrios_setup_resume.py` | 377 | `test_nutrios_setup_resume.py` | 22 |
 | `tests/conftest.py` | 122 | `test_conftest_fixtures.py` | 3 |
-| **Total production** | **3576** | **Total tests** | **426** |
+| **Total production** | **3656** | **Total tests** | **443** |
 
 ---
 
@@ -76,9 +76,10 @@ All four pass:
 
 ### Architectural (from review §6)
 
-- **Phase-2 read/write helper extraction.** `_pending_kcal` discipline open-coded across 5 sites in nutrios_setup_resume.
+- **Phase-2 read/write helper extraction.** `_pending_kcal` discipline open-coded across nutrios_setup_resume + nutrios_write._write_goals (added in corrective pass). Worth extracting before step 6.5.
 - **Tool input base class.** Common `user_id`/`now`/`tz`/`extra="forbid"` pattern across all 10 tools.
 - **`nutrios_write` ↔ `nutrios_protocol_edit` overlap.** Refactor `_write_protocol` to call `apply_protocol_edit` for one source of truth.
+- **Discriminated-union input models for action-dispatched tools** (per review §6.5). 11 `raise ValueError` sites in nutrios_recipe/event/med_note/write/read collapse to zero with per-action input types. Closes the Tripwire 4 partial gap structurally.
 - **D2 trust model on manual food path.** Future `foods.json` table for frequent foods.
 
 ### Spec / contract follow-ups

@@ -269,3 +269,89 @@ def test_write_isolation(tmp_data_root, setup_user):
     bob_goals = store.read_json("bob", "goals.json", Goals)
     bob_rest = next(dp for dp in bob_goals.day_patterns if dp.day_type == "rest")
     assert bob_rest.carbs_g.min == 180
+
+
+# ---------------------------------------------------------------------------
+# _pending_kcal preservation — defense in depth against phase-2 clobber
+# ---------------------------------------------------------------------------
+
+def test_write_goals_preserves_disk_pending_kcal_when_proposed_omits(tmp_data_root, setup_user):
+    """If goals.json on disk carries _pending_kcal scratch (phase-2 state)
+    and the proposed payload omits it, the write must merge it forward."""
+    setup_user("alice")
+    # Inject _pending_kcal into goals.json raw
+    raw = store.read_json_raw("alice", "goals.json")
+    for dp in raw["day_patterns"]:
+        if dp["day_type"] == "rest":
+            dp["_pending_kcal"] = 2000
+        elif dp["day_type"] == "training":
+            dp["_pending_kcal"] = 2400
+    store.write_json_raw("alice", "goals.json", raw)
+
+    # Now write a goals payload that does NOT carry _pending_kcal
+    payload = _baseline_goals_payload()  # baseline has no _pending_kcal
+    result = tool.main(_argv(scope="goals", payload=payload))
+    assert result.display_text == "Goals updated."
+
+    # Disk must still have _pending_kcal preserved
+    after = store.read_json_raw("alice", "goals.json")
+    rest = next(dp for dp in after["day_patterns"] if dp["day_type"] == "rest")
+    train = next(dp for dp in after["day_patterns"] if dp["day_type"] == "training")
+    assert rest["_pending_kcal"] == 2000
+    assert train["_pending_kcal"] == 2400
+
+
+def test_write_goals_passes_through_when_no_pending(tmp_data_root, setup_user):
+    """No _pending_kcal on disk → standard validated write path; no merge overhead."""
+    setup_user("alice")
+    payload = _baseline_goals_payload()
+    for dp in payload["day_patterns"]:
+        if dp["day_type"] == "rest":
+            dp["carbs_g"]["min"] = 200
+    result = tool.main(_argv(scope="goals", payload=payload))
+    assert result.display_text == "Goals updated."
+
+    # Verify disk has no spurious _pending_kcal injected
+    after = store.read_json_raw("alice", "goals.json")
+    for dp in after["day_patterns"]:
+        assert "_pending_kcal" not in dp
+
+
+def test_write_goals_does_not_crash_when_disk_carries_pending_kcal(tmp_data_root, setup_user):
+    """Pre-fix: a goals.json with _pending_kcal would crash on the read step
+    via Goals.model_validate's extra='forbid'. This test pins the resilience."""
+    setup_user("alice")
+    raw = store.read_json_raw("alice", "goals.json")
+    raw["day_patterns"][0]["_pending_kcal"] = 2000
+    store.write_json_raw("alice", "goals.json", raw)
+
+    # An identical-shape write must not crash on the gate-read of disk state
+    payload = _baseline_goals_payload()
+    result = tool.main(_argv(scope="goals", payload=payload))
+    assert isinstance(result, ToolResult)
+    assert result.display_text == "Goals updated."
+
+
+def test_write_goals_strips_pending_kcal_from_payload(tmp_data_root, setup_user):
+    """`_pending_kcal` is migration scratch. Callers should never send it; if
+    they do, it must be ignored. Disk is the single source of truth for the
+    scratch field, and disk wins over any payload-supplied value."""
+    setup_user("alice")
+    raw = store.read_json_raw("alice", "goals.json")
+    raw["day_patterns"][0]["_pending_kcal"] = 2000
+    rest_day_type = raw["day_patterns"][0]["day_type"]
+    store.write_json_raw("alice", "goals.json", raw)
+
+    # A misbehaved caller injects _pending_kcal into the payload
+    payload = _baseline_goals_payload()
+    for dp in payload["day_patterns"]:
+        if dp["day_type"] == rest_day_type:
+            dp["_pending_kcal"] = 1900  # caller-supplied — must be ignored
+
+    result = tool.main(_argv(scope="goals", payload=payload))
+    assert result.display_text == "Goals updated."
+
+    # Disk's value (2000) survives; payload's 1900 is dropped
+    after = store.read_json_raw("alice", "goals.json")
+    rest = next(dp for dp in after["day_patterns"] if dp["day_type"] == rest_day_type)
+    assert rest["_pending_kcal"] == 2000

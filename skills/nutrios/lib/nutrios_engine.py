@@ -196,12 +196,24 @@ def event_today(events: list[Event], now: datetime, tz: str) -> Event | None:
     return None
 
 
+def is_dose_day(protocol: Protocol, now: datetime, tz: str) -> bool:
+    """True when local today is the protocol's dose day of week.
+
+    Pure weekday match — does not consider whether a dose was already
+    logged. dose_reminder_due composes this with the not-yet-logged check;
+    nutrios_dose calls this directly to disambiguate "wrong day" from
+    "already logged" (both produce dose_reminder_due=False but need
+    different rendered messages).
+    """
+    today_weekday = now.astimezone(ZoneInfo(tz)).strftime("%A").lower()
+    return today_weekday == protocol.treatment.dose_day_of_week.lower()
+
+
 def dose_reminder_due(
     protocol: Protocol, today_log_entries: list, now: datetime, tz: str
 ) -> bool:
     """True when local today is the dose day of week and no DoseLogEntry exists today."""
-    today_weekday = now.astimezone(ZoneInfo(tz)).strftime("%A").lower()
-    if today_weekday != protocol.treatment.dose_day_of_week.lower():
+    if not is_dose_day(protocol, now, tz):
         return False
     return not any(isinstance(e, DoseLogEntry) for e in today_log_entries)
 

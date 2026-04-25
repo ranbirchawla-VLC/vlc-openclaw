@@ -1,7 +1,7 @@
 # NutriOS v2 — Build Summary: Step 6 + 6.6 (Tool Layer)
 
 **Branch:** `feature/nutrios-v2`
-**Result:** Step 6+6.6 complete. Ten Python tool entrypoints + foundation. 426 tests passing. Path canonicalized. Step 6.5 (migration) gate: next.
+**Result:** Step 6+6.6 complete after a corrective pass on independent-review findings. Ten Python tool entrypoints + foundation. 443 tests passing. Path canonicalized. Step 6.5 (migration) gate: next.
 
 ---
 
@@ -44,27 +44,27 @@
 
 ## Tests by suite
 
-| Suite | Step 5 baseline | Step 6+6.6 | Delta |
+| Suite | Step 5 baseline | Post corrective | Delta |
 |---|---|---|---|
 | test_nutrios_time | 22 | 26 | +4 (to_local direct tests) |
 | test_nutrios_models | 21 | 39 | +18 |
-| test_nutrios_store | 28 | 29 | +1 |
-| test_nutrios_engine | 67 | 81 | +14 (11 expand_recipe + 3 event-removed filter) |
-| test_nutrios_render | 45 | 79 | +34 (32 tool-layer renderers + 2 invalid-weight) |
+| test_nutrios_store | 28 | 32 | +4 (1 last_recipe_id + 3 read_jsonl_all) |
+| test_nutrios_engine | 67 | 87 | +20 (11 expand_recipe + 3 event-removed + 6 is_dose_day) |
+| test_nutrios_render | 45 | 79 | +34 (32 tool-layer + 2 invalid-weight) |
 | test_conftest_fixtures | — | 3 | +3 |
 | test_nutrios_read | — | 27 | +27 |
-| test_nutrios_write | — | 16 | +16 |
+| test_nutrios_write | — | 20 | +20 (16 base + 4 _pending_kcal preservation) |
 | test_nutrios_log | — | 16 | +16 |
 | test_nutrios_weigh_in | — | 14 | +14 |
 | test_nutrios_dose | — | 10 | +10 |
 | test_nutrios_med_note | — | 15 | +15 |
 | test_nutrios_event | — | 15 | +15 |
-| test_nutrios_recipe | — | 25 | +25 |
+| test_nutrios_recipe | — | 29 | +29 (25 base + 4 soft-delete leak) |
 | test_nutrios_protocol_edit | — | 9 | +9 |
 | test_nutrios_setup_resume | — | 22 | +22 |
-| **Total** | **183** | **426** | **+243** |
+| **Total** | **183** | **443** | **+260** |
 
-Suite runtime: 0.46s.
+Suite runtime: 0.50s.
 
 ---
 
@@ -83,9 +83,10 @@ Suite runtime: 0.46s.
 
 ### Architectural (from §6 of the review)
 
-- **Phase-2 read/write pattern:** `_pending_kcal` discipline is open-coded across five call sites in `nutrios_setup_resume`. Worth extracting a `_phase2.py` helper before step 6.5 lands its migration writes.
+- **Phase-2 read/write pattern:** `_pending_kcal` discipline is open-coded across five call sites in `nutrios_setup_resume` and now also in `nutrios_write._write_goals` (per the corrective pass). Worth extracting a `_phase2.py` helper before step 6.5 lands its migration writes — the pattern is now scattered across two tools.
 - **Tool input base class:** every tool input shares `user_id`, most share `now`+`tz`, all use `extra="forbid"`. Worth consolidating before tool 11.
 - **`nutrios_write` ↔ `nutrios_protocol_edit` overlap:** parallel gate-and-write logic for the protocol scope. Refactor `_write_protocol` to call `apply_protocol_edit` for one source of truth.
+- **Discriminated-union input models for action-dispatched tools:** `nutrios_recipe`, `nutrios_event`, `nutrios_med_note`, `nutrios_write` currently use a single input model with optional fields per action and 11 `raise ValueError` checks for per-action shape. Per-action input models stitched via Pydantic discriminator would close the Tripwire 4 gap structurally — see review §6.5 for the example.
 - **D2 trust model:** manual food path trusts LLM-provided macros entirely. A small `foods.json` table for the most-frequent foods is the natural extension.
 
 ### Spec-level
@@ -119,7 +120,7 @@ $ grep -rn 'f".*error\|f".*failed' skills/nutrios/tools/
 (no output)
 ```
 
-All four tripwires hold.
+All four tripwires hold on the literal grep. Tripwire 4 has a documented partial gap: 11 `raise ValueError(...)` sites with f-string messages handle action-dispatch shape errors and bypass the render layer. The structural fix (discriminated-union input models) is in the carry-forward list.
 
 ---
 

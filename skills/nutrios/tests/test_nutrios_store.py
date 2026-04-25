@@ -123,6 +123,25 @@ def test_tail_jsonl_returns_last_n(monkeypatch, tmp_path):
     assert [r["id"] for r in tail] == [8, 9, 10]
 
 
+def test_read_jsonl_all_returns_every_line(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    for i in range(1, 6):
+        store.append_jsonl("alice", "weigh_ins.jsonl", _make_weigh_in(i))
+    rows = store.read_jsonl_all("alice", "weigh_ins.jsonl")
+    assert [r["id"] for r in rows] == [1, 2, 3, 4, 5]
+
+
+def test_read_jsonl_all_empty_when_missing(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    assert store.read_jsonl_all("alice", "weigh_ins.jsonl") == []
+
+
+def test_read_jsonl_all_rejects_bad_filename(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    with pytest.raises(ValueError):
+        store.read_jsonl_all("alice", "../../secrets.jsonl")
+
+
 # ---------------------------------------------------------------------------
 # next_id()
 # ---------------------------------------------------------------------------

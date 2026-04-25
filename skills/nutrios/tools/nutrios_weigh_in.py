@@ -26,9 +26,6 @@ import nutrios_render as render
 import nutrios_store as store
 
 
-_LARGE_N = 10_000
-
-
 class WeighInInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     user_id: str
@@ -64,7 +61,7 @@ def main(argv_json: str) -> ToolResult:
     # supersedes target must exist on disk
     if inp.supersedes is not None:
         existing_ids = {
-            r["id"] for r in store.tail_jsonl(inp.user_id, "weigh_ins.jsonl", _LARGE_N)
+            r["id"] for r in store.read_jsonl_all(inp.user_id, "weigh_ins.jsonl")
         }
         if inp.supersedes not in existing_ids:
             return ToolResult(
@@ -83,7 +80,7 @@ def main(argv_json: str) -> ToolResult:
     store.append_jsonl(inp.user_id, "weigh_ins.jsonl", weigh_in)
 
     # Active weigh-ins for trend math, post-write
-    all_raw = store.tail_jsonl(inp.user_id, "weigh_ins.jsonl", _LARGE_N)
+    all_raw = store.read_jsonl_all(inp.user_id, "weigh_ins.jsonl")
     all_weigh_ins = [WeighIn.model_validate(r) for r in all_raw]
     change = engine.weight_change(all_weigh_ins, inp.now, since_days=7)
 

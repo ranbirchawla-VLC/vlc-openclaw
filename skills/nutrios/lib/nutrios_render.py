@@ -496,12 +496,17 @@ def render_dose_already_logged() -> str:
 
 
 def render_event_list(events: list[Event]) -> str:
-    """Render a compact list of upcoming events. Suppresses removed entries."""
-    active = [e for e in events if not e.removed]
-    if not active:
+    """Render a compact list of events.
+
+    Trusts its input — semantic filtering of removed=True is done in the
+    engine (event_next, event_today). Render does not re-filter; if a
+    caller wants only-active, it must pass only-active. Empty input
+    yields the standard "no events" line.
+    """
+    if not events:
         return "No upcoming events."
     lines = ["Upcoming events:"]
-    for e in active:
+    for e in events:
         lines.append(f"  {e.date}  {e.event_type}: {e.title}")
     return "\n".join(lines)
 

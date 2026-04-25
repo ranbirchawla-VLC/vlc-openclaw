@@ -82,18 +82,58 @@ def _gate_goals(current: Goals, proposed: Goals, confirm: str) -> GateResult:
 # Per-scope dispatch
 # ---------------------------------------------------------------------------
 
+def _strip_pending_from_day_patterns(payload: dict) -> dict:
+    """Return a copy of payload with `_pending_kcal` removed from each day_pattern."""
+    cleaned = dict(payload)
+    cleaned["day_patterns"] = [
+        {k: v for k, v in dp.items() if k != "_pending_kcal"}
+        for dp in payload.get("day_patterns", [])
+    ]
+    return cleaned
+
+
 def _write_goals(inp: WriteInput) -> ToolResult:
-    proposed = Goals.model_validate(inp.payload)
-    current = store.read_json(inp.user_id, "goals.json", Goals)
-    if current is None:
-        # First-time write: no current state to gate against.
+    """Gate-then-write goals.json. Preserves any on-disk `_pending_kcal`
+    scratch fields across the write — defense in depth against a phase-2
+    orchestrator clobber. Disk is authoritative for `_pending_kcal`:
+    callers never need to send it (it's migration scratch, consumed and
+    cleared by setup_resume's deficits step). If disk carries it on a
+    day_pattern, we merge it forward via a raw write so the scratch
+    survives non-phase-2 goals edits.
+
+    `_pending_kcal` in the input payload is stripped before model
+    validation — Goals' extra='forbid' would otherwise crash, and the
+    field has no business arriving from a tool caller.
+    """
+    payload_clean = _strip_pending_from_day_patterns(inp.payload)
+    proposed = Goals.model_validate(payload_clean)
+    raw_disk = store.read_json_raw(inp.user_id, "goals.json")
+    if raw_disk is None:
         store.write_json(inp.user_id, "goals.json", proposed)
         return ToolResult(display_text=render.render_write_confirm("goals"))
+
+    disk_pending: dict[str, int] = {
+        dp["day_type"]: dp["_pending_kcal"]
+        for dp in raw_disk.get("day_patterns", [])
+        if dp.get("_pending_kcal") is not None
+    }
+    cleaned_disk = _strip_pending_from_day_patterns(raw_disk)
+    current = Goals.model_validate(cleaned_disk)
 
     gate = _gate_goals(current, proposed, inp.confirm or "")
     if not gate.ok:
         return ToolResult(display_text=render.render_gate_error(gate))
-    store.write_json(inp.user_id, "goals.json", proposed)
+
+    if disk_pending:
+        out = proposed.model_dump(mode="json")
+        for dp in out.get("day_patterns", []):
+            pending = disk_pending.get(dp.get("day_type"))
+            if pending is not None:
+                dp["_pending_kcal"] = pending
+        store.write_json_raw(inp.user_id, "goals.json", out)
+    else:
+        store.write_json(inp.user_id, "goals.json", proposed)
+
     return ToolResult(display_text=render.render_write_confirm("goals"))
 
 

@@ -417,6 +417,51 @@ def test_dose_status_not_due():
 
 
 # ---------------------------------------------------------------------------
+# is_dose_day — extracted from dose_reminder_due so callers can disambiguate
+# "wrong day" from "already logged" without re-implementing weekday math
+# ---------------------------------------------------------------------------
+
+def test_is_dose_day_match():
+    assert engine.is_dose_day(_FRIDAY_PROTOCOL, _NOW_EVENT, "UTC") is True
+
+
+def test_is_dose_day_mismatch():
+    assert engine.is_dose_day(_TUESDAY_PROTOCOL, _NOW_EVENT, "UTC") is False
+
+
+def test_is_dose_day_ignores_logged_entries():
+    """is_dose_day is pure weekday match — doesn't take entries as a parameter,
+    unlike dose_reminder_due. A logged dose on a dose day still returns True."""
+    # Just verify the signature: protocol, now, tz only
+    assert engine.is_dose_day(_FRIDAY_PROTOCOL, _NOW_EVENT, "UTC") is True
+
+
+def test_is_dose_day_tz_boundary_sunday_night_denver():
+    """UTC Monday 05:00 = local Sunday Denver. monday-protocol → False."""
+    now_utc = datetime(2026, 4, 27, 5, 0, 0, tzinfo=timezone.utc)
+    monday_protocol = _make_protocol("monday")
+    assert engine.is_dose_day(monday_protocol, now_utc, "America/Denver") is False
+
+
+def test_is_dose_day_tz_boundary_monday_morning_denver():
+    now_utc = datetime(2026, 4, 27, 7, 0, 0, tzinfo=timezone.utc)
+    monday_protocol = _make_protocol("monday")
+    assert engine.is_dose_day(monday_protocol, now_utc, "America/Denver") is True
+
+
+def test_dose_reminder_due_composes_is_dose_day():
+    """dose_reminder_due = is_dose_day AND no dose-logged-yet."""
+    # Dose day + dose logged → False (composition: is_dose_day=True but blocked)
+    assert engine.dose_reminder_due(
+        _FRIDAY_PROTOCOL, [_make_dose_entry()], _NOW_EVENT, "UTC",
+    ) is False
+    # Dose day + no entries → True
+    assert engine.dose_reminder_due(_FRIDAY_PROTOCOL, [], _NOW_EVENT, "UTC") is True
+    # Wrong day + no entries → False
+    assert engine.dose_reminder_due(_TUESDAY_PROTOCOL, [], _NOW_EVENT, "UTC") is False
+
+
+# ---------------------------------------------------------------------------
 # advisory_flags()
 # ---------------------------------------------------------------------------
 

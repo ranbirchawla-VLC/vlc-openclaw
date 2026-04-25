@@ -269,3 +269,69 @@ def test_recipe_isolation(tmp_data_root, setup_user):
     setup_user("bob")
     tool.main(_argv(action="save", name="alice-recipe", macros_per_serving=_macros()))
     assert store.read_recipes("bob") == []
+
+
+# ---------------------------------------------------------------------------
+# Soft-delete bug fix — id lookup must skip removed for get/update
+# ---------------------------------------------------------------------------
+
+def test_recipe_get_by_id_skips_removed(tmp_data_root, setup_user):
+    """A removed recipe must NOT be viewable via id lookup — that would let
+    the user see soft-deleted content as if active."""
+    setup_user("alice")
+    tool.main(_argv(action="save", name="oats", macros_per_serving=_macros()))
+    tool.main(_argv(action="delete", id=1))
+    result = tool.main(_argv(action="get", id=1))
+    # Expect not-found, NOT a render of the removed recipe's details
+    assert "doesn't exist" in result.display_text or "does not exist" in result.display_text
+    assert "oats" not in result.display_text or "deleted" in result.display_text.lower()
+
+
+def test_recipe_update_by_id_skips_removed(tmp_data_root, setup_user):
+    """Updating a removed recipe by id must fail — silent mutation of
+    soft-deleted state would create a 'ghost' updated removed recipe."""
+    setup_user("alice")
+    tool.main(_argv(action="save", name="oats", macros_per_serving=_macros(kcal=300)))
+    tool.main(_argv(action="delete", id=1))
+    result = tool.main(_argv(
+        action="update", id=1, macros_per_serving=_macros(kcal=999),
+    ))
+    assert "doesn't exist" in result.display_text or "does not exist" in result.display_text
+
+    # Disk: the removed recipe still has its original macros (300), not 999
+    recipes = store.read_recipes("alice")
+    assert recipes[0].macros_per_serving.kcal == 300
+    assert recipes[0].removed is True
+
+
+def test_recipe_update_by_id_does_not_resurrect_removed(tmp_data_root, setup_user):
+    """Combined with name-reuse-after-delete: updating the removed by id
+    must not silently re-surface it via a different code path."""
+    setup_user("alice")
+    tool.main(_argv(action="save", name="oats", macros_per_serving=_macros(kcal=300)))
+    tool.main(_argv(action="delete", id=1))
+    # Save a fresh active "oats" — id=2
+    tool.main(_argv(action="save", name="oats", macros_per_serving=_macros(kcal=400)))
+    # Try to update the OLD removed one by its id; must reject
+    result = tool.main(_argv(
+        action="update", id=1, macros_per_serving=_macros(kcal=999),
+    ))
+    assert "doesn't exist" in result.display_text or "does not exist" in result.display_text
+
+    recipes = store.read_recipes("alice")
+    # Two recipes: one removed (oats, 300 kcal), one active (oats, 400 kcal)
+    removed_one = next(r for r in recipes if r.removed)
+    active_one = next(r for r in recipes if not r.removed)
+    assert removed_one.macros_per_serving.kcal == 300  # unchanged by attempted update
+    assert active_one.macros_per_serving.kcal == 400
+
+
+def test_recipe_delete_idempotent_still_works_after_fix(tmp_data_root, setup_user):
+    """The include_removed=True escape hatch keeps _delete idempotent:
+    re-removing returns the same confirm even though _find_by_id_or_name
+    now defaults to active-only."""
+    setup_user("alice")
+    tool.main(_argv(action="save", name="oats", macros_per_serving=_macros()))
+    tool.main(_argv(action="delete", id=1))
+    result = tool.main(_argv(action="delete", id=1))  # second remove
+    assert "deleted" in result.display_text.lower()

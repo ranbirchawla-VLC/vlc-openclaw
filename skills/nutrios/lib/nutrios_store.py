@@ -138,7 +138,7 @@ def _atomic_write_text(dest: Path, content: str) -> None:
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp_path, dest)
-    except Exception:
+    except OSError:
         try:
             os.unlink(tmp_path)
         except OSError:
@@ -252,7 +252,7 @@ def append_jsonl(user_id: str, filename: str, model: BaseModel) -> None:
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp_path, dest)
-    except Exception:
+    except OSError:
         try:
             os.unlink(tmp_path)
         except OSError:
@@ -268,6 +268,22 @@ def tail_jsonl(user_id: str, filename: str, n: int) -> list[dict]:
         return []
     lines = [l for l in path.read_text().splitlines() if l.strip()]
     return [json.loads(line) for line in lines[-n:]]
+
+
+def read_jsonl_all(user_id: str, filename: str) -> list[dict]:
+    """Return every line of a JSONL file as parsed dicts.
+
+    Companion to tail_jsonl. Per-user JSONL files are bounded — daily logs,
+    weigh-ins, and med-notes accumulate slowly — so reading everything is
+    safe in practice. Tools that need "all entries to date" use this rather
+    than tail_jsonl with a magic-number n.
+    """
+    _validate_jsonl_filename(filename)
+    path = user_dir(user_id) / filename
+    if not path.exists():
+        return []
+    lines = [l for l in path.read_text().splitlines() if l.strip()]
+    return [json.loads(line) for line in lines]
 
 
 # ---------------------------------------------------------------------------

@@ -39,10 +39,6 @@ import nutrios_render as render
 import nutrios_store as store
 
 
-# Bounded "all entries" reads — daily logs and per-user JSONLs are small.
-_LARGE_N = 10_000
-
-
 _VALID_SCOPES = (
     "log_today", "log_date",
     "weigh_ins", "med_notes",
@@ -77,7 +73,7 @@ def _local_today(now: datetime, tz: str) -> date:
 
 def _read_log_entries(uid: str, target_date: date) -> tuple[list[FoodLogEntry], list[DoseLogEntry]]:
     """Read the daily JSONL and partition by discriminator kind."""
-    raw = store.tail_jsonl(uid, f"log/{target_date}.jsonl", _LARGE_N)
+    raw = store.read_jsonl_all(uid, f"log/{target_date}.jsonl")
     foods: list[FoodLogEntry] = []
     doses: list[DoseLogEntry] = []
     for row in raw:
@@ -90,12 +86,12 @@ def _read_log_entries(uid: str, target_date: date) -> tuple[list[FoodLogEntry], 
 
 
 def _all_weigh_ins(uid: str) -> list[WeighIn]:
-    raw = store.tail_jsonl(uid, "weigh_ins.jsonl", _LARGE_N)
+    raw = store.read_jsonl_all(uid, "weigh_ins.jsonl")
     return [WeighIn.model_validate(r) for r in raw]
 
 
 def _all_med_notes(uid: str) -> list[MedNote]:
-    raw = store.tail_jsonl(uid, "med_notes.jsonl", _LARGE_N)
+    raw = store.read_jsonl_all(uid, "med_notes.jsonl")
     return [MedNote.model_validate(r) for r in raw]
 
 

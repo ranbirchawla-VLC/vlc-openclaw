@@ -53,16 +53,25 @@ def _find_active_by_name(recipes: list[Recipe], name: str) -> Recipe | None:
     return None
 
 
-def _find_by_id_or_name(recipes: list[Recipe], rid: int | None, name: str | None) -> Recipe | None:
-    """Prefer id; fall back to active-by-name match. Returns None if not found.
+def _find_by_id_or_name(
+    recipes: list[Recipe],
+    rid: int | None,
+    name: str | None,
+    *,
+    include_removed: bool = False,
+) -> Recipe | None:
+    """Prefer id; fall back to name. Active-only by default.
 
-    Note: id-based lookup matches even removed recipes (callers may want to
-    re-find a previously-deleted recipe). Name-based lookup is active-only,
-    so case-insensitive name reuse is permitted after a delete.
+    include_removed=True is the restoration / idempotent-delete escape hatch:
+    only _delete needs to see removed entries (so re-removing an already-
+    removed recipe returns the same confirm). _get and _update must NOT
+    see them — viewing or mutating a soft-deleted recipe through those
+    surfaces would let the user resurrect a deleted recipe by id without
+    a save action.
     """
     if rid is not None:
         for r in recipes:
-            if r.id == rid:
+            if r.id == rid and (include_removed or not r.removed):
                 return r
     if name is not None:
         return _find_active_by_name(recipes, name)
@@ -149,7 +158,9 @@ def _delete(inp: RecipeInput) -> ToolResult:
     if inp.id is None and inp.name is None:
         raise ValueError("action=delete requires either id or name")
     recipes = store.read_recipes(inp.user_id)
-    target = _find_by_id_or_name(recipes, inp.id, inp.name)
+    # _delete is the one caller that legitimately needs to see removed recipes
+    # (idempotent re-delete returns the same confirm)
+    target = _find_by_id_or_name(recipes, inp.id, inp.name, include_removed=True)
     if target is None:
         return ToolResult(
             display_text=render.render_supersedes_not_found(

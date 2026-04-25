@@ -22,11 +22,10 @@ from pydantic import BaseModel, ConfigDict
 from nutrios_models import (
     DoseLogEntry, FoodLogEntry, LogEntryAdapter, Protocol, ToolResult,
 )
+import nutrios_engine as engine
 import nutrios_render as render
 import nutrios_store as store
 
-
-_LARGE_N = 10_000
 
 _WEEKDAY_ORDER = (
     "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
@@ -41,7 +40,7 @@ class DoseInput(BaseModel):
 
 
 def _today_doses(uid: str, target_date: date_type) -> list[DoseLogEntry]:
-    raw = store.tail_jsonl(uid, f"log/{target_date}.jsonl", _LARGE_N)
+    raw = store.read_jsonl_all(uid, f"log/{target_date}.jsonl")
     out: list[DoseLogEntry] = []
     for r in raw:
         entry = LogEntryAdapter.validate_python(r)
@@ -72,10 +71,9 @@ def main(argv_json: str) -> ToolResult:
         return ToolResult(display_text=render.render_protocol_not_initialized())
 
     local_today = inp.now.astimezone(ZoneInfo(inp.tz)).date()
-    today_weekday = local_today.strftime("%A").lower()
     target_weekday = protocol.treatment.dose_day_of_week.lower()
 
-    if today_weekday != target_weekday:
+    if not engine.is_dose_day(protocol, inp.now, inp.tz):
         next_date = _next_dose_date(local_today, target_weekday)
         return ToolResult(
             display_text=render.render_dose_not_due(target_weekday, next_date)

@@ -359,6 +359,14 @@ def main(argv_json: str) -> ToolResult:
             return _process_deficits(inp)
         case "nominal_deficit":
             return _process_nominal_deficit(inp)
+        case _:
+            # Unreachable under engine.setup_status's fixed marker order, but
+            # the function's return type is ToolResult and __main__ calls
+            # model_dump_json on the result. Fail loud if engine ever surfaces
+            # an unknown marker — silent None would crash downstream.
+            raise ValueError(
+                f"setup_resume: unknown next_marker {status.next_marker!r} from engine"
+            )
 
 
 if __name__ == "__main__":
