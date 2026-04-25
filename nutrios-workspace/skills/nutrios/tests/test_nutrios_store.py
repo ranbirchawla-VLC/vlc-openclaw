@@ -174,6 +174,52 @@ def test_clear_needs_setup_marker_tdee_only(monkeypatch, tmp_path):
 # User isolation
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# resolve_user_id_from_peer()
+# ---------------------------------------------------------------------------
+
+def _write_index(tmp_path: Path, data: object) -> None:
+    index_dir = tmp_path / "_index"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    (index_dir / "users.json").write_text(
+        json.dumps(data) if not isinstance(data, str) else data
+    )
+
+def test_resolve_user_id_happy_path(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    _write_index(tmp_path, {"telegram:12345": "alice"})
+    assert store.resolve_user_id_from_peer("telegram:12345") == "alice"
+
+def test_resolve_user_id_missing_peer(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    _write_index(tmp_path, {"telegram:12345": "alice"})
+    with pytest.raises(store.StoreError, match="not in user index"):
+        store.resolve_user_id_from_peer("telegram:99999")
+
+def test_resolve_user_id_missing_index_file(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    # No _index/users.json written
+    with pytest.raises(store.StoreError, match="not initialized"):
+        store.resolve_user_id_from_peer("telegram:12345")
+
+def test_resolve_user_id_malformed_json(monkeypatch, tmp_path):
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    _write_index(tmp_path, "not valid json at all {{{{")
+    with pytest.raises(store.StoreError, match="parse"):
+        store.resolve_user_id_from_peer("telegram:12345")
+
+def test_resolve_user_id_path_traversal_relies_on_user_dir(monkeypatch, tmp_path):
+    """A peer string that is a path-traversal key in the index returns the mapped user_id.
+    Defense-in-depth: user_dir() rejects the resolved value if it contains path separators.
+    resolve_user_id_from_peer itself does not validate the peer string."""
+    monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
+    _write_index(tmp_path, {"../../../etc/passwd": "alice"})
+    # The lookup succeeds — it just returns the mapped user_id "alice"
+    # (which is a valid user_id; the hostile key is the peer, not the value)
+    result = store.resolve_user_id_from_peer("../../../etc/passwd")
+    assert result == "alice"
+
+
 def test_user_isolation(monkeypatch, tmp_path):
     monkeypatch.setenv("NUTRIOS_DATA_ROOT", str(tmp_path))
     store.append_jsonl("alice", "weigh_ins.jsonl", _make_weigh_in(1))

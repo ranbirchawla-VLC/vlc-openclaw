@@ -22,6 +22,10 @@ from nutrios_models import (
 )
 
 
+class StoreError(Exception):
+    """Typed exception for store-layer failures. Always carries a named message."""
+
+
 # ---------------------------------------------------------------------------
 # Per-user lock table — prevents concurrent next_id collisions on same user
 # ---------------------------------------------------------------------------
@@ -146,13 +150,28 @@ def _atomic_write_text(dest: Path, content: str) -> None:
 # ---------------------------------------------------------------------------
 
 def resolve_user_id_from_peer(channel_peer: str) -> str:
-    """Map a channel peer identifier to a user_id via _index/users.json."""
+    """Map a channel peer identifier to a user_id via _index/users.json.
+
+    Security boundary: the only path that maps external identifiers to user_id.
+    Does not validate the peer string itself — peer is an opaque lookup key.
+    The returned user_id is validated downstream by user_dir().
+    """
     index_path = data_root() / "_index" / "users.json"
     if not index_path.exists():
-        raise KeyError(f"User index not found at {index_path}")
-    index = json.loads(index_path.read_text())
+        raise StoreError(
+            f"User index not initialized at {index_path}. "
+            "Run scaffold or nutrios_migrate to create _index/users.json."
+        )
+    try:
+        index = json.loads(index_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise StoreError(f"Failed to parse _index/users.json: {exc}") from exc
+    if not isinstance(index, dict):
+        raise StoreError(
+            f"_index/users.json must be a JSON object, got {type(index).__name__}"
+        )
     if channel_peer not in index:
-        raise KeyError(f"Channel peer {channel_peer!r} not in user index")
+        raise StoreError(f"Channel peer {channel_peer!r} not in user index")
     return index[channel_peer]
 
 
