@@ -31,6 +31,7 @@ Output: JSON to stdout with shape:
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -266,7 +267,12 @@ def _decision_math(bucket: dict, listing_price: float) -> dict | None:
 
     adjusted_price = median * (1 + premium_scalar)
     max_buy_unrounded = (adjusted_price - fees) / (1 + target_margin)
-    max_buy = round(max_buy_unrounded, -1)
+    # Floor to the next $10 below so a listing at exactly max_buy clears
+    # the 5% margin floor. Architecture lock §1: floor is non-negotiable.
+    # Nearest-rounding could let a deal land 1-4 dollars below the floor
+    # and still return yes; floor-rounding makes max_buy safe at every
+    # dollar at or below the value.
+    max_buy = math.floor(max_buy_unrounded / 10) * 10
     margin_dollars = adjusted_price - listing_price - fees
     margin_pct = (margin_dollars / listing_price * 100) if listing_price > 0 else 0.0
 

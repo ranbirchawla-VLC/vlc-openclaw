@@ -344,6 +344,46 @@ class TestDecisionMath:
         assert result["math"]["adjusted_price"] == pytest.approx(1199.0)
         assert result["math"]["margin_pct"] == pytest.approx(5.0, abs=0.01)
 
+    def test_max_buy_floor_rounds_below_5pct_unrounded(self, tmp_path):
+        """Architecture lock §1: 5% margin floor is non-negotiable.
+
+        Hand-picked case where nearest-rounding and floor-rounding diverge:
+          median = 2768
+          adjusted_price = 2768 * 1.10 = 3044.8
+          max_buy unrounded = (3044.8 - 149) / 1.05 = 2757.9048
+
+          nearest-round → 2760 (margin at 2760 = 4.92%; violates floor)
+          floor-round   → 2750 (margin at 2750 = 5.30%; safe)
+
+        Assertions: max_buy is 2750 (floor-rounded); listing at 2750 is
+        yes with margin_pct >= 5.0; listing at 2760 is no (above max).
+        Old round(_, -1) returned 2760 and would have flagged 2760 as yes
+        with margin 4.92%, breaking the architectural floor.
+        """
+        cache_path = _write_cache(tmp_path, _make_v3_cache(refs={
+            "FLOOR2": _make_ref(
+                reference="FLOOR2",
+                buckets=[_make_bucket(median=2768, signal="Strong")],
+            ),
+        }))
+
+        result_at_floor = evaluate(
+            "Tudor", "FLOOR2", 2750,
+            cache_path=cache_path,
+            cycle_focus_path=str(tmp_path / "no_focus.json"),
+        )
+        assert result_at_floor["math"]["max_buy"] == 2750
+        assert result_at_floor["decision"] == "yes"
+        assert result_at_floor["math"]["margin_pct"] >= 5.0
+
+        result_above = evaluate(
+            "Tudor", "FLOOR2", 2760,
+            cache_path=cache_path,
+            cycle_focus_path=str(tmp_path / "no_focus.json"),
+        )
+        assert result_above["math"]["max_buy"] == 2750
+        assert result_above["decision"] == "no"
+
     def test_no_above_max(self, tmp_path):
         """Listing > max_buy → no, math still populated."""
         cache_path = _write_cache(tmp_path, _make_v3_cache(refs={
