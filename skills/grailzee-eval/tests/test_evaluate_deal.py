@@ -62,6 +62,7 @@ from scripts.evaluate_deal import (
     evaluate,
     _match_buckets,
     _parse_price_arg,
+    _plan_status_label,
 )
 
 
@@ -758,3 +759,168 @@ class TestCLI:
         assert proc.returncode == 1
         result = json.loads(proc.stdout)
         assert result.get("error") == "bad_price"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# I. Label fields (§2.7.1 invariant)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestLabelFields:
+    """§2.7.1 invariant: every operator-facing enum/boolean/composite
+    in evaluate_deal has a label companion field."""
+
+    def test_label_single_bucket(self, tmp_path):
+        cache_path = _write_cache(tmp_path, _make_v3_cache(refs={
+            "79830RB": _make_ref(buckets=[_make_bucket(median=3200)]),
+        }))
+        result = evaluate(
+            "Tudor", "79830RB", 2000,
+            cache_path=cache_path,
+            cycle_focus_path=str(tmp_path / "no_focus.json"),
+        )
+        assert result["match_resolution_label"] == "Matched single bucket"
+
+    def test_label_ambiguous(self, tmp_path):
+        cache_path = _write_cache(tmp_path, _make_v3_cache(refs={
+            "126300": _make_ref(
+                brand="Rolex", model="DJ 41", reference="126300",
+                buckets=[
+                    _make_bucket(dial_color="Black"),
+                    _make_bucket(dial_color="Blue"),
+                ],
+            ),
+        }))
+        result = evaluate(
+            "Rolex", "126300", 9500,
+            cache_path=cache_path,
+            cycle_focus_path=str(tmp_path / "no_focus.json"),
+        )
+        assert result["match_resolution_label"] == (
+            "Multiple buckets possible. Clarify dial color, auction type, or numerals."
+        )
+
+    def test_label_no_match(self, tmp_path):
+        cache_path = _write_cache(tmp_path, _make_v3_cache(refs={
+            "79830RB": _make_ref(buckets=[_make_bucket(dial_color="Black")]),
+        }))
+        result = evaluate(
+            "Tudor", "79830RB", 2000,
+            dial_color="Green",
+            cache_path=cache_path,
+            cycle_focus_path=str(tmp_path / "no_focus.json"),
+        )
+        assert result["match_resolution_label"] == "No bucket match for this listing"
+
+    def test_label_reference_not_found(self, tmp_path):
+        cache_path = _write_cache(tmp_path, _make_v3_cache(refs={}))
+        result = evaluate(
+            "Breitling", "UNKNOWN999", 3000,
+            cache_path=cache_path,
+            cycle_focus_path=str(tmp_path / "no_focus.json"),
+        )
+        assert result["match_resolution_label"] == "Reference not in cache"
+
+    def test_label_error(self, tmp_path):
+        result = evaluate(
+            "Tudor", "79830RB", 2000,
+            cache_path=str(tmp_path / "nonexistent.json"),
+        )
+        assert result["match_resolution_label"] == "Lookup error"
+
+    def test_plan_status_label_none(self):
+        assert _plan_status_label(None) is None
+
+    def test_bucket_label_null_on_non_single_bucket(self, tmp_path):
+        cache_path = _write_cache(tmp_path, _make_v3_cache(refs={
+            "126300": _make_ref(
+                brand="Rolex", model="DJ 41", reference="126300",
+                buckets=[
+                    _make_bucket(dial_color="Black"),
+                    _make_bucket(dial_color="Blue"),
+                ],
+            ),
+        }))
+        # ambiguous
+        result = evaluate(
+            "Rolex", "126300", 9500,
+            cache_path=cache_path,
+            cycle_focus_path=str(tmp_path / "no_focus.json"),
+        )
+        assert result["match_resolution"] == "ambiguous"
+        assert result["bucket_label"] is None
+
+        # no_match
+        result = evaluate(
+            "Rolex", "126300", 9500,
+            dial_color="Green",
+            cache_path=cache_path,
+            cycle_focus_path=str(tmp_path / "no_focus.json"),
+        )
+        assert result["match_resolution"] == "no_match"
+        assert result["bucket_label"] is None
+
+        # reference_not_found
+        result = evaluate(
+            "Breitling", "UNKNOWN", 2000,
+            cache_path=cache_path,
+            cycle_focus_path=str(tmp_path / "no_focus.json"),
+        )
+        assert result["match_resolution"] == "reference_not_found"
+        assert result["bucket_label"] is None
+
+        # error
+        result = evaluate(
+            "Tudor", "79830RB", 2000,
+            cache_path=str(tmp_path / "nonexistent.json"),
+        )
+        assert result["match_resolution"] == "error"
+        assert result["bucket_label"] is None
+
+    def test_candidate_bucket_labels_on_ambiguous(self, tmp_path):
+        cache_path = _write_cache(tmp_path, _make_v3_cache(refs={
+            "126300": _make_ref(
+                brand="Rolex", model="DJ 41", reference="126300",
+                buckets=[
+                    _make_bucket(dial_color="Black", dial_numerals="Arabic", auction_type="nr"),
+                    _make_bucket(dial_color="Blue", dial_numerals="Arabic", auction_type="nr"),
+                ],
+            ),
+        }))
+        result = evaluate(
+            "Rolex", "126300", 9500,
+            cache_path=cache_path,
+            cycle_focus_path=str(tmp_path / "no_focus.json"),
+        )
+        assert result["match_resolution"] == "ambiguous"
+        labels = result["candidate_bucket_labels"]
+        assert isinstance(labels, list)
+        assert len(labels) == 2
+        assert all(isinstance(lb, str) and lb for lb in labels)
+
+        # key absent on non-ambiguous
+        no_match_result = evaluate(
+            "Rolex", "126300", 9500,
+            dial_color="Green",
+            cache_path=cache_path,
+            cycle_focus_path=str(tmp_path / "no_focus.json"),
+        )
+        assert "candidate_bucket_labels" not in no_match_result
+
+    def test_label_invariant_on_single_bucket(self, tmp_path):
+        """Every *_label field in a single_bucket result is a non-empty string."""
+        cache_path = _write_cache(tmp_path, _make_v3_cache(refs={
+            "79830RB": _make_ref(buckets=[_make_bucket(median=3200)]),
+        }))
+        result = evaluate(
+            "Tudor", "79830RB", 2000,
+            cache_path=cache_path,
+            cycle_focus_path=str(tmp_path / "no_focus.json"),
+        )
+        assert result["match_resolution"] == "single_bucket"
+        label_fields = {k: v for k, v in result.items() if k.endswith("_label")}
+        assert label_fields, "expected at least one _label field in result"
+        for key, value in label_fields.items():
+            assert isinstance(value, str) and value, (
+                f"{key} should be a non-empty string on single_bucket; got {value!r}"
+            )

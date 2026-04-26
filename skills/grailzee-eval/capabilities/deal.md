@@ -39,6 +39,10 @@ this shape:
   "cycle_context": {on_plan: bool, target_match: {...} | null},
   "match_resolution": "single_bucket" | "ambiguous" | "no_match" | "reference_not_found" | "error",
   "candidates": [bucket, ...]   // only on ambiguous
+  "match_resolution_label": str,
+  "plan_status_label": "On cycle plan" | "Off cycle plan" | null,
+  "bucket_label": str | null,
+  "candidate_bucket_labels": [str, ...]   // only on ambiguous
 }
 ```
 
@@ -60,27 +64,28 @@ from `math`:
 - `max_buy`
 - `margin_pct`
 
-And the bucket axes from `bucket`:
+And from `bucket`:
 
-- `dial_numerals`, `auction_type`, `dial_color`, `named_special` (when set)
+- `bucket_label` (verbatim)
+- `named_special` (when set)
 - `signal`, `volume`
 
 And the cycle context:
 
-- `cycle_context.on_plan` true or false
-- `cycle_context.target_match.cycle_reason` (when on_plan)
+- `plan_status_label` (verbatim)
+- `cycle_context.target_match.cycle_reason` (when on plan)
 
 Example shape (not a rigid template; voice in operator's authority
 register per SOUL.md):
 
 ```
-{Brand} {reference} ({bucket axes}) @ ${listing_price}
+{Brand} {reference} ({bucket_label}) @ ${listing_price}
 
 Decision: YES (or NO)
 Adjusted median ${adjusted_price} | MAX BUY ${max_buy} | Margin {margin_pct}%
 Signal {signal} | {volume} sales
 
-{Cycle context line: "On plan: {cycle_reason}." or "Off plan."}
+{plan_status_label}{; cycle_reason when on plan.}
 
 {One-paragraph framing in operator voice; grounded in fees, premium scalar,
 and target margin. Never compose math; reuse the verbatim numbers above.}
@@ -104,13 +109,13 @@ Example:
 
 ```
 {Brand} {reference}: which one are you looking at?
-- {bucket 1 axes summarized}
-- {bucket 2 axes summarized}
+- {candidate_bucket_labels[0]}
+- {candidate_bucket_labels[1]}
+(one entry per candidate)
 ```
 
-Pick the differentiator that distinguishes the candidates (often
-`dial_color` or `auction_type`). Operator answers and you call
-`evaluate_deal` again with the named axis.
+Render each `candidate_bucket_labels` entry verbatim as a list item.
+Operator answers and you call `evaluate_deal` again with the named axis.
 
 ## Branch C: no_match
 
@@ -148,16 +153,19 @@ No raw stack traces.
 - Parse brand, reference, listing_price, and optionally
   dial_numerals / auction_type / dial_color from the operator's message.
 - Call `evaluate_deal` with parsed values; pass an axis only when named.
-- Branch A: surface verbatim numbers from `math`; deliver framing in
-  operator voice.
-- Branch B: ask one clarifying question grounded in the candidate
-  differentiator.
+- Branch A: render `bucket_label` and `plan_status_label` verbatim;
+  surface verbatim numbers from `math`; deliver framing in operator voice.
+- Branch B: render each `candidate_bucket_labels` entry verbatim; ask one
+  clarifying question grounded in the candidate list.
 - Branch C / D / E: surface the resolution cleanly.
 
 ## What the LLM Does NOT Do
 
 - Calculate or recalculate any number from `math`. Python provides them
   verbatim per AA §2.7.
+- Compose or interpret enum codes, booleans, or bucket axes. Render
+  `match_resolution_label`, `plan_status_label`, `bucket_label`, and
+  `candidate_bucket_labels` verbatim per AA §2.7.1.
 - Re-apply the premium scalar; it is already baked into `adjusted_price`
   and `max_buy`.
 - Override the tool's yes/no.

@@ -295,6 +295,51 @@ def _decide_yes_no(bucket: dict, math: dict | None) -> str:
     return "yes" if math["listing_price"] <= math["max_buy"] else "no"
 
 
+# ─── Label helpers ───────────────────────────────────────────────────
+
+
+_MATCH_RESOLUTION_LABELS: dict[str, str] = {
+    "single_bucket": "Matched single bucket",
+    "ambiguous": "Multiple buckets possible. Clarify dial color, auction type, or numerals.",
+    "no_match": "No bucket match for this listing",
+    "reference_not_found": "Reference not in cache",
+    "error": "Lookup error",
+}
+
+
+def _match_resolution_label(resolution: str) -> str:
+    return _MATCH_RESOLUTION_LABELS.get(resolution, resolution)
+
+
+def _plan_status_label(on_plan: bool | None) -> str | None:
+    if on_plan is None:
+        return None
+    return "On cycle plan" if on_plan else "Off cycle plan"
+
+
+def _bucket_label(bucket: dict | None) -> str | None:
+    if bucket is None:
+        return None
+    dial_color = str(bucket.get("dial_color", "")).strip()
+    dial_numerals = str(bucket.get("dial_numerals", "")).strip()
+    auction_type = str(bucket.get("auction_type", "")).strip()
+    color_part = (
+        "Dial color unspecified"
+        if dial_color.lower() == "unknown"
+        else f"{dial_color} dial"
+    )
+    return f"{color_part}, {dial_numerals} numerals, {auction_type}"
+
+
+def _candidate_bucket_labels(candidates: list[dict]) -> list[str]:
+    labels = []
+    for c in candidates:
+        lb = _bucket_label(c)
+        if lb is not None:
+            labels.append(lb)
+    return labels
+
+
 # ─── Response builders ──────────────────────────────────────────────
 
 
@@ -306,6 +351,9 @@ def _error_response(error: str, message: str) -> dict:
         "math": None,
         "cycle_context": {"on_plan": False, "target_match": None},
         "match_resolution": "error",
+        "match_resolution_label": "Lookup error",
+        "plan_status_label": "Off cycle plan",
+        "bucket_label": None,
         "error": error,
         "message": message,
     }
@@ -328,9 +376,13 @@ def _build_response(
         "math": math,
         "cycle_context": cycle_context,
         "match_resolution": match_resolution,
+        "match_resolution_label": _match_resolution_label(match_resolution),
+        "plan_status_label": _plan_status_label(cycle_context.get("on_plan")),
+        "bucket_label": _bucket_label(bucket) if match_resolution == "single_bucket" else None,
     }
     if candidates:
         out["candidates"] = candidates
+        out["candidate_bucket_labels"] = _candidate_bucket_labels(candidates)
     return out
 
 
