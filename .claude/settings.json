@@ -1,4 +1,48 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(make test:*)",
+      "Bash(make test-*:*)",
+      "Bash(make test-*:* | tail*)",
+      "Bash(make test-*:* | head*)",
+      "Bash(make test-*:* 2>&1 | tail*)",
+      "Bash(make test-*:* 2>&1 | head*)",
+      "Bash(pytest:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(pip show:*)",
+      "Bash(pip install:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(find:*)",
+      "Bash(mkdir:*)",
+      "Bash(mv:*)",
+      "Bash(cp:*)",
+      "Edit(~/ai-code/vlc-openclaw/**)",
+      "Write(~/ai-code/vlc-openclaw/**)",
+      "Read(~/ai-code/vlc-openclaw/**)"
+    ],
+    "deny": [
+      "Bash(git push:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git rebase:*)",
+      "Bash(git branch -D:*)",
+      "Bash(rm -rf:*)",
+      "Bash(sudo:*)",
+      "Edit(~/.openclaw/openclaw.json)",
+      "Edit(/Users/ranbirchawla/.openclaw/openclaw.json)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -18,10 +62,9 @@
           {
             "type": "command",
             "command": "FILE=\"$CLAUDE_FILE_PATH\"; if echo \"$FILE\" | grep -q 'test_\\|_test\\.py'; then cd ~/ai-code/vlc-openclaw && python -m pytest \"$FILE\" -v --tb=short 2>&1 | tail -20; elif echo \"$FILE\" | grep -q '\\.py$'; then python -m py_compile \"$FILE\" 2>&1 || echo 'Syntax error in $FILE'; fi"
-          }
-        ]
-      }
-    ]
+        }
+      ]
+    }
+  ]
   }
 }
-
