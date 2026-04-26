@@ -20,7 +20,7 @@
 PYTHON = .venv/bin/python
 PYTEST = $(PYTHON) -m pytest
 
-.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-cowork
+.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-cowork
 
 help:
 	@echo "Available targets:"
@@ -32,6 +32,7 @@ help:
 	@echo "  make test-grailzee-eval            - run all grailzee-eval tests"
 	@echo "  make test-grailzee-eval-build-shortlist - run build_shortlist tests"
 	@echo "  make test-grailzee-eval-run-analysis    - run run_analysis tests"
+	@echo "  make test-grailzee-eval-evaluate-deal   - run evaluate_deal tests"
 	@echo "  make test-grailzee-cowork          - run all grailzee-cowork tests"
 	@echo "  make test-nutrios                - run all NutriOS v1 tests"
 	@echo "  make test-nutrios-time           - run nutrios_time tests"
@@ -73,6 +74,9 @@ test-grailzee-eval-build-shortlist:
 
 test-grailzee-eval-run-analysis:
 	$(PYTEST) skills/grailzee-eval/tests/test_run_analysis.py
+
+test-grailzee-eval-evaluate-deal:
+	$(PYTEST) skills/grailzee-eval/tests/test_evaluate_deal.py
 
 test-grailzee-cowork:
 	$(PYTEST) grailzee-cowork/tests

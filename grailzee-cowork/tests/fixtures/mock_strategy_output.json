@@ -1,0 +1,117 @@
+{
+  "strategy_output_version": 1,
+  "generated_at": "2026-04-26T20:00:00Z",
+  "cycle_id": "cycle_2026-15",
+  "session_mode": "cycle_planning",
+  "produced_by": "grailzee-strategy/0.1.0",
+  "decisions": {
+    "cycle_focus": {
+      "targets": [
+        {
+          "reference": "79830RB",
+          "brand": "Tudor",
+          "model": "BB GMT Pepsi",
+          "cycle_reason": "Core sport-GMT performer; strong sell-through on NR Black dial.",
+          "max_buy_override": null
+        },
+        {
+          "reference": "79360N",
+          "brand": "Tudor",
+          "model": "Black Bay Chrono",
+          "cycle_reason": "Stable median; chrono complication holds margin even under pullback.",
+          "max_buy_override": null
+        },
+        {
+          "reference": "79030N",
+          "brand": "Tudor",
+          "model": "BB58 Black",
+          "cycle_reason": "Highest velocity Tudor in window; lean into Black Arabic NR bucket.",
+          "max_buy_override": null
+        },
+        {
+          "reference": "79100",
+          "brand": "Tudor",
+          "model": "Pelagos",
+          "cycle_reason": "Tactical; Reserve only when discount meets the 5% floor.",
+          "max_buy_override": 3700
+        },
+        {
+          "reference": "A17320",
+          "brand": "Breitling",
+          "model": "Avenger Automatic 43",
+          "cycle_reason": "Volume play; sourceable under MAX BUY in the broker market.",
+          "max_buy_override": null
+        },
+        {
+          "reference": "AB0118",
+          "brand": "Breitling",
+          "model": "Navitimer B01 Chrono",
+          "cycle_reason": "Pilot category traction; pair with Avenger inventory.",
+          "max_buy_override": null
+        },
+        {
+          "reference": "B17376",
+          "brand": "Breitling",
+          "model": "Premier B01 Chronograph",
+          "cycle_reason": "Premium lift candidate; presentation premium pays off here.",
+          "max_buy_override": null
+        },
+        {
+          "reference": "WSSA0007",
+          "brand": "Cartier",
+          "model": "Santos Large Steel",
+          "cycle_reason": "Cartier sport core; Roman dial bucket dominates the data.",
+          "max_buy_override": null
+        },
+        {
+          "reference": "WGSA0019",
+          "brand": "Cartier",
+          "model": "Santos Skeleton",
+          "cycle_reason": "Higher unit economics; small volume but strong margin.",
+          "max_buy_override": null
+        },
+        {
+          "reference": "WGTA0020",
+          "brand": "Cartier",
+          "model": "Tank Louis Cartier",
+          "cycle_reason": "Dress-watch hedge against sport-watch cyclicality.",
+          "max_buy_override": null
+        },
+        {
+          "reference": "210.30",
+          "brand": "Omega",
+          "model": "Seamaster Diver 300M",
+          "cycle_reason": "Index dial Black NR; reliable deal flow.",
+          "max_buy_override": null
+        },
+        {
+          "reference": "311.30",
+          "brand": "Omega",
+          "model": "Speedmaster Professional",
+          "cycle_reason": "Heritage anchor; only chase when comp data supports the listing.",
+          "max_buy_override": null
+        }
+      ],
+      "capital_target": 60000,
+      "volume_target": 12,
+      "target_margin_fraction": 0.05,
+      "brand_emphasis": ["Tudor", "Breitling"],
+      "brand_pullback": ["Rolex"],
+      "notes": "Tudor weight up; Rolex pullback while DJ inventory clears. Premium scalar uniform at 10%."
+    },
+    "monthly_goals": {
+      "month": "2026-04",
+      "revenue_target": 50000,
+      "volume_target": 10,
+      "platform_mix": {"Grailzee": 70, "eBay": 20, "Chrono24": 10},
+      "focus_notes": "Core sport-GMT plus Cartier dress hedge.",
+      "review_notes": "March missed volume by 2; revenue on plan.",
+      "monthly_return_pct": 0.12
+    },
+    "quarterly_allocation": null,
+    "config_updates": null
+  },
+  "session_artifacts": {
+    "cycle_brief_md": "# Cycle 2026-15 Brief\n\n## Focus\n\nTudor/Breitling forward; Cartier hedge; Omega reliable flow.\n\n## Capital\n\n$60k deployed against 12 targets. Margin floor 5% non-negotiable.\n\n## Velocity\n\n2.4 turns/month at 1.5 cycles/month. Premium scalar 10%."
+  }
+}

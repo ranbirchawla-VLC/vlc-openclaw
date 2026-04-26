@@ -3,135 +3,139 @@
 ## Purpose
 
 Answer one question: "I can buy this watch at this price. Should I list
-it on Grailzee?"
-
-Always available — cycle discipline does not gate deal evaluation.
-Two branches on script response:
-
-- **Grailzee data exists** — LLM reads the data and delivers a voice-grounded
-  recommendation using business context (fees, margin target, Profit for
-  Acquisition model, operator goals).
-- **No Grailzee data** — LLM delivers market context only from web research.
-  No forced recommendation. The absence of Grailzee data is itself the
-  answer.
+it on Grailzee?" Yes or no, with the math visible. Cycle plan is context
+for the LLM, not a gate; math gates the decision.
 
 ## Trigger
 
 Message contains a brand + reference + dollar amount. Examples:
-"Tudor 79830RB at $2,750", "Can I buy this Omega 210.30 for 3200?",
-"Breitling A17320 $2,400".
+"Tudor 79830RB at $2,750"; "Can I buy this Omega 210.30 for 3200?";
+"Breitling A17320 $2,400 Black Arabic NR".
 
 ## Workflow
 
 ### Step 1: Parse the input
 
-Extract brand, reference, and purchase price. Strip dollar signs and commas.
+Extract brand, reference, and listing_price (strip `$` and commas).
+Optionally extract any of the three keying axes when the operator
+names them in the message:
+- `dial_numerals`: Arabic, Roman, Stick, etc.
+- `auction_type`: NR (No Reserve) or RES (Reserve).
+- `dial_color`: Black, Blue, Slate, Green, White, Silver, etc.
 
-### Step 2: Call the evaluator
+Pass an axis only when the operator names it. Do not guess.
 
-```
-python3 scripts/evaluate_deal.py <brand> <reference> <purchase_price>
-```
+### Step 2: Call evaluate_deal
 
-### Step 3: Dispatch on status
-
-The script returns JSON with one of three statuses:
-
-- **`status: "ok"`** — Grailzee data present. Go to Branch A.
-- **`status: "not_found"`** — No Grailzee data. Go to Branch B.
-- **`status: "error"`** — Script-level failure. Surface the error message cleanly.
-
-Ignore `cycle_focus` fields in either branch. Cycle annotation is not
-part of the deal-evaluation output.
-
-## Branch A — Grailzee data exists (`status: "ok"`)
-
-Surface the following data points from the response:
-
-- `metrics.median`
-- `metrics.max_buy` (MAX BUY — NR by default; Reserve when `format == "Reserve"`)
-- `reserve_price` (when present)
-- `metrics.signal`
-- `metrics.volume`
-- `metrics.sell_through`
-- `metrics.momentum.label` + `metrics.momentum.score`
-- `metrics.margin_pct` + `metrics.margin_dollars`
-- `ad_budget`
-- `confidence` (trades, win rate, avg ROI, avg premium — when non-null)
-- `premium_status` (when approaching or past threshold)
-
-Deliver a recommendation grounded in business context — fees, margin
-target, Profit for Acquisition model, operator goals. Use the operator's
-voice per SOUL.md. Do not reduce the response to a template. The Python
-`rationale` field is a reasonable starting point but not a script for
-the LLM to recite verbatim.
-
-Example shape (not a rigid template):
+Call the `evaluate_deal` tool with parsed values. The tool returns
+this shape:
 
 ```
-{Brand Model} ({reference}) @ ${purchase_price}
-
-Grailzee: {YES/NO/MAYBE}
-Format: {NR/Reserve}
-Median ${median} | MAX BUY ${max_buy} | Margin {margin_pct}% (${margin_dollars})
-Signal {signal} | {volume} sales | {sell_through} sell-through | {momentum.label} ({momentum.score:+d})
-{Reserve Price line when reserve_price present}
-Ad Budget: {ad_budget}
-
-{LLM rationale paragraph — operator voice, grounded in business context}
-
-{Trade History line from confidence when non-null}
-{Premium status line when at or approaching threshold}
+{
+  "decision": "yes" | "no",
+  "reference": "...",
+  "bucket": {dial_numerals, auction_type, dial_color, named_special, signal, volume} | null,
+  "math": {listing_price, premium_scalar, adjusted_price, max_buy, margin_pct} | null,
+  "cycle_context": {on_plan: bool, target_match: {...} | null},
+  "match_resolution": "single_bucket" | "ambiguous" | "no_match" | "reference_not_found" | "error",
+  "candidates": [bucket, ...]   // only on ambiguous
+}
 ```
 
-## Branch B — No Grailzee data (`status: "not_found"`)
+### Step 3: Dispatch on `match_resolution`
 
-**Market context only.** No forced recommendation. No margin math. No
-ad budget. No MAX BUY calculation.
+- `single_bucket` → Branch A.
+- `ambiguous` → Branch B.
+- `no_match` → Branch C.
+- `reference_not_found` → Branch D.
+- `error` → Branch E.
 
-### Step B1: Web research
+## Branch A: single_bucket
 
-Run web searches from `comp_search_hint.search_queries` (Chrono24, eBay,
-WatchRecon). Gather:
+Decision is `yes` or `no` from the tool. Surface the verbatim numbers
+from `math`:
 
-- Chrono24 asking-price range and listing count.
-- eBay 30-day sold comps (prices + count).
+- `listing_price`
+- `adjusted_price` (median × (1 + premium_scalar))
+- `max_buy`
+- `margin_pct`
 
-Ignore `comp_search_hint.formula_reminder` and `comp_search_hint.instructions`
-— they predate D3 and apply the margin formula, which is out of scope
-for this branch.
+And the bucket axes from `bucket`:
 
-### Step B2: Deliver market context
+- `dial_numerals`, `auction_type`, `dial_color`, `named_special` (when set)
+- `signal`, `volume`
 
-Format:
+And the cycle context:
+
+- `cycle_context.on_plan` true or false
+- `cycle_context.target_match.cycle_reason` (when on_plan)
+
+Example shape (not a rigid template; voice in operator's authority
+register per SOUL.md):
 
 ```
-{Brand Model} ({reference}) @ ${asking}
+{Brand} {reference} ({bucket axes}) @ ${listing_price}
 
-No Grailzee data. This reference hasn't been in our window.
+Decision: YES (or NO)
+Adjusted median ${adjusted_price} | MAX BUY ${max_buy} | Margin {margin_pct}%
+Signal {signal} | {volume} sales
 
-Chrono24 asks: ${range} across {N} listings
-eBay sold (30 days): ${comps}, {N} comps
+{Cycle context line: "On plan: {cycle_reason}." or "Off plan."}
 
-Observed spread: ${range}.
-Your call on whether Grailzee traffic warrants the try.
+{One-paragraph framing in operator voice; grounded in fees, premium scalar,
+and target margin. Never compose math; reuse the verbatim numbers above.}
 ```
 
-If comps are thin (< 3 sold), note that explicitly — do not fabricate
-a range.
+On `decision: "no"` end the response with one line:
 
-## Response Format
+    Comp search not yet wired.
 
-### Branch A (ok)
+No button, no follow-up offer. Step 2 of the implementation sequence
+builds comp-search properly.
 
-Composed per template above. Verbatim data lines; LLM voice on framing
-and rationale.
+## Branch B: ambiguous
 
-### Branch B (not_found)
+The reference has multiple buckets and the operator did not name
+enough axes to narrow. Tool returns `candidates`. Ask one clarifying
+question that surfaces the differentiating axis. Do not guess; do not
+return a decision.
 
-Market-context block per Step B2.
+Example:
 
-### Error
+```
+{Brand} {reference}: which one are you looking at?
+- {bucket 1 axes summarized}
+- {bucket 2 axes summarized}
+```
+
+Pick the differentiator that distinguishes the candidates (often
+`dial_color` or `auction_type`). Operator answers and you call
+`evaluate_deal` again with the named axis.
+
+## Branch C: no_match
+
+Operator named axes that don't match any bucket for this reference.
+Surface what's available so they can correct.
+
+```
+{Brand} {reference} doesn't have a bucket matching {axes you sent}.
+Available: {list bucket axes the reference does have}.
+```
+
+End with: `Comp search not yet wired.`
+
+## Branch D: reference_not_found
+
+The reference is not in the v3 cache.
+
+```
+No Grailzee data for {brand} {reference}; not in the current cycle's window.
+Comp search not yet wired.
+```
+
+## Branch E: error
+
+The cache is missing or out-of-date.
 
 ```
 Deal evaluation failed: {message}
@@ -141,23 +145,24 @@ No raw stack traces.
 
 ## LLM Responsibilities
 
-- Parse brand, reference, price from natural language.
-- Call `evaluate_deal.py` with parsed arguments.
-- Branch A: surface the data per template, deliver voice-grounded
-  recommendation using business context from MNEMO.
-- Branch B: run web research, deliver market context only.
-- Surface `premium_status` when at or approaching threshold.
+- Parse brand, reference, listing_price, and optionally
+  dial_numerals / auction_type / dial_color from the operator's message.
+- Call `evaluate_deal` with parsed values; pass an axis only when named.
+- Branch A: surface verbatim numbers from `math`; deliver framing in
+  operator voice.
+- Branch B: ask one clarifying question grounded in the candidate
+  differentiator.
+- Branch C / D / E: surface the resolution cleanly.
 
 ## What the LLM Does NOT Do
 
-- Calculate median, margin, risk, MAX BUY, or any metrics (Python
-  provides them in Branch A; explicitly not computed in Branch B).
-- Re-apply the presentation premium adjustment (baked into cache).
-- Override the script's YES/NO/MAYBE in Branch A.
-- Force a recommendation in Branch B — the absence of Grailzee data is
-  the answer.
-- Apply the margin formula to web comps (Branch B is market context only).
-- Annotate cycle alignment (cycle state is not part of deal output).
-- Restate fee structures or account rules (MNEMO provides business context).
-
-Voice and tone follow Vardalux conventions per SOUL.md.
+- Calculate or recalculate any number from `math`. Python provides them
+  verbatim per AA §2.7.
+- Re-apply the premium scalar; it is already baked into `adjusted_price`
+  and `max_buy`.
+- Override the tool's yes/no.
+- Force a recommendation when match_resolution is anything other than
+  single_bucket.
+- Invent comp-search results. Comp search is not wired this cycle.
+- Use em-dashes anywhere; semicolons in their place per CLAUDE.md voice
+  rules.

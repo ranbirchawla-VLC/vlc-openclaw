@@ -19,6 +19,7 @@
   "scoring": {
     "min_sales_for_scoring": 3,
     "risk_reserve_threshold_fraction": 0.4,
+    "premium_scalar_fraction": 0.1,
     "signal_thresholds": {
       "strong_max_risk_pct": 10,
       "normal_max_risk_pct": 20,
@@ -26,7 +27,7 @@
       "careful_max_risk_pct": 50
     }
   },
-  "last_updated": "2026-04-21T18:55:58Z",
+  "last_updated": "2026-04-26T22:24:21Z",
   "updated_by": "phase_a_install",
   "defaulted_fields": [
     "labor.hours_per_piece",
@@ -36,6 +37,7 @@
     "premium_model.lookback_days",
     "premium_model.recent_weighted",
     "scoring.min_sales_for_scoring",
+    "scoring.premium_scalar_fraction",
     "scoring.risk_reserve_threshold_fraction",
     "scoring.signal_thresholds.careful_max_risk_pct",
     "scoring.signal_thresholds.normal_max_risk_pct",

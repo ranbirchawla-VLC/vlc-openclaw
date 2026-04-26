@@ -1,0 +1,68 @@
+{
+  "name": "grailzee-eval",
+  "version": "1.0.0",
+  "description": "Grailzee deal-evaluation and report-ingest tools for the grailzee Telegram bot.",
+  "session": {
+    "dmScope": "per-channel-peer"
+  },
+  "env": [
+    "GRAILZEE_DATA_ROOT",
+    "GRAILZEE_TZ"
+  ],
+  "tools": [
+    {
+      "name": "evaluate_deal",
+      "description": "Evaluate one Grailzee deal against the v3 bucket cache. Reads brand, reference, and listing_price; optionally narrows by dial_numerals, auction_type, or dial_color when the operator names them. Returns yes/no with math (premium scalar applied uniformly) plus on_plan context. On ambiguous matches, returns candidate buckets so the LLM can ask one clarifying question. Call this for any message containing a brand + reference + dollar amount.",
+      "command": "python3 /Users/ranbirchawla/ai-code/vlc-openclaw/skills/grailzee-eval/scripts/evaluate_deal.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Watch brand (e.g. Tudor, Breitling, Cartier, Omega)."
+          },
+          "reference": {
+            "type": "string",
+            "description": "Reference number as printed by the operator (e.g. 79830RB, 210.30, A17320)."
+          },
+          "listing_price": {
+            "type": "string",
+            "description": "Listing price the operator can buy at. Accepts $ and commas (e.g. \"$2,750\" or 2750)."
+          },
+          "dial_numerals": {
+            "type": "string",
+            "description": "Optional keying axis (e.g. Arabic, Roman, Stick). Pass only when the operator names it."
+          },
+          "auction_type": {
+            "type": "string",
+            "description": "Optional keying axis (NR, RES). Pass only when the operator names a listing format."
+          },
+          "dial_color": {
+            "type": "string",
+            "description": "Optional keying axis (e.g. Black, Blue, Slate, Green, White, Silver). Pass only when the operator names it."
+          }
+        },
+        "required": ["brand", "reference", "listing_price"]
+      }
+    },
+    {
+      "name": "report_pipeline",
+      "description": "Ingest a Grailzee Pro xlsx report and run the full analyzer pipeline (ingest, glob, run_analysis). Use when the operator says any of: \"new report\", \"report is in\", \"process the new file\", \"new Grailzee Pro\".",
+      "command": "python3 /Users/ranbirchawla/ai-code/vlc-openclaw/skills/grailzee-eval/scripts/report_pipeline.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "input_xlsx": {
+            "type": "string",
+            "description": "Absolute path to the Grailzee Pro xlsx report dropped by the operator."
+          },
+          "output_folder": {
+            "type": "string",
+            "description": "Absolute path to the folder where the run summary lands."
+          }
+        },
+        "required": ["input_xlsx", "output_folder"]
+      }
+    }
+  ]
+}

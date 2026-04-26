@@ -117,6 +117,7 @@ ANALYZER_CONFIG_FACTORY_DEFAULTS: dict = {
     "scoring": {
         "min_sales_for_scoring": 3,
         "risk_reserve_threshold_fraction": 0.40,
+        "premium_scalar_fraction": 0.10,
         "signal_thresholds": {
             "strong_max_risk_pct": 10,
             "normal_max_risk_pct": 20,
