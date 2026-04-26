@@ -1,9 +1,10 @@
-"""Phase B.7: build the cycle shortlist CSV for the strategy reading-partner flow.
+"""Wave 1.1: build the cycle shortlist CSV for the strategy reading-partner flow.
 
 Produces ``cycle_shortlist_<cycle_id>.csv`` in ``STATE_PATH`` (Drive).
-Every scored reference becomes one row. Ledger-derived columns write
-as empty strings when the reference has no Vardalux trades (per §5.4
-of the B.7 task: CSV scans cleanly with empty, not "null" / "None" / 0).
+Schema v3: one row per bucket. Reference-level fields repeat across that
+reference's bucket rows. Keying axes (dial_numerals, auction_type,
+dial_color) and named_special metadata distinguish bucket rows within a
+reference.
 
 Invocation:
     Orchestrator (run_analysis.py Step 16):
@@ -37,28 +38,42 @@ tracer = get_tracer(__name__)
 
 
 FIELDNAMES: list[str] = [
+    # Reference-level identity (repeat across bucket rows of the same ref)
     "brand",
     "reference",
     "model",
+    # Bucket keying axes (distinguish rows within a reference)
+    "dial_numerals",
+    "auction_type",
+    "dial_color",
+    "named_special",
+    # Per-bucket market fields (null on Low data buckets)
     "signal",
     "median",
     "max_buy_nr",
+    "max_buy_res",
     "st_pct",
     "volume",
     "risk_nr",
-    "premium_vs_market_pct",
-    "realized_premium_pct",
-    "realized_premium_trade_count",
+    "capital_required_nr",
+    "capital_required_res",
+    "expected_net_at_median_nr",
+    "expected_net_at_median_res",
+    # Reference-level trend (repeat across bucket rows)
+    "trend_signal",
+    "trend_median_change",
+    "trend_median_pct",
+    # Reference-level momentum (repeat)
+    "momentum_score",
+    "momentum_label",
+    # Reference-level confidence / own-ledger rollup (repeat)
     "confidence_trades",
     "confidence_profitable",
     "confidence_win_rate",
     "confidence_avg_roi",
     "confidence_avg_premium",
     "confidence_last_trade",
-    "momentum_score",
-    "momentum_label",
-    "capital_required_nr",
-    "expected_net_at_median_nr",
+    # Strategy session marker (always empty at generation)
     "keep",
 ]
 
@@ -69,51 +84,61 @@ _SIGNAL_RANK: dict[str, int] = {s: i for i, s in enumerate(SIGNAL_ORDER)}
 
 DEFAULT_SORT_KEY = "signal,volume_desc"
 
-_CONFIDENCE_SUBFIELDS = (
-    "trades", "profitable", "win_rate", "avg_roi", "avg_premium", "last_trade",
-)
 
-
-def _empty_if_none(v):
-    """Ledger-derived null → empty string (per §5.4). Zero stays 0."""
+def _empty_if_none(v: object) -> object:
+    """Null market field -> empty string. Zero stays 0."""
     return "" if v is None else v
 
 
-def _flatten_row(ref: str, entry: dict) -> dict:
-    """Project one cache ``references[<ref>]`` entry to the 23-col row shape.
+def _bucket_key_str(row: dict) -> str:
+    """Reconstruct the lowercase pipe-joined bucket key from a CSV row."""
+    return (
+        f"{row.get('dial_numerals', '').lower()}"
+        f"|{row.get('auction_type', '').lower()}"
+        f"|{row.get('dial_color', '').lower()}"
+    )
 
-    ``confidence`` and ``momentum`` are dicts in the cache; flatten to
-    scalar columns with the ``<parent>_<field>`` naming from §5.2. A
-    null ``confidence`` (reference has no Vardalux trades) expands to
-    six empty-string columns.
+
+def _flatten_row(ref_entry: dict, bucket_key: str, bucket: dict) -> dict:
+    """Project one (reference_entry, bucket) pair to the 30-column row shape.
+
+    Reference-level fields (brand, model, trend, momentum, confidence)
+    repeat identically for every bucket row of the same reference.
+    Bucket-level market fields (signal, median, max_buy_*, ...) come
+    from the bucket dict and differ across rows of the same reference.
     """
-    conf = entry.get("confidence") or {}
-    mom = entry.get("momentum") or {}
+    conf = ref_entry.get("confidence") or {}
+    mom = ref_entry.get("momentum") or {}
     return {
-        "brand": entry.get("brand", ""),
-        "reference": entry.get("reference", ref),
-        "model": entry.get("model", ""),
-        "signal": entry.get("signal", ""),
-        "median": _empty_if_none(entry.get("median")),
-        "max_buy_nr": _empty_if_none(entry.get("max_buy_nr")),
-        "st_pct": _empty_if_none(entry.get("st_pct")),
-        "volume": _empty_if_none(entry.get("volume")),
-        "risk_nr": _empty_if_none(entry.get("risk_nr")),
-        "premium_vs_market_pct": _empty_if_none(entry.get("premium_vs_market_pct")),
-        "realized_premium_pct": _empty_if_none(entry.get("realized_premium_pct")),
-        "realized_premium_trade_count": _empty_if_none(
-            entry.get("realized_premium_trade_count")
-        ),
+        "brand": ref_entry.get("brand", ""),
+        "reference": ref_entry.get("reference", ""),
+        "model": ref_entry.get("model", ""),
+        "dial_numerals": bucket.get("dial_numerals", ""),
+        "auction_type": bucket.get("auction_type", ""),
+        "dial_color": bucket.get("dial_color", ""),
+        "named_special": bucket.get("named_special") or "",
+        "signal": bucket.get("signal", ""),
+        "median": _empty_if_none(bucket.get("median")),
+        "max_buy_nr": _empty_if_none(bucket.get("max_buy_nr")),
+        "max_buy_res": _empty_if_none(bucket.get("max_buy_res")),
+        "st_pct": _empty_if_none(bucket.get("st_pct")),
+        "volume": bucket.get("volume", 0),
+        "risk_nr": _empty_if_none(bucket.get("risk_nr")),
+        "capital_required_nr": _empty_if_none(bucket.get("capital_required_nr")),
+        "capital_required_res": _empty_if_none(bucket.get("capital_required_res")),
+        "expected_net_at_median_nr": _empty_if_none(bucket.get("expected_net_at_median_nr")),
+        "expected_net_at_median_res": _empty_if_none(bucket.get("expected_net_at_median_res")),
+        "trend_signal": _empty_if_none(ref_entry.get("trend_signal")),
+        "trend_median_change": _empty_if_none(ref_entry.get("trend_median_change")),
+        "trend_median_pct": _empty_if_none(ref_entry.get("trend_median_pct")),
+        "momentum_score": _empty_if_none(mom.get("score")) if mom else "",
+        "momentum_label": mom.get("label", "") if mom else "",
         "confidence_trades": _empty_if_none(conf.get("trades")) if conf else "",
         "confidence_profitable": _empty_if_none(conf.get("profitable")) if conf else "",
         "confidence_win_rate": _empty_if_none(conf.get("win_rate")) if conf else "",
         "confidence_avg_roi": _empty_if_none(conf.get("avg_roi")) if conf else "",
         "confidence_avg_premium": _empty_if_none(conf.get("avg_premium")) if conf else "",
         "confidence_last_trade": _empty_if_none(conf.get("last_trade")) if conf else "",
-        "momentum_score": _empty_if_none(mom.get("score")) if mom else "",
-        "momentum_label": mom.get("label", "") if mom else "",
-        "capital_required_nr": _empty_if_none(entry.get("capital_required_nr")),
-        "expected_net_at_median_nr": _empty_if_none(entry.get("expected_net_at_median_nr")),
         "keep": "",
     }
 
@@ -124,7 +149,7 @@ def _signal_rank(row: dict) -> int:
 
 
 def _volume_desc(row: dict) -> int:
-    """Descending volume via negation. Empty/missing volume sorts last."""
+    """Descending volume via negation. Missing/zero volume sorts last."""
     v = row.get("volume")
     return -(v if isinstance(v, (int, float)) else 0)
 
@@ -136,6 +161,7 @@ _SORT_FIELD_FNS: dict[str, Callable[[dict], object]] = {
     "median_desc": lambda r: -(r.get("median") if isinstance(r.get("median"), (int, float)) else 0),
     "reference": lambda r: r.get("reference", ""),
     "brand": lambda r: r.get("brand", ""),
+    "bucket_key": _bucket_key_str,
 }
 
 
@@ -155,13 +181,7 @@ def _sort_key_fn(sort_key: str) -> Callable[[dict], tuple]:
 
 
 def _atomic_write_csv(rows: list[dict], fieldnames: list[str], path: str) -> None:
-    """tmp + fsync + os.replace. Tmp cleaned up on OSError.
-
-    Ports the durability posture from
-    ``backfill_ledger.write_ledger_atomic``: a kill -9 or power loss
-    after ``os.replace`` cannot surface a rename-completed-but-contents-
-    truncated CSV.
-    """
+    """tmp + fsync + os.replace. Tmp cleaned up on OSError."""
     parent = os.path.dirname(path) or "."
     os.makedirs(parent, exist_ok=True)
     tmp_path = path + ".tmp"
@@ -191,34 +211,37 @@ def run(
     """Write ``cycle_shortlist_<cycle_id>.csv``. Return the output path.
 
     all_references:
-        The cache's ``references`` sub-dict (ref-id → per-reference
-        entry). DJ configs are NOT emitted — the shortlist tracks only
-        top-level references (scored refs with 3+ sales per A.2
-        ``min_sales_for_scoring``). ``write_cache`` already drops
-        unscored refs upstream, so this function trusts its input.
+        The cache's ``references`` sub-dict (ref-id -> v3 per-reference
+        entry). Each entry carries a ``buckets`` sub-dict; one CSV row
+        is emitted per bucket. DJ configs are not emitted.
     cycle_id:
         Passed by the orchestrator; used in the filename. Standalone
         CLI derives from the cache's top-level ``cycle_id``.
     state_path:
-        Directory for the CSV. Defaults to ``STATE_PATH``. Tests pass
-        a tmp path.
+        Output directory. Defaults to ``STATE_PATH``. Tests pass a tmp path.
     sort_key:
-        Comma-separated field spec. Default
-        ``"signal,volume_desc"``: signal order Strong → Low data, then
-        descending volume.
+        Comma-separated field spec. Default ``"signal,volume_desc"``.
+        ``reference`` and ``bucket_key`` are always appended as tiebreaks
+        for determinism regardless of sort_key.
     """
     target_dir = state_path or STATE_PATH
     output_path = os.path.join(target_dir, f"cycle_shortlist_{cycle_id}.csv")
 
-    rows = [_flatten_row(ref, entry) for ref, entry in all_references.items()]
-    rows.sort(key=_sort_key_fn(sort_key))
+    rows: list[dict] = []
+    for ref_entry in all_references.values():
+        for bk, bucket in ref_entry.get("buckets", {}).items():
+            rows.append(_flatten_row(ref_entry, bk, bucket))
 
-    # Attributes on the caller's span (orchestrator's
-    # ``build_shortlist.run`` span, or ``main()``'s). Silent no-op
-    # outside any span context. Matches the write_cache convention.
+    primary_fn = _sort_key_fn(sort_key)
+
+    def _full_sort_key(row: dict) -> tuple:
+        return primary_fn(row) + (row.get("reference", ""), _bucket_key_str(row))
+
+    rows.sort(key=_full_sort_key)
+
     span = get_current_span()
     span.set_attribute("cycle_id", cycle_id)
-    span.set_attribute("row_count", len(rows))
+    span.set_attribute("row_count", len(rows))  # v3: bucket count, not reference count
     span.set_attribute("sort_key", sort_key)
     span.set_attribute("output_path", output_path)
 
@@ -247,9 +270,8 @@ def main() -> int:
     parser.add_argument(
         "--sort-key", default=DEFAULT_SORT_KEY,
         help=(
-            "Comma-separated sort spec. Fields: signal, volume, "
-            "volume_desc, median_desc, reference, brand. Default: "
-            f"{DEFAULT_SORT_KEY}"
+            "Comma-separated sort spec. Fields: signal, volume, volume_desc, "
+            f"median_desc, reference, brand, bucket_key. Default: {DEFAULT_SORT_KEY}"
         ),
     )
     args = parser.parse_args()

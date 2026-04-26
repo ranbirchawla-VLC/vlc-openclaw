@@ -303,25 +303,16 @@ def run_analysis(
     # Sibling artifact to the cache; writes to the cache's parent
     # directory when --cache overrides the default. Reads ``references``
     # from the just-written cache file, NOT from in-memory ``all_results``.
-    # 2c-restore: build_shortlist reads the v2 flat per-ref shape; skipped
-    # in v3 until the bucket read-path is implemented in 2c.
     resolved_cache_path = cache_path or CACHE_PATH
     shortlist_state_path = str(Path(resolved_cache_path).parent)
-    with tracer.start_as_current_span("build_shortlist.run") as span:
-        try:
-            with open(resolved_cache_path, "r", encoding="utf-8") as f:
-                cache_dict = json.load(f)
-            build_shortlist.run(
-                cache_dict.get("references", {}),
-                cycle_id=current_cycle_id,
-                state_path=shortlist_state_path,
-            )
-        except Exception as exc:
-            span.record_exception(exc)
-            span.set_attribute("outcome", "skipped_2c_restore")
-            _log.warning(
-                "build_shortlist.run skipped (2c-restore; v3 bucket read-path): %s", exc,
-            )
+    with tracer.start_as_current_span("build_shortlist.run"):
+        with open(resolved_cache_path, "r", encoding="utf-8") as f:
+            cache_dict = json.load(f)
+        build_shortlist.run(
+            cache_dict.get("references", {}),
+            cycle_id=current_cycle_id,
+            state_path=shortlist_state_path,
+        )
 
     return {
         "summary_path": summary_path,

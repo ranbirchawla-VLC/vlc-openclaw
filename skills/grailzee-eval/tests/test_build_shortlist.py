@@ -1,4 +1,4 @@
-"""Tests for scripts.build_shortlist — v3 bucket-row shape (Wave 1.1).
+"""Tests for scripts.build_shortlist: v3 bucket-row shape (Wave 1.1).
 
 Covers:
 - Exact 30-column header in spec order (v3 contract).
@@ -30,9 +30,7 @@ from unittest.mock import patch
 
 import pytest
 
-# 2c-restore: build_shortlist reads flat per-ref shape; all tests skip until
-# 2c restores the bucket read-path in _flatten_row.
-pytestmark = pytest.mark.skip(reason="2c-restore: build_shortlist reads v2 flat per-ref shape")
+# Wave 1.1: pytestmark removed; bucket read-path implemented.
 
 from scripts import build_shortlist
 from scripts.build_shortlist import (
@@ -822,17 +820,36 @@ class TestFilename:
 
 class TestRowCount:
     def test_row_count_equals_total_bucket_count(self, tmp_path):
-        """50 refs each with 1 bucket = 50 rows."""
-        refs = {
-            f"R{i:03d}": _cache_entry(
-                f"R{i:03d}",
+        """Row count is bucket count, not reference count.
+
+        10 single-bucket refs + 5 two-bucket refs = 10 + 10 = 20 rows.
+        Against v2 this returns 15 (one row per ref), catching the
+        shape regression.
+        """
+        single = {
+            f"S{i:02d}": _cache_entry(
+                f"S{i:02d}",
                 buckets={_bk("Arabic", "nr", "black"): _bucket()},
             )
-            for i in range(50)
+            for i in range(10)
         }
+        double = {
+            f"D{i:02d}": _cache_entry(
+                f"D{i:02d}",
+                buckets={
+                    _bk("Arabic", "nr", "black"): _bucket(auction_type="nr"),
+                    _bk("Arabic", "res", "black"): _bucket(
+                        dial_numerals="Arabic", auction_type="res", dial_color="black",
+                        signal="Reserve", volume=5,
+                    ),
+                },
+            )
+            for i in range(5)
+        }
+        refs = {**single, **double}
         out = run(refs, cycle_id="cycle_2026-06", state_path=str(tmp_path))
         _, rows = _read_csv(out)
-        assert len(rows) == 50
+        assert len(rows) == 20
 
     def test_empty_references_writes_header_only(self, tmp_path):
         out = run({}, cycle_id="cycle_2026-06", state_path=str(tmp_path))

@@ -409,8 +409,8 @@ class TestShortlistEmitted:
         expected = cache_dir / f"cycle_shortlist_{result['cycle_id']}.csv"
         assert expected.exists(), f"shortlist CSV missing at {expected}"
 
-    def test_shortlist_row_count_matches_cache_references(self, tmp_path):
-        """Every reference in the cache appears as exactly one shortlist row."""
+    def test_shortlist_row_count_matches_total_buckets(self, tmp_path):
+        """Every bucket in the cache appears as exactly one shortlist row."""
         import csv as _csv
         kwargs = _setup(tmp_path)
         result = run_analysis(**kwargs)
@@ -420,4 +420,7 @@ class TestShortlistEmitted:
         with open(shortlist, "r", encoding="utf-8", newline="") as f:
             reader = _csv.DictReader(f)
             rows = list(reader)
-        assert len(rows) == len(cache["references"])
+        total_buckets = sum(
+            len(re["buckets"]) for re in cache["references"].values()
+        )
+        assert len(rows) == total_buckets
