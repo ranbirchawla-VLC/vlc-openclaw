@@ -179,15 +179,23 @@ def _validate_cycle_focus(section: Any, path: str) -> None:
     _require_string(section["notes"], f"{path}.notes")
 
 
+_MONTHLY_GOALS_REQUIRED = (
+    "month", "revenue_target", "volume_target", "platform_mix", "focus_notes", "review_notes",
+)
+_MONTHLY_GOALS_OPTIONAL = ("monthly_return_pct",)
+
+
 def _validate_monthly_goals(section: Any, path: str) -> None:
     if section is None:
         return
     _require_object(section, path)
-    _require_exact_keys(
-        section,
-        ("month", "revenue_target", "volume_target", "platform_mix", "focus_notes", "review_notes"),
-        path,
-    )
+    present = set(section.keys())
+    missing = set(_MONTHLY_GOALS_REQUIRED) - present
+    if missing:
+        _fail(path, f"missing required keys: {sorted(missing)!r}")
+    extra = present - set(_MONTHLY_GOALS_REQUIRED) - set(_MONTHLY_GOALS_OPTIONAL)
+    if extra:
+        _fail(path, f"unknown keys rejected: {sorted(extra)!r}")
     _require_string(section["month"], f"{path}.month", min_length=1)
     if not MONTH_PATTERN.match(section["month"]):
         _fail(f"{path}.month", f"must match ^[0-9]{{4}}-[0-9]{{2}}$, got {section['month']!r}")
@@ -213,6 +221,16 @@ def _validate_monthly_goals(section: Any, path: str) -> None:
 
     _require_string(section["focus_notes"], f"{path}.focus_notes")
     _require_string(section["review_notes"], f"{path}.review_notes")
+
+    mrp = section.get("monthly_return_pct")
+    if mrp is not None:
+        _require_number(mrp, f"{path}.monthly_return_pct")
+        if not (0 < mrp < 1):
+            _fail(
+                f"{path}.monthly_return_pct",
+                f"must be in (0, 1) exclusive; got {mrp}. "
+                f"This field is a fraction (0.12 = 12%), not a percentage.",
+            )
 
 
 def _validate_quarterly_allocation(section: Any, path: str) -> None:

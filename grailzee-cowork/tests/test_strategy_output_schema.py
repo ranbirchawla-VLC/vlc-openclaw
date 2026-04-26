@@ -393,6 +393,74 @@ def test_bool_rejected_where_integer_expected() -> None:
         validate_strategy_output(p)
 
 
+# ─── monthly_return_pct (Step 0 Schema 1 amendment) ─────────────────
+
+
+def _payload_with_monthly_goals(monthly_goals: dict) -> dict:
+    p = _valid_minimal_payload()
+    p["decisions"]["monthly_goals"] = monthly_goals
+    return p
+
+
+def test_monthly_return_pct_valid_fraction_accepted() -> None:
+    """0.12 (12%) is within (0, 1) exclusive."""
+    mg = _valid_monthly_goals()
+    mg["monthly_return_pct"] = 0.12
+    validate_strategy_output(_payload_with_monthly_goals(mg))
+
+
+def test_monthly_return_pct_null_accepted() -> None:
+    """null is explicitly accepted (optional field with oneOf null)."""
+    mg = _valid_monthly_goals()
+    mg["monthly_return_pct"] = None
+    validate_strategy_output(_payload_with_monthly_goals(mg))
+
+
+def test_monthly_return_pct_absent_accepted() -> None:
+    """Absent field is accepted; monthly_return_pct is optional."""
+    mg = _valid_monthly_goals()
+    assert "monthly_return_pct" not in mg
+    validate_strategy_output(_payload_with_monthly_goals(mg))
+
+
+def test_monthly_return_pct_zero_rejected() -> None:
+    """0 is not > 0 (exclusiveMinimum)."""
+    mg = _valid_monthly_goals()
+    mg["monthly_return_pct"] = 0
+    with pytest.raises(StrategyOutputValidationError, match="monthly_return_pct"):
+        validate_strategy_output(_payload_with_monthly_goals(mg))
+
+
+def test_monthly_return_pct_one_rejected() -> None:
+    """1 is not < 1 (exclusiveMaximum)."""
+    mg = _valid_monthly_goals()
+    mg["monthly_return_pct"] = 1
+    with pytest.raises(StrategyOutputValidationError, match="monthly_return_pct"):
+        validate_strategy_output(_payload_with_monthly_goals(mg))
+
+
+def test_monthly_return_pct_negative_rejected() -> None:
+    mg = _valid_monthly_goals()
+    mg["monthly_return_pct"] = -0.1
+    with pytest.raises(StrategyOutputValidationError, match="monthly_return_pct"):
+        validate_strategy_output(_payload_with_monthly_goals(mg))
+
+
+def test_monthly_return_pct_above_one_rejected() -> None:
+    mg = _valid_monthly_goals()
+    mg["monthly_return_pct"] = 1.5
+    with pytest.raises(StrategyOutputValidationError, match="monthly_return_pct"):
+        validate_strategy_output(_payload_with_monthly_goals(mg))
+
+
+def test_monthly_return_pct_percentage_integer_rejected() -> None:
+    """12 (as a percentage rather than fraction) is above 1 and rejected."""
+    mg = _valid_monthly_goals()
+    mg["monthly_return_pct"] = 12
+    with pytest.raises(StrategyOutputValidationError, match="monthly_return_pct"):
+        validate_strategy_output(_payload_with_monthly_goals(mg))
+
+
 # ─── schema file well-formedness ─────────────────────────────────────
 
 def test_schema_file_is_valid_json() -> None:

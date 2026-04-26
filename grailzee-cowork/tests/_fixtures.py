@@ -62,6 +62,20 @@ def _default_monthly_goals() -> dict[str, Any]:
     }
 
 
+def _monthly_goals_with_return_pct(monthly_return_pct: float = 0.12) -> dict[str, Any]:
+    """Monthly goals fixture with monthly_return_pct set.
+
+    ``monthly_return_pct`` is a fraction in (0, 1) exclusive. Default 0.12
+    (12%). Used to exercise the optional field added in Step 0 Schema 1.
+    """
+    return {
+        "month": "2026-05",
+        "revenue_target": 45000,
+        "deal_count_target": 7,
+        "monthly_return_pct": monthly_return_pct,
+    }
+
+
 def _default_quarterly_allocation() -> dict[str, Any]:
     return {
         "quarter": "2026-Q2",

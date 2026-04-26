@@ -17,26 +17,34 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent.parent
 REPO_ROOT = HERE.parent
 
-STRATEGY_SCHEMA = HERE / "schema" / "strategy_output_v1.json"
-COWORK_SCHEMA = REPO_ROOT / "grailzee-cowork" / "schema" / "strategy_output_v1.json"
+SCHEMA_PAIRS: list[tuple[Path, Path]] = [
+    (
+        HERE / "schema" / "strategy_output_v1.json",
+        REPO_ROOT / "grailzee-cowork" / "schema" / "strategy_output_v1.json",
+    ),
+    (
+        HERE / "schema" / "cycle_shortlist_v1.json",
+        REPO_ROOT / "grailzee-cowork" / "schema" / "cycle_shortlist_v1.json",
+    ),
+]
 
 
-def main() -> int:
-    for path in (STRATEGY_SCHEMA, COWORK_SCHEMA):
+def _check_pair(strategy: Path, cowork: Path) -> int:
+    for path in (strategy, cowork):
         if not path.exists():
             print(f"MISSING: {path}", file=sys.stderr)
             return 2
 
-    strategy_bytes = STRATEGY_SCHEMA.read_bytes()
-    cowork_bytes = COWORK_SCHEMA.read_bytes()
+    strategy_bytes = strategy.read_bytes()
+    cowork_bytes = cowork.read_bytes()
 
     if strategy_bytes == cowork_bytes:
-        print(f"OK: {STRATEGY_SCHEMA.name} byte-identical across both plugins.")
+        print(f"OK: {strategy.name} byte-identical across both plugins.")
         return 0
 
-    print("DRIFT: schema copies differ.", file=sys.stderr)
-    print(f"  strategy: {STRATEGY_SCHEMA}", file=sys.stderr)
-    print(f"  cowork:   {COWORK_SCHEMA}", file=sys.stderr)
+    print(f"DRIFT: {strategy.name} copies differ.", file=sys.stderr)
+    print(f"  strategy: {strategy}", file=sys.stderr)
+    print(f"  cowork:   {cowork}", file=sys.stderr)
     print(
         f"  sizes: {len(strategy_bytes)} vs {len(cowork_bytes)} bytes",
         file=sys.stderr,
@@ -46,6 +54,15 @@ def main() -> int:
         file=sys.stderr,
     )
     return 1
+
+
+def main() -> int:
+    result = 0
+    for strategy, cowork in SCHEMA_PAIRS:
+        rc = _check_pair(strategy, cowork)
+        if rc != 0:
+            result = rc
+    return result
 
 
 if __name__ == "__main__":

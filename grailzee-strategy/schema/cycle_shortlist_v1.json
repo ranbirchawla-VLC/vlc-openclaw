@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://grailzee-cowork.local/schema/cycle_shortlist_v1.json",
+  "title": "Grailzee Cycle Shortlist CSV v1",
+  "description": "Column contract for cycle_shortlist_<cycle_id>.csv. One row per (reference x bucket). Reference-level fields repeat across rows for the same reference. Header row required; column order fixed. Captured from build_shortlist.py output as canonical authority (30 columns, Wave 1.1).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["csv_version", "shape", "columns"],
+  "properties": {
+    "csv_version": {
+      "const": 1,
+      "description": "Schema version pinned to 1."
+    },
+    "shape": {
+      "const": "bucket_row",
+      "description": "One row per (reference x bucket). Reference-level fields repeat across rows."
+    },
+    "columns": {
+      "type": "array",
+      "description": "Ordered column inventory. Position in array equals column position in CSV header.",
+      "items": {
+        "type": "object",
+        "required": ["name", "type", "nullable", "level"],
+        "properties": {
+          "name":        {"type": "string"},
+          "type":        {"enum": ["string", "integer", "number", "boolean"]},
+          "nullable":    {"type": "boolean"},
+          "level":       {"enum": ["reference", "bucket", "trend", "metadata"]},
+          "description": {"type": "string"}
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "csv_version": 1,
+      "shape": "bucket_row",
+      "columns": []
+    }
+  ],
+  "csv_version": 1,
+  "shape": "bucket_row",
+  "columns": [
+    {"name": "brand",                    "type": "string",  "nullable": false, "level": "reference", "description": "Brand name. Repeats across all bucket rows for the same reference."},
+    {"name": "reference",               "type": "string",  "nullable": false, "level": "reference", "description": "Reference number (canonical form). Repeats across bucket rows."},
+    {"name": "model",                    "type": "string",  "nullable": false, "level": "reference", "description": "Model name from name_cache. Repeats across bucket rows."},
+    {"name": "dial_numerals",            "type": "string",  "nullable": false, "level": "bucket",    "description": "Keying axis. Canonical dial numerals label (e.g. Arabic, Roman, No Numerals). Case-preserved from ingest."},
+    {"name": "auction_type",             "type": "string",  "nullable": false, "level": "bucket",    "description": "Keying axis. Auction type, lowercased (nr or res)."},
+    {"name": "dial_color",               "type": "string",  "nullable": false, "level": "bucket",    "description": "Keying axis. Canonical dial color (e.g. black, white, unknown). Case-preserved from ingest."},
+    {"name": "named_special",            "type": "string",  "nullable": true,  "level": "bucket",    "description": "Named-special metadata (e.g. Panda, Tiffany). Empty string when none."},
+    {"name": "signal",                   "type": "string",  "nullable": false, "level": "bucket",    "description": "Bucket signal label: Strong, Normal, Reserve, Careful, Pass, Low data. Always present; Low data when volume < min_sales_for_scoring."},
+    {"name": "median",                   "type": "number",  "nullable": true,  "level": "bucket",    "description": "Hammer price median for this bucket. Empty when signal=Low data."},
+    {"name": "max_buy_nr",               "type": "number",  "nullable": true,  "level": "bucket",    "description": "Max buy price targeting median profit, No Reserve. Empty when signal=Low data."},
+    {"name": "max_buy_res",              "type": "number",  "nullable": true,  "level": "bucket",    "description": "Max buy price targeting median profit, Reserve. Empty when signal=Low data."},
+    {"name": "st_pct",                   "type": "number",  "nullable": true,  "level": "bucket",    "description": "Sell-through percentage for this bucket. Empty when no data."},
+    {"name": "volume",                   "type": "integer", "nullable": false, "level": "bucket",    "description": "Number of sales in this bucket. Always present including Low data buckets."},
+    {"name": "risk_nr",                  "type": "number",  "nullable": true,  "level": "bucket",    "description": "Historical probability of a sub-breakeven No Reserve hammer. Empty when signal=Low data."},
+    {"name": "capital_required_nr",      "type": "number",  "nullable": true,  "level": "bucket",    "description": "Capital required at max_buy_nr (includes fees). Empty when signal=Low data."},
+    {"name": "capital_required_res",     "type": "number",  "nullable": true,  "level": "bucket",    "description": "Capital required at max_buy_res (includes fees). Empty when signal=Low data."},
+    {"name": "expected_net_at_median_nr","type": "number",  "nullable": true,  "level": "bucket",    "description": "Expected net profit selling at median from No Reserve position. Empty when signal=Low data."},
+    {"name": "expected_net_at_median_res","type": "number", "nullable": true,  "level": "bucket",    "description": "Expected net profit selling at median from Reserve position. Empty when signal=Low data."},
+    {"name": "trend_signal",             "type": "string",  "nullable": true,  "level": "trend",     "description": "Cross-cycle trend direction label. Empty on single-report run."},
+    {"name": "trend_median_change",      "type": "number",  "nullable": true,  "level": "trend",     "description": "Absolute median change from prior period. Empty on single-report run."},
+    {"name": "trend_median_pct",         "type": "number",  "nullable": true,  "level": "trend",     "description": "Percentage median change from prior period. Empty on single-report run."},
+    {"name": "momentum_score",           "type": "number",  "nullable": true,  "level": "trend",     "description": "Momentum score (integer in practice). Repeats across bucket rows. Empty when no trend data."},
+    {"name": "momentum_label",           "type": "string",  "nullable": true,  "level": "trend",     "description": "Momentum label (e.g. Heating, Cooling). Repeats across bucket rows. Empty when no trend data."},
+    {"name": "confidence_trades",        "type": "integer", "nullable": true,  "level": "reference", "description": "Count of Vardalux trades on this reference. Repeats across bucket rows. Empty when no trades."},
+    {"name": "confidence_profitable",    "type": "integer", "nullable": true,  "level": "reference", "description": "Count of profitable trades. Repeats across bucket rows. Empty when no trades."},
+    {"name": "confidence_win_rate",      "type": "number",  "nullable": true,  "level": "reference", "description": "Win rate as percentage (0-100). Repeats across bucket rows. Empty when no trades."},
+    {"name": "confidence_avg_roi",       "type": "number",  "nullable": true,  "level": "reference", "description": "Average ROI percentage across trades. Repeats across bucket rows. Empty when no trades."},
+    {"name": "confidence_avg_premium",   "type": "number",  "nullable": true,  "level": "reference", "description": "Average premium over median across trades. Repeats. Empty when no trades or insufficient data."},
+    {"name": "confidence_last_trade",    "type": "string",  "nullable": true,  "level": "reference", "description": "ISO date of most recent trade (YYYY-MM-DD). Repeats. Empty when no trades."},
+    {"name": "keep",                     "type": "string",  "nullable": true,  "level": "metadata",  "description": "Strategy session marker. Always empty at CSV generation; filled during keep/strike pass."}
+  ]
+}

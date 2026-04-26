@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://grailzee-cowork.local/schema/strategy_output_v1.json",
   "title": "Grailzee Strategy Output v1",
-  "description": "Canonical spec for the strategy_output.json payload produced by the grailzee-strategy Chat skill and consumed by the grailzee-cowork INBOUND mode. The authoritative copy lives at grailzee-cowork/schema/; grailzee-strategy/schema/ carries a byte-identical copy for Chat-side reference. The runtime validator is a hand-rolled Python implementation in grailzee-cowork/grailzee_bundle/strategy_schema.py — not this JSON file — so this file serves as the human-readable specification.",
+  "description": "Canonical spec for the strategy_output.json payload produced by the grailzee-strategy Chat skill and consumed by the grailzee-cowork INBOUND mode. The authoritative copy lives at grailzee-cowork/schema/; grailzee-strategy/schema/ carries a byte-identical copy for Chat-side reference. The runtime validator is a hand-rolled Python implementation in grailzee-cowork/grailzee_bundle/strategy_schema.py; this file serves as the human-readable specification.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -100,6 +100,17 @@
               "required": ["month", "revenue_target", "volume_target", "platform_mix", "focus_notes", "review_notes"],
               "properties": {
                 "month": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}$"},
+                "monthly_return_pct": {
+                  "oneOf": [
+                    {"type": "null"},
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "exclusiveMaximum": 1
+                    }
+                  ],
+                  "description": "Operator's target monthly return on Grailzee-deployed capital, expressed as fraction in (0, 1) exclusive. Example: 0.12 means 12%. Set at strategy session on month boundary; read at next strategy session for evaluation. Optional; null when no target set or unchanged from prior month."
+                },
                 "revenue_target": {"type": "number", "minimum": 0},
                 "volume_target": {"type": "integer", "minimum": 0},
                 "platform_mix": {
