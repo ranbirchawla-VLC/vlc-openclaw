@@ -22,15 +22,19 @@ class TestGrailzeeRootEnvVar:
     def _restore_module(self):
         """Reload grailzee_common after each test.
 
-        Pops GRAILZEE_ROOT before reload so the module reverts to the default
-        regardless of fixture teardown order, then restores the original value.
+        Monkeypatch reverts GRAILZEE_ROOT before this teardown runs (LIFO
+        fixture order), so the pop is a no-op in normal operation. The
+        try/finally ensures the env var is restored even if the reload
+        itself throws; without it a failed reload would leave saved unset.
         """
         yield
         import scripts.grailzee_common as mod
         saved = os.environ.pop("GRAILZEE_ROOT", None)
-        importlib.reload(mod)
-        if saved is not None:
-            os.environ["GRAILZEE_ROOT"] = saved
+        try:
+            importlib.reload(mod)
+        finally:
+            if saved is not None:
+                os.environ["GRAILZEE_ROOT"] = saved
 
     def test_grailzee_root_default(self, monkeypatch):
         """With GRAILZEE_ROOT unset, GRAILZEE_ROOT equals the hardcoded default."""
