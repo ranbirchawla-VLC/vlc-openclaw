@@ -25,10 +25,9 @@ from typing import Any, Optional
 
 # ─── Paths ────────────────────────────────────────────────────────────
 
-GRAILZEE_ROOT = (
-    "/Users/ranbirchawla/Library/CloudStorage/"
-    "GoogleDrive-ranbir.chawla@rnvillc.com/Shared drives/"
-    "Vardalux Shared Drive/GrailzeeData"
+GRAILZEE_ROOT = os.getenv(
+    "GRAILZEE_ROOT",
+    "/Users/ranbirchawla/Library/CloudStorage/GoogleDrive-ranbir.chawla@rnvillc.com/Shared drives/Vardalux Shared Drive/GrailzeeData",
 )
 REPORTS_PATH  = f"{GRAILZEE_ROOT}/reports"
 CSV_PATH      = f"{GRAILZEE_ROOT}/reports_csv"
