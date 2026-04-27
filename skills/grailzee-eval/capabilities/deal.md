@@ -12,6 +12,24 @@ Message contains a brand + reference + dollar amount. Examples:
 "Tudor 79830RB at $2,750"; "Can I buy this Omega 210.30 for 3200?";
 "Breitling A17320 $2,400 Black Arabic NR".
 
+## Verbatim Render Rule
+
+Label fields (`match_resolution_label`, `plan_status_label`, `bucket_label`,
+`candidate_bucket_labels`) are already human-facing strings computed by the
+tool. Render them exactly as returned. Do not paraphrase.
+
+Correct:   `plan_status_label` is "Off cycle plan" → write "Off cycle plan"
+Incorrect: "off the active cycle plan" (paraphrase — wrong)
+
+Correct:   `match_resolution_label` is "Reference not in cache" → write "Reference not in cache"
+Incorrect: "No match found" or "Unknown reference" (paraphrase — wrong)
+
+Correct:   `candidate_bucket_labels[i]` is "Black dial, No Numerals, nr" → write "Black dial, No Numerals, nr"
+Incorrect: "Black No-Reserve" or any reordering (reformatted — wrong)
+
+Em-dashes are banned in all responses without exception. Use a period,
+comma, colon, or semicolon instead.
+
 ## Workflow
 
 ### Step 1: Parse the input
@@ -60,7 +78,7 @@ Decision is `yes` or `no` from the tool. Surface the verbatim numbers
 from `math`:
 
 - `listing_price`
-- `adjusted_price` (median × (1 + premium_scalar))
+- `adjusted_price` (median x (1 + premium_scalar))
 - `max_buy`
 - `margin_pct`
 
@@ -88,7 +106,8 @@ Signal {signal} | {volume} sales
 {plan_status_label}{; cycle_reason when on plan.}
 
 {One-paragraph framing in operator voice; grounded in fees, premium scalar,
-and target margin. Never compose math; reuse the verbatim numbers above.}
+and target margin. Never compose math; reuse the verbatim numbers above.
+No em-dashes.}
 ```
 
 On `decision: "no"` end the response with one line:
@@ -100,43 +119,44 @@ builds comp-search properly.
 
 ## Branch B: ambiguous
 
-The reference has multiple buckets and the operator did not name
-enough axes to narrow. Tool returns `candidates`. Ask one clarifying
-question that surfaces the differentiating axis. Do not guess; do not
-return a decision.
-
-Example:
+The reference has multiple buckets and the operator did not name enough
+axes to narrow. Use this template exactly:
 
 ```
-{Brand} {reference}: which one are you looking at?
+{Brand} {reference}: {match_resolution_label}
 - {candidate_bucket_labels[0]}
 - {candidate_bucket_labels[1]}
-(one entry per candidate)
+(one item per candidate, each verbatim from candidate_bucket_labels)
 ```
 
-Render each `candidate_bucket_labels` entry verbatim as a list item.
-Operator answers and you call `evaluate_deal` again with the named axis.
+Do not substitute your own question for `match_resolution_label`. Do not
+summarize, reword, or reorder `candidate_bucket_labels` items. Operator
+answers and you call `evaluate_deal` again with the named axis.
 
 ## Branch C: no_match
 
-Operator named axes that don't match any bucket for this reference.
-Surface what's available so they can correct.
+Operator named axes that don't match any bucket for this reference. Use
+this template exactly:
 
 ```
-{Brand} {reference} doesn't have a bucket matching {axes you sent}.
-Available: {list bucket axes the reference does have}.
+{Brand} {reference}: {match_resolution_label}
+Sent: {axes passed to the tool}.
+Comp search not yet wired.
 ```
 
-End with: `Comp search not yet wired.`
+Do not substitute your own phrasing for `match_resolution_label`. The
+cache does not return available-bucket axes on no_match; do not invent them.
 
 ## Branch D: reference_not_found
 
-The reference is not in the v3 cache.
+The reference is not in the v3 cache. Use this template exactly:
 
 ```
-No Grailzee data for {brand} {reference}; not in the current cycle's window.
+{Brand} {reference}: {match_resolution_label}
 Comp search not yet wired.
 ```
+
+Do not substitute your own phrasing for `match_resolution_label`.
 
 ## Branch E: error
 
@@ -154,10 +174,13 @@ No raw stack traces.
   dial_numerals / auction_type / dial_color from the operator's message.
 - Call `evaluate_deal` with parsed values; pass an axis only when named.
 - Branch A: render `bucket_label` and `plan_status_label` verbatim;
-  surface verbatim numbers from `math`; deliver framing in operator voice.
-- Branch B: render each `candidate_bucket_labels` entry verbatim; ask one
-  clarifying question grounded in the candidate list.
-- Branch C / D / E: surface the resolution cleanly.
+  surface verbatim numbers from `math`; deliver framing in operator voice;
+  no em-dashes.
+- Branch B: use the template exactly; render `match_resolution_label`
+  verbatim; render each `candidate_bucket_labels` entry verbatim.
+- Branch C / D: use the templates exactly; render `match_resolution_label`
+  verbatim; end with "Comp search not yet wired."
+- Branch E: surface the error message cleanly.
 
 ## What the LLM Does NOT Do
 
@@ -166,11 +189,13 @@ No raw stack traces.
 - Compose or interpret enum codes, booleans, or bucket axes. Render
   `match_resolution_label`, `plan_status_label`, `bucket_label`, and
   `candidate_bucket_labels` verbatim per AA §2.7.1.
+- Paraphrase label fields. "Off cycle plan" is not "off the active cycle
+  plan". "Reference not in cache" is not "No match found". Render exactly.
 - Re-apply the premium scalar; it is already baked into `adjusted_price`
   and `max_buy`.
 - Override the tool's yes/no.
 - Force a recommendation when match_resolution is anything other than
   single_bucket.
 - Invent comp-search results. Comp search is not wired this cycle.
-- Use em-dashes anywhere; semicolons in their place per CLAUDE.md voice
-  rules.
+- Use em-dashes anywhere. Period. Use a period, comma, colon, or semicolon
+  instead.
