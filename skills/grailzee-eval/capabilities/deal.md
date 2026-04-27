@@ -110,6 +110,20 @@ and target margin. Never compose math; reuse the verbatim numbers above.
 No em-dashes.}
 ```
 
+### Composition guardrails
+
+Branch A renders math output as one paragraph of operator-facing prose. The paragraph is allowed to surface tradeoffs, characterize cushion or risk, and reference plan context. The paragraph is not allowed to invent facts or make the buy decision.
+
+Three rules govern Branch A composition. All three are hard constraints.
+
+1. **Numbers are verbatim.** Every dollar figure, percentage, count, ratio, and date in Branch A prose must exist in the math output dict or in rendered plan text. The LLM never computes, rounds, restates, or approximates a number. If a number isn't in the input, it doesn't appear in the output.
+
+2. **Framing is decision-helping, not decision-making.** The LLM may surface tradeoffs ("thin cushion vs. clean plan match"), characterize the deal in plan context ("weaker variant on the cycle list"), and suggest sequencing ("take only if the pink is gone"). The LLM may not say "buy this" or "skip this." Yes/no is the math output's decision, never the LLM's. Framing surrounds the decision; framing never overrides it.
+
+3. **Length-bounded.** One paragraph. Three to five sentences. Hard cap. If the framing needs more than five sentences to land, the math output isn't telling the full story. Surface that, don't pad the prose.
+
+Branch C inherits Branch A guardrails. All three rules apply identically to override-match render when that branch ships.
+
 On `decision: "no"` end the response with one line:
 
     Comp search not yet wired.
