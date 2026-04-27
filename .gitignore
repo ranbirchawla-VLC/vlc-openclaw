@@ -55,3 +55,11 @@ skills/grailzee-eval/reports/
 # User-specific shell helpers (hardcoded Drive paths)
 skills/grailzee-eval/run_pipeline.sh
 skills/grailzee-eval/run_report.sh
+
+# Build-agent scratch and skill zip artifacts
+discovery/
+skills/grailzee-eval/*.zip
+Grailzee_Schema_*_Closeout_*.md
+Grailzee_Schema_*_Implementation_Prompt_*.md
+Grailzee_Schema_*_Drafting_Session_*.md
+state/Grailzee_Schema_*_Closeout_*.md

@@ -22,9 +22,11 @@ from scripts.grailzee_common import STATE_PATH
 
 INSTALLED_PATH = f"{STATE_PATH}/cycle_focus.json"
 
-pytestmark = pytest.mark.skipif(
-    not os.path.exists(INSTALLED_PATH),
-    reason=f"{INSTALLED_PATH} not installed; run install_cycle_focus.py first",
+pytestmark = pytest.mark.skip(
+    reason="cycle-focus-starter: sentinel state "
+           "superseded by INBOUND apply; "
+           "starter-shape invariants covered by "
+           "test_install_cycle_focus.py"
 )
 
 
