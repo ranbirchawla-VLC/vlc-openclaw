@@ -19,13 +19,13 @@ Label fields (`match_resolution_label`, `plan_status_label`, `bucket_label`,
 tool. Render them exactly as returned. Do not paraphrase.
 
 Correct:   `plan_status_label` is "Off cycle plan" → write "Off cycle plan"
-Incorrect: "off the active cycle plan" (paraphrase — wrong)
+Incorrect: "off the active cycle plan" (paraphrase; wrong)
 
 Correct:   `match_resolution_label` is "Reference not in cache" → write "Reference not in cache"
-Incorrect: "No match found" or "Unknown reference" (paraphrase — wrong)
+Incorrect: "No match found" or "Unknown reference" (paraphrase; wrong)
 
 Correct:   `candidate_bucket_labels[i]` is "Black dial, No Numerals, nr" → write "Black dial, No Numerals, nr"
-Incorrect: "Black No-Reserve" or any reordering (reformatted — wrong)
+Incorrect: "Black No-Reserve" or any reordering (reformatted; wrong)
 
 Em-dashes are banned in all responses without exception. Use a period,
 comma, colon, or semicolon instead.
@@ -54,11 +54,11 @@ this shape:
   "reference": "...",
   "bucket": {dial_numerals, auction_type, dial_color, named_special, signal, volume} | null,
   "math": {listing_price, premium_scalar, adjusted_price, max_buy, margin_pct} | null,
-  "cycle_context": {on_plan: bool, target_match: {...} | null},
+  "cycle_context": {on_plan: bool | null, target_match: {...} | null},
   "match_resolution": "single_bucket" | "ambiguous" | "no_match" | "reference_not_found" | "error",
   "candidates": [bucket, ...]   // only on ambiguous
   "match_resolution_label": str,
-  "plan_status_label": "On cycle plan" | "Off cycle plan" | null,
+  "plan_status_label": "On cycle plan" | "Off cycle plan" | "Lookup error" | null,
   "bucket_label": str | null,
   "candidate_bucket_labels": [str, ...]   // only on ambiguous
 }

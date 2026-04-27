@@ -30,6 +30,19 @@ V2_ROOT = SCRIPT_DIR.parent
 if str(V2_ROOT) not in sys.path:
     sys.path.insert(0, str(V2_ROOT))
 
+_WORKSPACE_ROOT = V2_ROOT.parent.parent
+_COWORK = _WORKSPACE_ROOT / "grailzee-cowork"
+if str(_COWORK) not in sys.path:
+    sys.path.insert(0, str(_COWORK))
+
+DEFAULT_SCHEMA_PATH: Path = (
+    _WORKSPACE_ROOT / "grailzee-cowork" / "schema" / "cycle_shortlist_v1.json"
+)
+
+from grailzee_bundle.cycle_shortlist_schema import (  # noqa: E402
+    CycleShortlistValidationError,
+    validate_csv,
+)
 from opentelemetry.trace import get_current_span
 
 from scripts.grailzee_common import STATE_PATH, get_tracer
@@ -180,8 +193,13 @@ def _sort_key_fn(sort_key: str) -> Callable[[dict], tuple]:
     return lambda row: tuple(fn(row) for fn in fns)
 
 
-def _atomic_write_csv(rows: list[dict], fieldnames: list[str], path: str) -> None:
-    """tmp + fsync + os.replace. Tmp cleaned up on OSError."""
+def _atomic_write_csv(
+    rows: list[dict],
+    fieldnames: list[str],
+    path: str,
+    schema_path: Path | None = None,
+) -> None:
+    """tmp + fsync + schema-validate + os.replace. Tmp cleaned up on error."""
     parent = os.path.dirname(path) or "."
     os.makedirs(parent, exist_ok=True)
     tmp_path = path + ".tmp"
@@ -192,6 +210,8 @@ def _atomic_write_csv(rows: list[dict], fieldnames: list[str], path: str) -> Non
             writer.writerows(rows)
             f.flush()
             os.fsync(f.fileno())
+        if schema_path is not None:
+            validate_csv(tmp_path, schema_path)
         os.replace(tmp_path, path)
     except Exception:
         if os.path.exists(tmp_path):
@@ -207,6 +227,7 @@ def run(
     cycle_id: str,
     state_path: str | None = None,
     sort_key: str = DEFAULT_SORT_KEY,
+    schema_path: Path | None = DEFAULT_SCHEMA_PATH,
 ) -> str:
     """Write ``cycle_shortlist_<cycle_id>.csv``. Return the output path.
 
@@ -223,7 +244,12 @@ def run(
         Comma-separated field spec. Default ``"signal,volume_desc"``.
         ``reference`` and ``bucket_key`` are always appended as tiebreaks
         for determinism regardless of sort_key.
+    schema_path:
+        Path to cycle_shortlist_v1.json for post-write validation.
+        Defaults to ``DEFAULT_SCHEMA_PATH``. Pass ``None`` to skip
+        validation entirely (test isolation only).
     """
+    resolved_schema = schema_path  # None skips; DEFAULT_SCHEMA_PATH validates
     target_dir = state_path or STATE_PATH
     output_path = os.path.join(target_dir, f"cycle_shortlist_{cycle_id}.csv")
 
@@ -245,7 +271,7 @@ def run(
     span.set_attribute("sort_key", sort_key)
     span.set_attribute("output_path", output_path)
 
-    _atomic_write_csv(rows, FIELDNAMES, output_path)
+    _atomic_write_csv(rows, FIELDNAMES, output_path, schema_path=resolved_schema)
     return output_path
 
 

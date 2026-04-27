@@ -1,6 +1,6 @@
 ---
 name: grailzee-strategy
-description: Chat-side strategy session for Vardalux Grailzee cycles. Operator uploads an outbound bundle .zip from the grailzee-cowork plugin; this skill reads the cycle state, runs the strategy conversation, and produces a validated strategy_output.json the operator hands back to cowork for atomic apply. Four modes — cycle_planning, monthly_review, quarterly_allocation, config_tuning.
+description: Chat-side strategy session for Vardalux Grailzee cycles. Operator uploads an outbound bundle .zip from the grailzee-cowork plugin; this skill reads the cycle state, runs the strategy conversation, and produces a validated strategy_output.json the operator hands back to cowork for atomic apply. Four modes: cycle_planning, monthly_review, quarterly_allocation, config_tuning.
 ---
 
 # grailzee-strategy
@@ -20,33 +20,48 @@ If the operator uploads a `.zip` and asks ambiguously ("what do you
 make of this?"), default to `cycle_planning` mode and call out the
 assumption in your first message.
 
-## Before you write anything
+## Bundle manifest: 11 roles
 
-Read in order (all are in the uploaded `.zip`):
+Every bundle contains these roles. Read them in this order:
 
-1. `manifest.json` — note `scope.month_boundary` and
-   `scope.quarter_boundary`. These drive which decision sections the
-   session is responsible for populating.
-2. `sourcing_brief.json` — the agent's current narrative read.
-3. `trade_ledger.csv` — the full trade ledger. Every historical
-   Grailzee close, one row per trade, with realized margins and ROI.
-   Not a snippet; all cycles present so you can see drift, streaks,
-   and category-level behaviour across the full Vardalux history.
-4. `analysis_cache.json` — every known reference with `signal`,
-   `max_buy_nr`, `brand`, `model`.
-5. `cycle_focus_current.json` — what the agent currently focuses on.
-6. `monthly_goals.json` / `quarterly_allocation.json` — current state.
-7. `cycle_outcome_previous.meta.json` (always present) and
-   `cycle_outcome_previous.json` (present when a prior cycle produced
-   trade data). The meta's `source_cycle_id` tells you which cycle the
-   outcome came from — it is NOT always the cycle immediately before
-   the planning target, because cycles with zero trades are skipped.
-   If `source_cycle_id` is null, no prior cycle has trade data yet; do
-   not try to render PERFORMANCE or WHAT WE ACTUALLY BOUGHT from
-   empty state. See `references/strategy-framework.md` for how to
-   fold this read into the brief.
-8. `latest_report/grailzee_YYYY-MM-DD.csv` — raw market snapshot, for
-   spot-checks only.
+| Role | File | What it contains | Why strategy uses it |
+|---|---|---|---|
+| `manifest.json` | (envelope, not a role) | `scope.month_boundary`, `scope.quarter_boundary`, `cycle_id` | Determines which decision sections to populate |
+| `analysis_cache` | `analysis_cache.json` | Per-bucket signals, max_buy, scoring for every reference the analyzer knows | Detail-on-demand; consult for specific ref deep-dives only |
+| `cycle_shortlist` | `cycle_shortlist.csv` | Wide bucket-row CSV: every reference x bucket, all market math done | **Primary strategy input.** Read this first for cycle planning |
+| `trade_ledger` | `trade_ledger.csv` | Full Grailzee trade history, one row per close, all cycles | Cross-reference for realized margins, streaks, category behaviour |
+| `cycle_focus` | `cycle_focus.json` | Current agent focus list: what the bot is buying right now | Your `cycle_focus` decision confirms, evolves, or replaces this |
+| `monthly_goals` | `monthly_goals.json` | Current monthly revenue/volume/platform targets | Populate only on `scope.month_boundary: true` |
+| `quarterly_allocation` | `quarterly_allocation.json` | Brand capital allocation and inventory mix targets | Populate only on `scope.quarter_boundary: true` |
+| `analyzer_config` | `analyzer_config.json` | Scoring thresholds, margin floor, premium scalar | Read when tuning signal thresholds in `config_tuning` mode |
+| `brand_floors` | `brand_floors.json` | Per-brand margin floors | Context for why the bot passes on certain references |
+| `sourcing_rules` | `sourcing_rules.json` | Condition minimum, papers required, keyword filters | Context for sourcing discipline |
+| `latest_report_csv` | `latest_report/grailzee_YYYY-MM-DD.csv` | Raw market snapshot from the most recent Grailzee Pro report | Spot-check only; not primary signal source |
+| `previous_cycle_outcome_meta` | `cycle_outcome_previous.meta.json` | Always present; `source_cycle_id` tells you which prior cycle had real trade data | Read first to know whether trade data exists |
+| `previous_cycle_outcome` | `cycle_outcome_previous.json` | Trade rollup for the most recent cycle with real closes | PERFORMANCE and WHAT WE ACTUALLY BOUGHT sections |
+
+## Reading discipline
+
+1. **`manifest.json`**: scope flags first.
+2. **`cycle_shortlist.csv`**: primary input. One row per bucket, all
+   math done. Reference-level fields (brand, model, trend, momentum,
+   confidence) repeat across a reference's bucket rows. Bucket-level
+   fields (signal, median, max_buy_nr, max_buy_res, st_pct, volume,
+   risk_nr) vary across rows. A reference may carry multiple bucket rows
+   for different keying axes (dial_numerals, auction_type, dial_color).
+   Read breadth; operator filters by sourceability in conversation.
+3. **`trade_ledger.csv`**: cross-reference against the shortlist.
+4. **`previous_cycle_outcome_meta.json`** then `previous_cycle_outcome.json`:
+   prior cycle performance. Skip PERFORMANCE section if `source_cycle_id`
+   is null (no prior cycle data yet).
+5. **`cycle_focus.json`**: existing target list for context.
+6. **`monthly_goals.json`** / **`quarterly_allocation.json`**: current
+   state; only touch if the relevant scope flag is set.
+7. **`analysis_cache.json`**: detail-on-demand; consult for individual
+   reference deep-dives, not for breadth scanning.
+8. **Config files** (`analyzer_config`, `brand_floors`, `sourcing_rules`):
+   only in `config_tuning` mode or when scoring context is needed.
+9. **`latest_report_csv`**: spot-check only.
 
 Then read `references/strategy-framework.md` for the per-mode decision
 framework, the `session_artifacts.cycle_brief_md` conventions, and the
@@ -70,8 +85,8 @@ you actually populate is driven by the bundle's scope flags:
   a mid-cycle refresh).
 - `monthly_goals` populates when `scope.month_boundary: true`.
 - `quarterly_allocation` populates when `scope.quarter_boundary: true`.
-- `config_updates` populates ONLY when `session_mode: config_tuning`
-  — never inferred from flags.
+- `config_updates` populates ONLY when `session_mode: config_tuning`;
+  never inferred from flags.
 
 Scopes can compound. A `cycle_planning` session on a month boundary
 populates BOTH `cycle_focus` AND `monthly_goals`. See
@@ -128,12 +143,12 @@ Hand the operator:
 
 - Do NOT produce partial JSON that doesn't validate. If the session
   didn't produce at least one decision section, surface that to the
-  operator and ask what to do — don't pad a section with current
+  operator and ask what to do; don't pad a section with current
   state just to fill it.
-- Do NOT invent references that aren't in `analysis_cache.json`.
-  Every `cycle_focus.target` must correspond to a ref the agent
-  knows about, OR be flagged in `notes` as operator-requested without
-  prior coverage.
+- Do NOT invent references. Every `cycle_focus.target` must correspond
+  to a reference in `cycle_shortlist.csv` (or `analysis_cache.json`
+  for deep-dive verification), OR be flagged in `notes` as
+  operator-requested without prior coverage.
 - Do NOT change the margin floor (`target_margin_fraction`) without
   explicit operator direction. Standard is `0.05`.
 - Do NOT retune config sub-blocks unless `session_mode` is
@@ -157,7 +172,7 @@ rejects on.
 **Top-level shape**
 
 - [ ] `strategy_output_version` is `1` (integer, not string)
-- [ ] `generated_at` matches `YYYY-MM-DDTHH:MM:SSZ` exactly — ISO-8601
+- [ ] `generated_at` matches `YYYY-MM-DDTHH:MM:SSZ` exactly: ISO-8601
       UTC with literal `Z` suffix. Not `+00:00`, not a space separator,
       no fractional seconds.
 - [ ] `cycle_id` matches `^cycle_[0-9]{4}-[0-9]{2}$` AND equals the
@@ -175,17 +190,17 @@ rejects on.
       sections are explicitly `null`, not omitted.
 - [ ] At least one of the four is non-null
 - [ ] The sections populated match the scope flags (see "Mode dispatch"
-      above) — you haven't populated `monthly_goals` without a month
+      above); you haven't populated `monthly_goals` without a month
       boundary, or `config_updates` outside `config_tuning`
 
 **cycle_focus (if non-null)**
 
 - [ ] `targets` has at least 1 entry
-- [ ] `target_margin_fraction` is a fraction in `(0, 1)` exclusive —
+- [ ] `target_margin_fraction` is a fraction in `(0, 1)` exclusive:
       `0.05` = 5%, never `5` or `1.0`
-- [ ] Every `target.target_ref` resolves to a ref in `analysis_cache.json`
-      (or is flagged in `notes` as operator-requested without prior
-      coverage)
+- [ ] Every `target.target_ref` appears in `cycle_shortlist.csv` or
+      `analysis_cache.json` (or is flagged in `notes` as
+      operator-requested without prior coverage)
 
 **monthly_goals (if non-null)**
 

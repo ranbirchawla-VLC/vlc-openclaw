@@ -679,6 +679,22 @@ class TestErrorPaths:
         assert result["match_resolution"] == "error"
         assert "stale_schema" in result["error"]
 
+    def test_error_path_on_plan_is_none(self, tmp_path):
+        """_error_response must return on_plan: None (not False)."""
+        result = evaluate(
+            "Tudor", "79830RB", 2000,
+            cache_path=str(tmp_path / "nonexistent.json"),
+        )
+        assert result["cycle_context"]["on_plan"] is None
+
+    def test_error_path_plan_status_label_is_lookup_error(self, tmp_path):
+        """_error_response must return plan_status_label: 'Lookup error'."""
+        result = evaluate(
+            "Tudor", "79830RB", 2000,
+            cache_path=str(tmp_path / "nonexistent.json"),
+        )
+        assert result["plan_status_label"] == "Lookup error"
+
     def test_bad_price_arg(self):
         with pytest.raises(ValueError):
             _parse_price_arg("abc")

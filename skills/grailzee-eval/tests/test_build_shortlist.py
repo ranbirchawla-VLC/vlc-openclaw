@@ -891,3 +891,79 @@ class TestConfidenceFlatten:
         _, rows = _read_csv(out)
         assert rows[0]["momentum_score"] == "-2"
         assert rows[0]["momentum_label"] == "Cooling"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Schema validation (1C): producer-side fence-post
+# ═══════════════════════════════════════════════════════════════════════
+
+
+from pathlib import Path as _Path
+
+_SCHEMA_PATH = (
+    _Path(__file__).resolve().parents[3]
+    / "grailzee-cowork" / "schema" / "cycle_shortlist_v1.json"
+)
+
+
+class TestProducerSchemaValidation:
+    """build_shortlist.run validates output against cycle_shortlist_v1.json."""
+
+    def test_valid_csv_writes_successfully(self, tmp_path):
+        refs = {"79830RB": _cache_entry("79830RB")}
+        out = run(refs, cycle_id="cycle_2026-06", state_path=str(tmp_path),
+                  schema_path=_SCHEMA_PATH)
+        assert _Path(out).exists()
+
+    def test_valid_csv_clears_validation(self, tmp_path):
+        """run() completes without CycleShortlistValidationError on valid input."""
+        from grailzee_bundle.cycle_shortlist_schema import CycleShortlistValidationError
+        refs = {"79830RB": _cache_entry("79830RB")}
+        try:
+            run(refs, cycle_id="cycle_2026-06", state_path=str(tmp_path),
+                schema_path=_SCHEMA_PATH)
+        except CycleShortlistValidationError as exc:
+            pytest.fail(f"Unexpected validation error: {exc}")
+
+    def test_schema_none_truly_skips_validation(self, tmp_path):
+        """schema_path=None skips validation entirely; bad schema is ignored."""
+        import json
+        from grailzee_bundle.cycle_shortlist_schema import CycleShortlistValidationError
+        bad_schema = tmp_path / "bad_schema.json"
+        bad_schema.write_text(json.dumps({
+            "csv_version": 1, "shape": "bucket_row",
+            "columns": [{"name": "wrong_col", "type": "string",
+                         "nullable": False, "level": "reference"}],
+        }))
+        refs = {"79830RB": _cache_entry("79830RB")}
+        # Would raise CycleShortlistValidationError if validation ran.
+        try:
+            out = run(refs, cycle_id="cycle_2026-06", state_path=str(tmp_path),
+                      schema_path=None)
+        except CycleShortlistValidationError:
+            pytest.fail("schema_path=None should skip validation, not raise")
+        assert _Path(out).exists()
+
+    def test_header_mismatch_raises_and_cleans_up_tmp(self, tmp_path):
+        """If schema validation fails the tmp file is removed before raising."""
+        from grailzee_bundle.cycle_shortlist_schema import (
+            CycleShortlistValidationError,
+        )
+        bad_schema = tmp_path / "bad_schema.json"
+        import json
+        bad_schema.write_text(json.dumps({
+            "csv_version": 1,
+            "shape": "bucket_row",
+            "columns": [
+                {"name": "nonexistent_col", "type": "string",
+                 "nullable": False, "level": "reference"},
+            ],
+        }))
+        refs = {"79830RB": _cache_entry("79830RB")}
+        with pytest.raises(CycleShortlistValidationError):
+            run(refs, cycle_id="cycle_2026-06", state_path=str(tmp_path),
+                schema_path=bad_schema)
+        target = tmp_path / "cycle_shortlist_cycle_2026-06.csv"
+        assert not target.exists(), "output CSV must not exist after validation failure"
+        tmp = _Path(str(target) + ".tmp")
+        assert not tmp.exists(), "tmp file must be cleaned up after validation failure"

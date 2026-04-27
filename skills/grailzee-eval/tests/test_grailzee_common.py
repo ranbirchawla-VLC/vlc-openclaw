@@ -48,19 +48,19 @@ from scripts.grailzee_common import (
 
 
 class TestFormulas:
-    """v1 formula: round((median - FIXED) / 1.05, nearest $10)."""
+    """Floor formula: math.floor((median - FIXED) / 1.05 / 10) * 10."""
 
     def test_max_buy_nr_basic(self):
-        # (3000 - 149) / 1.05 = 2715.238... rounds to 2720
-        assert max_buy_nr(3000) == 2720
+        # (3000 - 149) / 1.05 = 2715.238... floor to 2710
+        assert max_buy_nr(3000) == 2710
 
     def test_max_buy_nr_rounds_to_ten(self):
-        # (3150 - 149) / 1.05 = 2858.095... rounds to 2860
-        assert max_buy_nr(3150) == 2860
+        # (3150 - 149) / 1.05 = 2858.095... floor to 2850
+        assert max_buy_nr(3150) == 2850
 
     def test_max_buy_reserve_basic(self):
-        # (3000 - 199) / 1.05 = 2667.619... rounds to 2670
-        assert max_buy_reserve(3000) == 2670
+        # (3000 - 199) / 1.05 = 2667.619... floor to 2660
+        assert max_buy_reserve(3000) == 2660
 
     def test_breakeven_roundtrip(self):
         """max_buy + fixed_cost = breakeven by definition."""
@@ -71,8 +71,187 @@ class TestFormulas:
 
     def test_adjusted_max_buy(self):
         # median=3000, premium=10% => adjusted_median=3300
-        # (3300 - 149) / 1.05 = 3000.952... rounds to 3000
+        # (3300 - 149) / 1.05 = 3000.952... floor to 3000
         assert adjusted_max_buy(3000, NR_FIXED, 10.0) == 3000
+
+
+import math as _math
+import pytest as _pytest
+
+_FLOOR_MEDIANS_NR = [
+    # Each produces an unrounded ceiling near $X4.99/$X5.00/$X5.01/$X9.99
+    # so we can assert floor (not nearest-round) behavior.
+    # median=3199: (3199-149)/1.05 = 2904.76 -> floor=2900, round-to-nearest=2900 (same)
+    # We use medians where floor < nearest-round to prove floor semantics.
+    # median=2768: (2768-149)/1.05 = 2494.29 -> floor=2490, round-to-nearest=2490 (same)
+    # median=2769: (2769-149)/1.05 = 2495.24 -> floor=2490, round-to-nearest=2500 (differ!)
+    2769,  # unrounded=2495.24  floor=2490  nearest=2500
+    # median=2700: (2700-149)/1.05 = 2429.52 -> floor=2420, nearest=2430 (differ)
+    2700,  # unrounded=2429.52  floor=2420  nearest=2430
+    # median=3300: (3300-149)/1.05 = 3000.95 -> floor=3000, nearest=3000 (same, boundary check)
+    3300,
+    # median=2820: (2820-149)/1.05 = 2543.81 -> floor=2540, nearest=2540 (same)
+    2820,
+]
+
+
+class TestFloorBoundary:
+    """Architectural-lock §1: every dollar at or below max_buy clears the 5% floor.
+
+    Four medians covering $X4.99/$X5.00/$X5.01/$X9.99 boundary cases. Tests
+    assert the invariant (result % 10 == 0 and margin >= 5%) not the exact value,
+    so they survive future constant changes.
+    """
+
+    @_pytest.mark.parametrize("median", _FLOOR_MEDIANS_NR)
+    def test_max_buy_nr_floor_invariant(self, median: float) -> None:
+        mb = max_buy_nr(median)
+        assert mb % 10 == 0, f"max_buy_nr({median})={mb} not divisible by 10"
+        margin = (median - NR_FIXED - mb) / mb * 100 if mb > 0 else 999
+        assert margin >= 5.0, f"margin {margin:.4f}% < 5% for median={median}, mb={mb}"
+
+    @_pytest.mark.parametrize("median", _FLOOR_MEDIANS_NR)
+    def test_max_buy_reserve_floor_invariant(self, median: float) -> None:
+        mb = max_buy_reserve(median)
+        assert mb % 10 == 0, f"max_buy_reserve({median})={mb} not divisible by 10"
+        margin = (median - RES_FIXED - mb) / mb * 100 if mb > 0 else 999
+        assert margin >= 5.0, f"margin {margin:.4f}% < 5% for median={median}, mb={mb}"
+
+    def test_adjusted_max_buy_floor_invariant(self) -> None:
+        mb = adjusted_max_buy(3000, NR_FIXED, 10.0)
+        assert mb % 10 == 0
+        adjusted_median = 3000 * 1.10
+        margin = (adjusted_median - NR_FIXED - mb) / mb * 100 if mb > 0 else 999
+        assert margin >= 5.0
+
+    def test_floor_differs_from_round_at_boundary(self) -> None:
+        """Prove floor and nearest-round differ on the canonical boundary median."""
+        # (2769-149)/1.05 = 2495.238: floor=2490, nearest-round=2500
+        unrounded = (2769 - NR_FIXED) / 1.05
+        assert _math.floor(unrounded / 10) * 10 == 2490
+        assert round(unrounded, -1) == 2500
+        assert max_buy_nr(2769) == 2490
+
+    def test_100k_random_sweep_no_floor_violations(self) -> None:
+        """100k random (median, premium) pairs; zero floor violations.
+
+        max_buy_nr and max_buy_reserve guarantee margin against original median.
+        adjusted_max_buy guarantees margin against adjusted_median (the expected
+        sell price after the Vardalux premium scalar is applied).
+        """
+        import random
+        rng = random.Random(42)
+        for _ in range(100_000):
+            median = rng.uniform(50, 50_000)
+            premium_pct = rng.uniform(0, 30)
+            adjusted_median = median * (1 + premium_pct / 100)
+            for mb, fixed, sell_median in [
+                (max_buy_nr(median), NR_FIXED, median),
+                (max_buy_reserve(median), RES_FIXED, median),
+                (adjusted_max_buy(median, NR_FIXED, premium_pct), NR_FIXED, adjusted_median),
+            ]:
+                if mb <= 0:
+                    continue
+                margin = (sell_median - fixed - mb) / mb * 100
+                assert margin >= 5.0, (
+                    f"Floor violation: median={median:.2f} sell_median={sell_median:.2f} "
+                    f"fixed={fixed} mb={mb} margin={margin:.4f}%"
+                )
+
+
+class TestFloorCascadeAnalyzeReferences:
+    """Cascade (b): analyze_references score path inherits floored max_buy."""
+
+    def test_scored_bucket_max_buy_nr_is_floored(self) -> None:
+        from scripts.analyze_references import analyze_reference
+        sales = [
+            {"price": 3000, "condition": "Very Good", "papers": "Yes"},
+            {"price": 3100, "condition": "Excellent", "papers": "Yes"},
+            {"price": 3200, "condition": "Excellent", "papers": "Yes"},
+        ]
+        r = analyze_reference(sales, st_pct=0.8)
+        assert r is not None
+        mb = r["max_buy_nr"]
+        assert mb % 10 == 0
+        median = r["median"]
+        margin = (median - NR_FIXED - mb) / mb * 100
+        assert margin >= 5.0
+
+    def test_scored_bucket_max_buy_res_is_floored(self) -> None:
+        from scripts.analyze_references import analyze_reference
+        sales = [
+            {"price": 4500, "condition": "Very Good", "papers": "Yes"},
+            {"price": 4600, "condition": "Excellent", "papers": "Yes"},
+            {"price": 4700, "condition": "Excellent", "papers": "Yes"},
+        ]
+        r = analyze_reference(sales, st_pct=0.8)
+        assert r is not None
+        mb = r["max_buy_res"]
+        assert mb % 10 == 0
+        median = r["median"]
+        margin = (median - RES_FIXED - mb) / mb * 100
+        assert margin >= 5.0
+
+
+class TestFloorCascadeReadLedger:
+    """Cascade (c): read_ledger model_correct uses floored max_buy from cache."""
+
+    def test_model_correct_at_floored_max_buy(self, tmp_path) -> None:
+        import json as _json
+        from scripts.read_ledger import _compute_derived_fields as _enrich_trade
+        from scripts.grailzee_common import LedgerRow as _LedgerRow
+        median = 3200.0
+        mb = max_buy_nr(median)
+        assert mb % 10 == 0
+
+        cache = {
+            "schema_version": 3,
+            "cycle_id": "cycle_2026-01",
+            "references": {
+                "79830RB": {"reference": "79830RB", "max_buy_nr": mb, "median": median},
+            },
+        }
+        cache_path = tmp_path / "cache.json"
+        cache_path.write_text(_json.dumps(cache))
+
+        row = _LedgerRow(
+            buy_date=None, sell_date=None, buy_cycle_id="cycle_2026-01",
+            sell_cycle_id="cycle_2026-01", brand="Tudor", reference="79830RB",
+            account="NR", buy_price=mb, sell_price=median,
+        )
+        result = _enrich_trade(row, _json.loads(cache_path.read_text()))
+        assert result["model_correct"] is True, (
+            f"buy_price={mb} == floored max_buy should be model_correct"
+        )
+
+    def test_model_correct_false_one_dollar_above_floored_max_buy(
+        self, tmp_path
+    ) -> None:
+        import json as _json
+        from scripts.read_ledger import _compute_derived_fields as _enrich_trade
+        from scripts.grailzee_common import LedgerRow as _LedgerRow
+        median = 3200.0
+        mb = max_buy_nr(median)
+
+        cache = {
+            "schema_version": 3,
+            "cycle_id": "cycle_2026-01",
+            "references": {
+                "79830RB": {"reference": "79830RB", "max_buy_nr": mb, "median": median},
+            },
+        }
+        cache_path = tmp_path / "cache.json"
+        cache_path.write_text(_json.dumps(cache))
+
+        row = _LedgerRow(
+            buy_date=None, sell_date=None, buy_cycle_id="cycle_2026-01",
+            sell_cycle_id="cycle_2026-01", brand="Tudor", reference="79830RB",
+            account="NR", buy_price=mb + 1, sell_price=median,
+        )
+        result = _enrich_trade(row, _json.loads(cache_path.read_text()))
+        assert result["model_correct"] is False, (
+            f"buy_price={mb + 1} > floored max_buy={mb} should not be model_correct"
+        )
 
 
 class TestAdBudget:
@@ -1152,14 +1331,14 @@ class TestMaxBuyFormulaReadsFromConfig:
         write_config(p, content, [], "test")
         load_analyzer_config(path=str(p))  # prime cache
 
-        # (3349 - 149) / 1.10 = 2909.09 -> rounded to 2910
-        assert max_buy_nr(3349) == 2910
+        # (3349 - 149) / 1.10 = 2909.09 -> floor to 2900
+        assert max_buy_nr(3349) == 2900
 
     def test_fallback_matches_05_constant(self, tmp_path):
         """With no config file, max_buy_nr uses the 0.05 factory default."""
         from scripts.grailzee_common import max_buy_nr
-        # Same input as original test: (3200 - 149) / 1.05 = 2905.71 -> 2910
-        assert max_buy_nr(3200) == 2910
+        # (3200 - 149) / 1.05 = 2905.71 -> floor to 2900
+        assert max_buy_nr(3200) == 2900
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -10,18 +10,19 @@
       "month": "2026-05",
       "revenue_target": 48000,
       "volume_target": 12,
+      "monthly_return_pct": 0.12,
       "platform_mix": {
         "Grailzee": 55,
         "eBay": 30,
         "Chrono24": 15
       },
-      "focus_notes": "Lean harder into Grailzee — April closed 7 of 9 deals there with lowest fee drag. eBay for commodity flips only. Chrono24 reserved for premium tier.",
-      "review_notes": "April recap: hit volume (9/8), missed revenue by $3,200 primarily due to an Omega deal slipping from April to early May. Margin landed at 6.2% net blended. Tudor BB GMT Pepsi was the standout — three closed, all above $3,100. Seamaster SMD ceramic performed as hoped (2 for 2, avg 16 days)."
+      "focus_notes": "Lean harder into Grailzee; April closed 7 of 9 deals there with lowest fee drag. eBay for commodity flips only. Chrono24 reserved for premium tier.",
+      "review_notes": "April recap: hit volume (9/8), missed revenue by $3,200 primarily due to an Omega deal slipping from April to early May. Margin landed at 6.2% net blended. Tudor BB GMT Pepsi was the standout; three closed, all above $3,100. Seamaster SMD ceramic performed as hoped (2 for 2, avg 16 days)."
     },
     "quarterly_allocation": null,
     "config_updates": null
   },
   "session_artifacts": {
-    "cycle_brief_md": "# Monthly Review — 2026-05\n\n## April Recap\n\n- Volume: **9 / 8 target** (+1)\n- Revenue: **$36,800 / $40,000 target** (-8%)\n- Margin: **6.2% net blended**\n- Slippage: one Omega deal rolled to May; accounts for the revenue miss\n\n### Standouts\n\n- **Tudor BB GMT Pepsi (79830RB)** — 3 closed, all above $3,100\n- **Omega SMD 300M Ceramic** — 2 for 2, average 16-day flip\n\n## May Plan\n\n- Revenue: **$48,000**\n- Volume: **12 units**\n- Platform mix: Grailzee 55 / eBay 30 / Chrono24 15\n\n## Platform Rationale\n\nApril closed **7 of 9 deals on Grailzee** with the lowest fee drag.\neBay stays in the mix for commodity flips only. Chrono24 is\nreserved for premium-tier inventory where the buyer pool justifies\nthe higher fees.\n\n## Carry-forwards\n\n- Omega deal that slipped → close first week of May\n- Tudor GMT supply is thinning; expect harder sourcing than April\n"
+    "cycle_brief_md": "# Monthly Review: 2026-05\n\n## April Recap\n\n- Volume: **9 / 8 target** (+1)\n- Revenue: **$36,800 / $40,000 target** (-8%)\n- Margin: **6.2% net blended**\n- Slippage: one Omega deal rolled to May; accounts for the revenue miss\n\n### Standouts\n\n- **Tudor BB GMT Pepsi (79830RB)**: 3 closed, all above $3,100\n- **Omega SMD 300M Ceramic**: 2 for 2, average 16-day flip\n\n## May Plan\n\n- Revenue: **$48,000**\n- Volume: **12 units**\n- Platform mix: Grailzee 55 / eBay 30 / Chrono24 15\n\n## Platform Rationale\n\nApril closed **7 of 9 deals on Grailzee** with the lowest fee drag.\neBay stays in the mix for commodity flips only. Chrono24 is\nreserved for premium-tier inventory where the buyer pool justifies\nthe higher fees.\n\n## Carry-forwards\n\n- Omega deal that slipped: close first week of May\n- Tudor GMT supply is thinning; expect harder sourcing than April\n"
   }
 }

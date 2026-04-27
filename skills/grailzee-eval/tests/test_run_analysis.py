@@ -267,12 +267,11 @@ class TestReferenceShape:
 
 
 class TestOutputLocation:
-    def test_files_in_output_folder(self, tmp_path):
-        """All output files write to the configured output folder."""
+    def test_summary_path_empty_after_output_builder_removal(self, tmp_path):
+        """build_summary deleted; summary_path is always empty string."""
         kwargs = _setup(tmp_path)
         result = run_analysis(**kwargs)
-        summary = Path(result["summary_path"])
-        assert str(summary).startswith(kwargs["output_folder"])
+        assert result["summary_path"] == ""
 
     def test_cache_in_configured_path(self, tmp_path):
         """Cache writes to the configured cache_path."""

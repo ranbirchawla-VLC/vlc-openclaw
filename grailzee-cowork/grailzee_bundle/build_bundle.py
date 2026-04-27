@@ -18,7 +18,6 @@ cycle_focus              yes       Drive       state/cycle_focus.json
 monthly_goals            yes       Drive       state/monthly_goals.json
 quarterly_allocation     yes       Drive       state/quarterly_allocation.json
 trade_ledger             yes       Drive       state/trade_ledger.csv (FULL)
-sourcing_brief           yes       Drive       output/briefs/sourcing_brief_<cycle>.json
 latest_report_csv        yes       Drive       reports_csv/grailzee_YYYY-MM-DD.csv
 analyzer_config          yes       workspace   state/analyzer_config.json (A.5)
 brand_floors             yes       workspace   state/brand_floors.json (A.5)
@@ -51,7 +50,7 @@ Boundary detection
 bundle represents the first run of a new month / quarter. The comparison
 anchor is the most recent entry in ``state/run_history.json`` whose
 ``cycle_id`` DIFFERS from the cache's current cycle_id (not simply the last
-entry — the agent may already have appended an entry for the current cycle
+entry ; the agent may already have appended an entry for the current cycle
 before this script runs; comparing against itself would mask the boundary).
 """
 
@@ -82,6 +81,13 @@ from scripts.grailzee_common import (  # noqa: E402
     cycle_date_range,
     prev_cycle,
 )
+
+from grailzee_bundle.cycle_shortlist_schema import (  # noqa: E402
+    CycleShortlistValidationError,
+    validate_csv as _validate_shortlist_csv,
+)
+
+_SHORTLIST_SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schema" / "cycle_shortlist_v1.json"
 
 MANIFEST_VERSION = 1
 SOURCE_TAG = "grailzee-cowork/build_bundle"
@@ -140,7 +146,7 @@ def _parse_cycle_id(cycle_id: str) -> tuple[int, int]:
 
     NN is the biweekly cycle counter (1 through ~26 for a calendar year),
     NOT a calendar month. Callers needing the cycle's month/quarter on
-    the Gregorian calendar must use ``_cycle_calendar_position`` — the
+    the Gregorian calendar must use ``_cycle_calendar_position`` ; the
     cycle number alone does not map to a month because biweekly cycles
     are ~14 days long and drift relative to month boundaries (e.g.
     cycle_2026-07 spans Mar 30 - Apr 12, 2026).
@@ -281,7 +287,7 @@ def resolve_previous_cycle_outcome(
     A cycle outcome file that exists but has an empty ``trades`` array
     counts as a "skipped" cycle; missing files are simply absent from
     the history. The distinction is what the strategist uses to say
-    "your most recent completed cycle was empty — here's the last one
+    "your most recent completed cycle was empty ; here's the last one
     with data."
 
     Returns ``(path_or_None, manifest_dict)`` where manifest_dict is the
@@ -319,7 +325,7 @@ def resolve_previous_cycle_outcome(
                     "skipped_cycles": skipped,
                     "resolution_note": resolution_note,
                 }
-            # File existed but had no trades — explicit skip
+            # File existed but had no trades ; explicit skip
             skipped.append(candidate)
         candidate = prev_cycle(candidate)
 
@@ -363,7 +369,6 @@ def build_outbound_bundle(
     """
     grailzee_root = Path(grailzee_root)
     state = grailzee_root / "state"
-    briefs = grailzee_root / "output" / "briefs"
     reports_csv = grailzee_root / "reports_csv"
     bundles_dir = output_dir or (grailzee_root / "bundles")
     workspace_state = (
@@ -423,14 +428,6 @@ def build_outbound_bundle(
             _read_full_ledger(state / "trade_ledger.csv"),
         )
     )
-    brief_path = briefs / f"sourcing_brief_{cycle_id}.json"
-    payloads.append(
-        (
-            "sourcing_brief",
-            "sourcing_brief.json",
-            _read_required(brief_path, f"sourcing_brief for {cycle_id}"),
-        )
-    )
     latest_report = _find_latest_report(reports_csv)
     payloads.append(
         (
@@ -448,6 +445,15 @@ def build_outbound_bundle(
     shortlist_bytes = _read_required(
         shortlist_source, f"cycle_shortlist for {cycle_id}"
     )
+    # Validate shortlist schema before bundling; raises CycleShortlistValidationError
+    # on mismatch so the operator sees a clear error rather than a silently corrupt zip.
+    _tmp_shortlist = shortlist_source.with_suffix(".validate.tmp")
+    try:
+        _tmp_shortlist.write_bytes(shortlist_bytes)
+        _validate_shortlist_csv(_tmp_shortlist, _SHORTLIST_SCHEMA_PATH)
+    finally:
+        if _tmp_shortlist.exists():
+            _tmp_shortlist.unlink()
     payloads.append(
         (
             "cycle_shortlist",

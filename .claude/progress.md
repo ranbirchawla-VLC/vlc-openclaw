@@ -1,126 +1,172 @@
-# Grailzee Eval v2 Build Progress
+# progress.md — Grailzee Eval v2 / Rational Sequence
 
-Branch: `feature/grailzee-eval-v2` (single long-lived; unpushed).
-Canonical state doc: `GRAILZEE_SYSTEM_STATE.md` at repo root. Historical build log (through 2026-04-24 schema Phase 1 discovery + B.8) preserved at `.claude/progress-v0.md`.
+**Working root**: `/Users/ranbirchawla/ai-code/vlc-openclaw` (not `.openclaw/workspace`)
+**Branch**: `feature/grailzee-eval-v2`
+**Remote**: in sync at `4d65a4e` (pushed 2026-04-26); Step 2 pending push
+**Canonical state doc**: `GRAILZEE_SYSTEM_STATE.md` at repo root. Read that first.
 
-Session-open read-back rule (per global CLAUDE.md): read `GRAILZEE_SYSTEM_STATE.md` first, then this file for the current sub-phase context.
+Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
 
 ---
 
-## Session 2026-04-24 (evening): ingest_report full-column patch + Phase 2a v3 ingest module
+## Status at a glance
 
-Two ships in one session: the prerequisite patch unblocking 2a, then 2a itself end-to-end.
+| Item | State |
+|---|---|
+| Schema version | v3 (cache `schema_version: 3` since 2b) |
+| Tests | `make test-grailzee-eval`: 987 passed, 54 skipped |
+| Cowork suite | `make test-grailzee-cowork`: 235 passed, 0 failed |
+| Step 0 (schema lock) | DONE; `bfc68cd` pushed |
+| Step 1 (`evaluate_deal.py` + bot wiring) | DONE; `c8b8494` pushed |
+| Step 1 patch (margin-floor rounding) | DONE; `2ec21e5` pushed |
+| Step 1.3 (human-facing label fields + deal.md) | DONE; `4d65a4e` pushed; release check passed |
+| Step 2 (producer chain + bundle validation) | DONE; commit pending push |
+| Step 3 (strategy skill update) | NOT STARTED; next up |
+| State doc Section 4 | Pending operator draft; entries: ae253aa, 2a852cb, c7f90d5, bfc68cd, c8b8494, 2ec21e5, 4d65a4e + Step 2 commit |
+| §5.5 spot-check | Rides next live Grailzee cycle |
+| 2a ingest_and_archive live rehearsal | Open; closes with §5.5 |
+| Telegram release check (Step 2) | PASS; Branch D: "Reference not in cache" + comp-search; Branch E: "Deal evaluation failed: {message}"; em-dashes: 0 |
+| Bundle assembly check (Step 2) | PASS; 12 roles (10+2 conditional), sha256 all OK, shortlist validates |
 
-### Ship 1: commit `f7ecab8` (prerequisite patch)
+---
 
-Phase 2a v1 prompt received with two open gaps. Resolved:
-- **Gap 1**: `Grailzee_Schema_v3_Decision_Lock_2026-04-24_v1.md` not at workspace root; operator pointed to `/Users/ranbirchawla/Downloads/GZ Agent/Phase 2/`. Seven locked decisions absorbed.
-- **Gap 2**: v2 prompt referenced `GrailzeeData/reports_csv/`; operator directive "ignore the input; keep the existing root". Drive root resolved from `discovery/schema_v3/load.py`.
+## Rational sequence (current)
 
-Pre-discovery structural surface: `reports_csv/` was empty (Phase 1 cleaned it) and existing `ingest_report.py` stripped `Dial`/`Dial Numbers`. Operator chose option (B): patch ingest_report.py to preserve all source columns.
+From `Grailzee_Implementation_Sequence_2026-04-26.md` and `Grailzee_Architecture_Lock_2026-04-26.md`.
 
-Patch shipped: `OUTPUT_COLUMNS` extended from 8 to 13 (`model, year, box, dial_numerals_raw, url` appended), `SOLD_AT_ALIASES`/`DIAL_ALIASES` for W1/W2 header variants, raw passthrough preserves NBSP. Tests 957 -> 960 (+3 new + 1 modified pin). Live W1+W2 ingested cleanly. Subject-line em-dash caught and amended to semicolon (`87f5c03` -> `f7ecab8`).
+**Step 0** — Lock schemas — **DONE** (`bfc68cd`)
+**Step 1** — Wire bot end-to-end against mock — **DONE** (`c8b8494` + `2ec21e5` patch)
+**Step 2** — Wire producer chain forward — **DONE** (commit this session)
+**Step 3** — Wire strategy session — Sonnet; next up
+**Step 4** — Sale folder json ingest — design outstanding
+**Step 5** — Verify report pipeline — verification only
 
-Plan-review flags both accepted: (a) `Dial` and `Dial Numbers` are one canonical column not two; (b) `Model` was the unnamed fifth stripped column.
+Architecture lock: three surfaces (Telegram bot, cowork, chat strategy skill). Wide CSV is strategy input. Yes/no only on deal eval. Premium scalar uniform. No inter-cycle tracking in this stack.
 
-### Ship 2: commit `9777199` (Phase 2a)
+---
 
-v2 2a prompt resumed against the patched CSVs. Five investigation phases ran cleanly (P2a_I[1-5]_findings.md under `discovery/schema_v3/phase_2a/`):
+## Session 2026-04-26 (third): Step 1 bot end-to-end + floor-round patch
 
-- **I.1** header surface: 12-col xlsx, 2 known variances absorbed by ingest patch; canonical mapping locked.
-- **I.2** NBSP: 47+59=106 NR-prefix rows (delta -3 vs Phase 1's 109; within tolerance). NBSP only in `title`. `re.UNICODE` + Python 3.12 catches U+00A0.
-- **I.3** asset-class: 0+3=3 LV handbag matches in W2; 0 false positives, 0 false negatives. Phase 1 reproduced exactly.
-- **I.4** dedup: 6 W1 + 4 W2 = 10 within-report 4-tuple collisions surfaced (real, not future-proofing); 15 W1 + 18 W2 = 33 within-report 3-tuple near-collisions catalogued (dial-color/year/bracelet variants); cross-report 4-tuple overlap 8,837 (delta -2 vs Phase 1).
-- **I.5** numerals fall-through: 9+13=22 rows (6 distinct values: `No Numbers` x10, `Sapphire Numerals` x4, `Plexiglass` x2, `Abaric Numerals` x2, `Other` x1, `Gemstone Numerals` x2).
+### What landed (`c8b8494`, `2ec21e5`)
 
-Operator adjustments at gate: ship within-report dedup as locked + log via summary counter; leave 3-tuple near-collisions in-bucket (4-axis 2b will resolve dial-color and NR-vs-RES; year/bracelet stay as-is); cascade extension for `no numbers` -> `No Numerals` and `abaric` -> `Arabic`; drop the rest as Decision-5-equivalent.
+**`evaluate_deal.py`** (full rewrite). Reads v3 bucket cache; matcher narrows by 0–3 optional axes (`dial_numerals`, `auction_type`, `dial_color`); ambiguous returns candidates so the LLM asks one clarifying question. New return shape: `decision`, `bucket`, `math`, `cycle_context`, `match_resolution`, `candidates` (when ambiguous). Yes/no only; no MAYBE. `_on_demand_analysis` deleted; cache miss → `reference_not_found` / no. Premium scalar applied uniformly from `analyzer_config.scoring.premium_scalar_fraction` (default 0.10). Dual entry (argparse + stdin-JSON) for OpenClaw + tests.
 
-Plan-review tightened the named_special tiebreak: longest-match-wins (not first-match-by-vocabulary-order). Reason: vocabulary contains both `panda` and `reverse_panda`; first-match returns `panda` on a "Reverse Panda" descriptor, silently wrong on every Reverse Panda listing. Pinned by `TestNamedSpecial::test_reverse_panda_not_panda`.
+**`scripts/grailzee_common.py`**: added `premium_scalar_fraction: 0.10` to `ANALYZER_CONFIG_FACTORY_DEFAULTS["scoring"]`. `state/analyzer_config.json` regenerated via installer.
 
-Module shape: single file `skills/grailzee-eval/scripts/ingest.py` (685 lines), parity with sibling scripts. `CanonicalRow` as `@dataclass(frozen=True, slots=True)`; `IngestSummary` as `@dataclass` with 11 counters + source_reports list. Pure `load_and_canonicalize` plus side-effect wrapper `ingest_and_archive`. CLI with `validate` and `ingest` subcommands.
+**Per-agent `openclaw.json`** at `skills/grailzee-eval/openclaw.json`. Two tools: `evaluate_deal` (with optional axes) and `report_pipeline`. Absolute repo paths in `command`. NutriOS-style stdin-JSON inputSchema. `accountId` not `default`. Operator handles root `~/.openclaw/openclaw.json` repoint.
 
-Pipeline order locked per v2 prompt: load -> header validation -> NBSP normalization (load-bearing) -> asset-class filter -> dial-numerals cascade -> dial-color parsing + named_special detection -> auction-type detection -> 4-tuple dedup (within-report first-seen, cross-report prefer-most-recent) -> 3-tuple near-collision count.
+**`SKILL.md` cuts**: Path 1 (ledger), Path 4 (performance query), Path 5 (targets) removed. Paths 2 (deal eval), 2a (priceless), 3 (report) retained. Capability list reduced to `deal.md` + `report.md`.
 
-Two OTel spans (`ingest.load_and_canonicalize`, `ingest.ingest_and_archive`) emit all 11 summary counters as flat attributes plus `outcome`.
+**`capabilities/deal.md`** (full rewrite). Single yes/no narration from verbatim `math` numbers per AA §2.7. Branches A–E mapped to `match_resolution`. On `decision: "no"` ends with single line `Comp search not yet wired.` (§4.6 cut; Step 2 builds backend). Em-dash–free.
 
-#### Test delta
+**Capability deletes**: `capabilities/ledger.md`, `capabilities/targets.md`. No standalone test modules referenced them.
 
-960 baseline -> **1,046 passing** (+86). Above the +35-to-+55 prompt band; flagged at close-out. Reasoning: heavy parametrization for vocabulary coverage (15-case named_special vocab, 9-case numerals exact-match, etc.); each case is a distinct pytest instance. No tests wasted; consolidating to lists-in-loops would lose per-case failure granularity. Operator accepted.
+**Mock + INBOUND + e2e**: `grailzee-cowork/tests/fixtures/mock_strategy_output.json` (12 targets across Tudor / Breitling / Cartier / Omega; capital_target 60000; target_margin_fraction 0.05; monthly_return_pct 0.12; cycle_id `cycle_2026-15`). `tests/test_step1_mock_inbound.py` exercises `unpack_bundle.apply_strategy_output` and asserts atomic state writes. `skills/grailzee-eval/tests/test_step1_e2e_bot.py` runs mock → unpack → `evaluate()` end-to-end (3 tests: yes on plan, no on plan math fails, off plan reference_not_found).
 
-#### Live spot-check (Part A + Part B)
+**Floor-round patch (`2ec21e5`)**. Architecture lock §1: 5% margin floor non-negotiable. `max_buy = round(unrounded, -1)` could let a deal land 1–4 dollars below the floor with `decision: yes`. Switched to `math.floor(unrounded/10)*10` so every dollar at or below `max_buy` clears the floor. Boundary test added (`test_max_buy_floor_rounds_below_5pct_unrounded`): median=2768 → unrounded=2757.90 → floor=2750 (margin 5.30%); old nearest-round=2760 (margin 4.92%, the bug).
 
-**Part A** (W1+W2 union, validation): 19,335 source -> 10,440 canonical. Cross-report dedup overlap 8,801 (delta -36 vs Phase 1's 8,837). Delta is filter-aware semantics: pre-filter drops (asset_class + blank + fallthrough = 84 rows) on one report's side prevent the cross-report counter from incrementing for matching keys. Not a regression; documented in `P2a_spotcheck_partA.md`. `dial_color_unknown=1,116` exceeds Phase 1's 392 because v2 prompt's parsed-vs-unknown simplification collapses Phase 1's 1,286 ambiguous bucket into unknown (multi-color-in-window cases). Expected.
+**Tests**: 1047 grailzee-eval pass (was 1033; +14 net after replacing v2 contract; +1 boundary test). 234 grailzee-cowork pass (was 230; +4 INBOUND-against-mock).
 
-**Part B** (W2-only operational rehearsal in tmp tree): 9,895 -> 9,846. Archival happy path works (source moved, original filename preserved, byte-fidelity intact). Idempotency block raises `FileExistsError` and leaves source in place. Live `reports_csv/` untouched; both CSVs still present at session close.
+**Code review** (subagent, fresh context, two passes):
+- Step 1: SHIP-WITH-FIXES, no BLOCKERS. Two MAJORs carry-forward (fee constants externalization, margin-floor rounding). Eight architecture-lock decisions all PASS.
+- Patch: SHIP, no BLOCKERS. Reviewer's 100k random sweep (NR/RES, premium 0–30%, median 50–50k) confirmed zero floor violations under floor-round.
 
-#### Em-dash hygiene
+**Two-commit pattern applied per gate; Step 1 squashed to single commit; patch is its own commit per §5 directive.**
 
-Pre-commit sweep on Phase 2a artifacts: 8 em-dashes in markdown findings + 6 in `discover_2a.py` (script that generated some of them). All replaced with semicolons. Code (`ingest.py`, `test_ingest.py`) was always clean. Subject line of commit `9777199` confirmed clean.
+### State of tree
 
-### State of the tree post-session
+- `2ec21e5` (patch) → `c8b8494` (Step 1) → `bfc68cd` (Step 0) → `c7f90d5`. All pushed to `origin/feature/grailzee-eval-v2`.
+- `state/analyzer_config.json` regenerated to include `scoring.premium_scalar_fraction`.
+- New per-agent `openclaw.json` at `skills/grailzee-eval/openclaw.json`; root config repoint operator-handled at gateway restart.
+- `Makefile` adds `test-grailzee-eval-evaluate-deal` target.
 
-- Two unpushed commits on `feature/grailzee-eval-v2`: `f7ecab8` (ingest patch), `9777199` (Phase 2a ingest module).
-- Live `reports_csv/`: `grailzee_2026-04-06.csv` and `grailzee_2026-04-21.csv` both present, no `archive/` subdir on Drive yet.
-- Phase 1 artifacts (`schema_v3/load.py`, `discover.py`, `findings/`) still untracked per default-delete-at-Phase-2-close convention.
-- `GRAILZEE_SYSTEM_STATE.md` Section 4 not yet updated; held for operator preference. Both commits ready to be cited in a single STATE entry.
+### Architecture-lock §1 floor leak (carry-forward, MAJOR)
 
-## Session 2026-04-24 (late): Phase 2b; v3 bucket construction, scoring, write_cache reshape
+Same nearest-rounding gap exists in `grailzee_common.max_buy_nr()` and `max_buy_reserve()` (both use `round(_, -1)`). Feeds:
+- `scripts/query_targets.py` → Telegram targets list (Surface 1).
+- `scripts/build_brief.py`, `build_summary.py`, `build_spreadsheet.py` → strategy bundle outputs (Surface 3).
+- `scripts/analyze_references.py` → bucket-cached `max_buy_nr` / `max_buy_res`.
+- `scripts/grailzee_common.py::adjusted_max_buy()` → premium-applied cache writes.
+- `scripts/read_ledger.py` → ledger-derived `max_buy_at_trade`.
 
-### Shipped (T1-T9 + CACHE_SCHEMA_VERSION bump + T6 skip markers + T7 tests + T8 schema doc)
+Floor applies to every operator-facing buy ceiling. Land as Step 1.1 patch or roll into Step 2 producer-chain work; either is defensible since strategy-bundle outputs (Surface 3) get rebuilt in Step 2.
 
-**T1/T2/T3/T5/G8**: `scripts/analyze_buckets.py` (new, ~390 lines). Four-axis bucket construction (`bucket_key`, `build_buckets`), per-bucket scoring (`score_bucket` delegates to `analyze_reference`), named_special threading (longest-slug-wins, alphabetical tiebreak), DJ config breakout (`_score_dj_configs`), full `score_all_references` with OTel span (`reference_count`, `total_bucket_count`, `scored_bucket_count`, `below_threshold_bucket_count`, `dj_config_count`, `outcome`). CLI entry point.
+### Other carry-forwards (MINOR; out of Step 1 scope)
 
-**T4**: `scripts/write_cache.py` reshaped to v3. New helpers: `_dominant_median` (highest-volume eligible bucket proxy for B.2/B.3 `current_median`); `_best_signal` (best signal across reference's buckets for summary counts); `_SIGNAL_RANK` dict. Per-reference entry: market fields removed, `buckets: rd.get("buckets", {})` added, trend/momentum at reference level per Patch 2. DJ config loop: adds `confidence=None`, `trend_signal="No prior data"`, `trend_median_change=0`, `trend_median_pct=0`, `momentum=None`. Summary counts via `_best_signal`. Docstring updated.
+- `_bucket_fees` reads hardcoded `NR_FIXED=149` / `RES_FIXED=199`; should externalize to `analyzer_config.fees`.
+- `_decide_yes_no` precondition order vs. non-null-median Low data buckets.
+- `_run_from_dict` accepts `cache_path` / `cycle_focus_path` not declared in `inputSchema`.
+- Symmetric span attributes on error path.
+- `report_pipeline` tool description duplicates intent triggers from SKILL.md.
+- `test_apply_blocks_cycle_id_mismatch` final assertion polish.
+- `test_step1_e2e_bot.py` `sys.path` edit → conftest plug.
+- `skills/grailzee-eval/scripts.zip` and `tests.zip` artifacts untracked; `.gitignore` candidates.
 
-**CACHE_SCHEMA_VERSION bump**: `grailzee_common.py` line 87: `2` -> `3`.
+---
 
-**T9**: `scripts/run_analysis.py` updated. `analyze_references` import removed; `analyze_buckets` + `load_and_canonicalize` added. Step 6 now runs `load_and_canonicalize` + `analyze_buckets.run`; B.4/B.5 OTel attributes adapted to bucket-level counts. Steps 9 (brands), 14 (spreadsheet, summary, brief), 16 (shortlist): wrapped with log-and-skip (2c-restore); `summary_path` defaults to `""`. `import logging` + module-level `_log` added.
+## Session 2026-04-26 (second): Step 0 schema lock
 
-**T6 skip markers**:
-- `test_analyze_references.py`: module-level `pytestmark` skip
-- `test_build_shortlist.py`: module-level `pytestmark` skip
-- `test_write_cache.py`: 19 targeted `@pytest.mark.skip` on tests that pin v2 flat shape or depend on `_dominant_median` returning non-None from flat `_ref()` fixtures
-- `test_run_analysis.py`: 9 targeted skips (flat-shape pins, output-builder-skipped file assertions, median-dependent pct assertions); `test_no_qualifying_refs` updated to v3 behavior (below-threshold refs ARE in cache with Low data signal)
+### What landed (`bfc68cd`)
 
-**Fixture update**: 3 large fixture CSVs + `sales_sample.csv` updated with 5 new v3 ingest columns (`model`, `year`, `box`, `dial_numerals_raw="Arabic Numerals"`, `url=""`). Required by `ingest.py`'s `EXPECTED_CSV_COLUMNS` check.
+**`cycle_shortlist_v1.json`** (new): 30-column bucket-row CSV contract.
+- Canonical at `grailzee-cowork/schema/`, byte-identical mirror at `grailzee-strategy/schema/`.
+- Column inventory captured from `build_shortlist.py` output (authoritative).
+- Three spec-checklist drifts surfaced and accepted: `generated_at`, `cycle_id`, `condition_mix` absent from script output. Script is canonical.
+- `check_schema_mirror.py` extended to check both schema pairs; both green.
 
-**T7**: `tests/test_analyze_buckets.py` (new, 49 tests). Covers: `bucket_key` serialization, `build_buckets` grouping, `_named_special_for_bucket` (longest/tiebreak), `_st_pct_for_rows`, `score_bucket` (below/above threshold, key fields, named_special, axes), `score_all_references` (return shape, named/unnamed, multi-ref, two-bucket, empty), DJ config path (config_breakout flag), `_row_to_sale`, W2-scale smoke test (3 tests via real fixture CSV).
+**`strategy_output_v1.json`** (amended in both copies):
+- `monthly_return_pct` added to `monthly_goals.properties`: oneOf null or number in (0,1) exclusive. Optional; NOT in required. `strategy_output_version` stays 1.
+- Pre-existing em-dash in top-level description replaced with semicolon (code-review blocker, caught and fixed).
 
-**T8**: `grailzee_schema_design_v2_0.md` written; supersedes v1/v1_1. Covers keying, top-level shape, reference entry, bucket entry, DJ configs, summary, producing modules, 2c consumer list, `_dominant_median` interim note.
+**`cycle_shortlist_schema.py`** (new): stdlib-only hand-rolled CSV validator mirroring `strategy_schema.py` pattern. `validate_schema_file` + `validate_csv(path, schema_path)` with dotted-path errors.
 
-#### Test delta
+**`strategy_schema.py`** (amended): `_validate_monthly_goals` replaced `_require_exact_keys` with inline required/optional split. `monthly_return_pct` validated when present; null or absent passes.
 
-Baseline: 1,046 (Phase 2a). Phase 2b close: **997 passed, 98 skipped**. Net change: +49 new tests (T7), 98 tests now carry 2c-restore skip markers (19 test_write_cache.py + 9 test_run_analysis.py + entire test_analyze_references.py + entire test_build_shortlist.py). Skipped tests are greppable via `rg "2c-restore"`.
+**Tests**: +37 new cowork tests (230 total). `test_cycle_shortlist_schema.py`: schema-level + CSV-level coverage. `test_strategy_output_schema.py`: 7 `monthly_return_pct` range-bound tests. `_fixtures.py`: `_monthly_goals_with_return_pct` helper.
 
-#### State of tree post-session
+**Code review** (subagent, fresh context): one BLOCKER (em-dash), fixed before squash. All other checks PASS. Verdict: SHIP.
 
-- Phase 2b complete; no commit yet (per repo CLAUDE.md: operator commits after review).
-- Modified: `scripts/analyze_buckets.py` (new), `scripts/write_cache.py`, `scripts/run_analysis.py`, `scripts/grailzee_common.py` (CACHE_SCHEMA_VERSION=3), `grailzee_schema_design_v2_0.md` (new), `tests/test_analyze_buckets.py` (new), `tests/test_write_cache.py`, `tests/test_run_analysis.py`, `tests/test_analyze_references.py`, `tests/test_build_shortlist.py`, `tests/fixtures/grailzee_2026-04-06.csv`, `tests/fixtures/grailzee_2026-03-23.csv`, `tests/fixtures/grailzee_2026-03-09.csv`, `tests/fixtures/sales_sample.csv`.
-- Discovery findings (written this session): `discovery/schema_v3/phase_2b/findings/01_scorer_call_graph.md`, `02_dj_config_pipeline.md`, `03_consumer_contract_surface.md`, `04_bucket_population_census.md`.
+**Two-commit pattern applied; squashed to single Step 0 commit.**
 
-#### 2b not-done (deferred to 2c per plan)
+---
 
-- `evaluate_deal.py` bucket-aware lookup
-- `build_shortlist.py` `_flatten_row` bucket read-path
-- `analyze_brands.py`, `build_spreadsheet.py`, `build_summary.py`, `build_brief.py` v3 read-paths
-- Proper per-bucket ledger lookup replacing `_dominant_median`
-- `GRAILZEE_SYSTEM_STATE.md` Section 4 update
-- Part A + Part B spot-checks and §1.7 analytical-quality benchmark (operator review step, not implementation)
+## Session 2026-04-26 (first): Wave 1.1 + audit + planning
 
-## Next phases
+### What landed (pushed to remote)
 
-- **Operator review + commit**: review Phase 2b diff (`git --no-pager diff HEAD`), then commit. Two commits expected: one for Phase 2a ingest patch artifacts already staged, one for Phase 2b.
-- **GRAILZEE_SYSTEM_STATE.md Section 4 update**: append entries for `f7ecab8` (ingest_report patch), `9777199` (Phase 2a ingest module), and Phase 2b bucket scorer + write_cache reshape. Each entry: shipped surface, test delta, architecture notes.
-- **Part A + Part B spot-checks**: W1+W2 union run against live CSVs; verify ~722 eligible buckets (3% tolerance). W2-only pipeline run; confirm v3 cache `schema_version: 3`, 5 DJ config entries, `dj_configs[*].trend_signal == "No prior data"`.
-- **§1.7 analytical-quality benchmark**: 10 references side-by-side v2 vs v3 scoring comparison (operator review step).
-- **Phase 2c** (after spot-checks pass): `evaluate_deal.py` bucket-aware four-axis lookup; `build_shortlist.py` `_flatten_row` bucket read-path; `analyze_brands.py`, `build_spreadsheet.py`, `build_summary.py`, `build_brief.py` v3 read-paths; proper per-bucket ledger lookup replacing `_dominant_median`; restore 98 skipped tests.
-- **Backlog ready-to-execute** (STATE §6): live `sourcing_brief_cycle_2026-06.json` Drive-state gap; `apply_premium_adjustment` + `adjusted_max_buy` dead-code pair; `analyzer_config.premium_model.*` zero-consumer subtree; B.9 watchlist rename (deferred).
+**Wave 1.1 `build_shortlist.py`**: `ae253aa` (tests), `2a852cb` (impl), `c7f90d5` (Makefile).
+- 30-column bucket-row CSV; `_flatten_row(ref_entry, bucket_key, bucket)`; deterministic sort with tiebreaks; Decisions 8/9/10/11 PASS; run_analysis.py 2c-restore try/except removed.
+- Makefile targets added: `test-grailzee-eval`, `test-grailzee-eval-build-shortlist`, `test-grailzee-eval-run-analysis`, `test-grailzee-cowork`.
+- **Standing rule**: always `make test-*`; never raw pytest.
+
+**Wave 1 audit** (`discovery/schema_v3/phase_2c/audit_findings.md`): cowork bundle roles mapped; strategy skill v2-era reads documented; skip-marker gap in `analyze_brands.py` surfaced.
+
+**State docs added** to `state/`: Decision Lock Addendum (Decisions 8-11 + Opus process decision); 2b close-out.
+
+---
+
+## Open items into Step 2
+
+1. **State doc Section 4**: six commit entries pending — ae253aa, 2a852cb, c7f90d5, bfc68cd, c8b8494, 2ec21e5.
+2. **Telegram release check** (Step 1 §5 third gate): operator-driven; bot answers a deal eval against mocked state with yes/no + math; off-plan / math-failing deal returns no with `Comp search not yet wired.`
+3. **Operator action**: repoint root `~/.openclaw/openclaw.json` workspace path (or symlink) before gateway restart so OpenClaw discovers the per-agent `openclaw.json` at `skills/grailzee-eval/`.
+4. **`grailzee_common.max_buy_*` floor leak**: Step 1.1 patch or Step 2 producer-chain absorption.
+5. **Step 2 prompt drafting**: `build_shortlist.py` schema-validation OUTBOUND; cowork OUTBOUND wide-CSV validation; bundle assembly with state + sale-folder JSONs; KNOWN_ISSUES #1 / #3 fixes.
+6. **`analyze_brands.py` skip-marker gap**: determine pass/fail before Step 2 sequencing.
+7. **§5.5 spot-check**: generate v3 cache from branch against live W2 CSV; closes 2a ingest_and_archive rehearsal.
+
+---
 
 ## Pointers
 
-- Canonical current-state truth: `GRAILZEE_SYSTEM_STATE.md` at repo root.
-- Full prior build history (Phase 0 through B.8 + schema Phase 1 discovery): `.claude/progress-v0.md`.
-- Schema v3 lock: `/Users/ranbirchawla/Downloads/GZ Agent/Phase 2/Grailzee_Schema_v3_Decision_Lock_2026-04-24_v1.md`.
-- Phase 1 evidence: `skills/grailzee-eval/discovery/schema_v3/findings/PHASE1_REPORT.md`.
-- Ingest patch artifacts: `skills/grailzee-eval/discovery/ingest_full_column_patch/findings.md` + `spotcheck.md`.
-- Phase 2a artifacts: `skills/grailzee-eval/discovery/schema_v3/phase_2a/` (5 P2a_I*_findings.md + P2a_spotcheck_part[A,B].md + discover_2a.py).
+- State truth: `GRAILZEE_SYSTEM_STATE.md` (repo root)
+- Architecture lock: `Downloads/GZ-4-25/GZ-4-26/files/Grailzee_Architecture_Lock_2026-04-26.md`
+- Rational sequence: `Downloads/GZ-4-25/GZ-4-26/files/Grailzee_Implementation_Sequence_2026-04-26.md`
+- Step 0 spec: `Downloads/GZ-4-25/GZ-4-26/Grailzee_Step0_Schema_Specification_2026-04-26.md`
+- Decision locks: `state/Grailzee_Schema_v3_Decision_Lock_2026-04-24_v1.md` + `state/Grailzee_Schema_v3_Decision_Lock_Addendum_2026-04-26_v1.md`
+- 2c audit findings: `discovery/schema_v3/phase_2c/audit_findings.md`
+- Strategy skill: `grailzee-strategy/` (repo root)
+- Cowork plugin: `grailzee-cowork/` (repo root)
+- Step 1 mock fixture: `grailzee-cowork/tests/fixtures/mock_strategy_output.json`
+- Per-agent OpenClaw config: `skills/grailzee-eval/openclaw.json`
+- Full prior build log: `.claude/progress-v0.md`

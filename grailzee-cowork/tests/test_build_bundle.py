@@ -61,7 +61,6 @@ def test_happy_path_builds_bundle_with_all_roles(tmp_path):
             "monthly_goals",
             "quarterly_allocation",
             "trade_ledger",
-            "sourcing_brief",
             "latest_report_csv",
             # A.5: three workspace-state configs bundled alongside Drive
             # files so strategy sessions see the full config surface.
@@ -251,7 +250,6 @@ def test_prior_cycle_in_different_quarter_both_true(tmp_path):
             "references": {},
         },
         cycle_focus={"cycle_id": "cycle_2026-08"},
-        brief={"cycle_id": "cycle_2026-08", "headline": "", "sections": []},
     )
     bundle = build_outbound_bundle(tmp_path)
     with zipfile.ZipFile(bundle, "r") as zf:
@@ -280,7 +278,6 @@ def test_prior_cycle_within_same_quarter_only_month_boundary(tmp_path):
             "references": {},
         },
         cycle_focus={"cycle_id": "cycle_2026-05"},
-        brief={"cycle_id": "cycle_2026-05", "headline": "", "sections": []},
     )
     bundle = build_outbound_bundle(tmp_path)
     with zipfile.ZipFile(bundle, "r") as zf:
@@ -312,7 +309,6 @@ def test_boundary_anchor_skips_current_cycle_entries(tmp_path):
             "references": {},
         },
         cycle_focus={"cycle_id": "cycle_2026-08"},
-        brief={"cycle_id": "cycle_2026-08", "headline": "", "sections": []},
     )
     bundle = build_outbound_bundle(tmp_path)
     with zipfile.ZipFile(bundle, "r") as zf:
@@ -340,7 +336,6 @@ def test_malformed_run_history_degrades_gracefully(tmp_path):
         ("cycle_focus", "cycle_focus"),
         ("monthly_goals", "monthly_goals"),
         ("quarterly_allocation", "quarterly_allocation"),
-        ("brief", "sourcing_brief"),
     ],
 )
 def test_missing_required_input_raises(tmp_path, key, label):
@@ -361,7 +356,7 @@ def test_missing_cycle_id_in_cache_raises(tmp_path):
 
 def test_tmp_file_cleaned_on_failure(tmp_path):
     paths = build_fake_grailzee_tree(tmp_path)
-    paths["brief"].unlink()  # trigger FileNotFoundError mid-build
+    paths["shortlist"].unlink()  # trigger FileNotFoundError mid-build
     with pytest.raises(FileNotFoundError):
         build_outbound_bundle(tmp_path)
     stray_tmps = list(paths["bundles"].glob("*.tmp"))
@@ -462,7 +457,6 @@ class TestCycleIdBiweeklySemantics:
                 "references": {},
             },
             cycle_focus={"cycle_id": "cycle_2026-14"},
-            brief={"cycle_id": "cycle_2026-14", "headline": "", "sections": []},
         )
         bundle = build_outbound_bundle(tmp_path)
         with zipfile.ZipFile(bundle, "r") as zf:
@@ -489,7 +483,6 @@ class TestCycleIdBiweeklySemantics:
                 "references": {},
             },
             cycle_focus={"cycle_id": "cycle_2026-04"},
-            brief={"cycle_id": "cycle_2026-04", "headline": "", "sections": []},
         )
         bundle = build_outbound_bundle(tmp_path)
         with zipfile.ZipFile(bundle, "r") as zf:
@@ -986,7 +979,7 @@ class TestPhaseB8CycleShortlistInclusion:
     def test_shortlist_archive_name_is_bare_cycle_shortlist(self, tmp_path):
         """In-bundle arcname is bare ``cycle_shortlist.csv``, matching the
         convention of every other in-bundle artifact (analysis_cache.json,
-        sourcing_brief.json, cycle_focus.json, trade_ledger.csv). Cycle
+        cycle_focus.json, trade_ledger.csv). Cycle
         scope is carried by the bundle filename and the manifest's
         ``cycle_id`` field, not stamped into every arcname."""
         build_fake_grailzee_tree(tmp_path)
@@ -1038,20 +1031,6 @@ class TestPhaseB8CycleShortlistInclusion:
             build_outbound_bundle(tmp_path)
         assert str(expected_path) in str(excinfo.value)
 
-    def test_sourcing_brief_unchanged_by_role_11_addition(self, tmp_path):
-        """Role 9 regression: sourcing_brief still loads with its current
-        archive name and contents, unaffected by the role 11 insertion."""
-        paths = build_fake_grailzee_tree(tmp_path)
-        bundle = build_outbound_bundle(tmp_path)
-        with zipfile.ZipFile(bundle, "r") as zf:
-            manifest = json.loads(zf.read("manifest.json"))
-            entry = next(
-                f for f in manifest["files"] if f["role"] == "sourcing_brief"
-            )
-            assert entry["path"] == "sourcing_brief.json"
-            bundled = zf.read("sourcing_brief.json")
-        assert bundled == paths["brief"].read_bytes()
-
     def test_shortlist_span_attribute_set_when_span_active(self, tmp_path):
         """When a span is active around the bundle build, the
         ``cycle_shortlist_loaded`` attribute is set. Mirrors the
@@ -1084,3 +1063,39 @@ class TestPhaseB8CycleShortlistInclusion:
         build_fake_grailzee_tree(tmp_path)
         bundle = build_outbound_bundle(tmp_path)
         assert bundle.exists()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Consumer schema validation (2C)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestShortlistSchemaValidation:
+    """build_outbound_bundle validates shortlist against cycle_shortlist_v1.json."""
+
+    def test_valid_shortlist_bundles_successfully(self, tmp_path):
+        build_fake_grailzee_tree(tmp_path)
+        bundle = build_outbound_bundle(tmp_path)
+        assert bundle.exists()
+
+    def test_corrupted_shortlist_raises_before_bundle_write(self, tmp_path):
+        """Shortlist with wrong column count raises CycleShortlistValidationError
+        before the bundle zip is written."""
+        from grailzee_bundle.cycle_shortlist_schema import CycleShortlistValidationError
+        paths = build_fake_grailzee_tree(tmp_path)
+        paths["shortlist"].write_text("col1,col2\nval1,val2\n")
+        with pytest.raises(CycleShortlistValidationError):
+            build_outbound_bundle(tmp_path)
+        assert list(paths["bundles"].glob("*.zip")) == [], (
+            "bundle zip must not be written when shortlist validation fails"
+        )
+
+    def test_corrupted_shortlist_cleans_up_validate_tmp(self, tmp_path):
+        """Validate-tmp file is cleaned up even on validation failure."""
+        from grailzee_bundle.cycle_shortlist_schema import CycleShortlistValidationError
+        paths = build_fake_grailzee_tree(tmp_path)
+        paths["shortlist"].write_text("col1,col2\nval1,val2\n")
+        with pytest.raises(CycleShortlistValidationError):
+            build_outbound_bundle(tmp_path)
+        leftover_tmps = list(paths["state"].glob("*.validate.tmp"))
+        assert leftover_tmps == [], f"validate tmp not cleaned up: {leftover_tmps}"

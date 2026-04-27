@@ -128,12 +128,12 @@ def test_unchanged_round_trip_is_byte_equivalent(tmp_path):
 
 def test_edited_round_trip_commits_chat_edits(tmp_path):
     """Simulate Chat editing the three payload files; verify state/ reflects
-    the edits and unrelated files (analysis_cache, trade_ledger, brief) are
-    untouched."""
+    the edits and unrelated files (analysis_cache, trade_ledger, shortlist)
+    are untouched."""
     paths = build_fake_grailzee_tree(tmp_path)
     cache_before = paths["cache"].read_bytes()
     ledger_before = paths["ledger"].read_bytes()
-    brief_before = paths["brief"].read_bytes()
+    shortlist_before = paths["shortlist"].read_bytes()
 
     outbound = build_outbound_bundle(tmp_path)
 
@@ -173,7 +173,7 @@ def test_edited_round_trip_commits_chat_edits(tmp_path):
     # Unrelated state unchanged.
     assert paths["cache"].read_bytes() == cache_before
     assert paths["ledger"].read_bytes() == ledger_before
-    assert paths["brief"].read_bytes() == brief_before
+    assert paths["shortlist"].read_bytes() == shortlist_before
 
 
 def test_outbound_generates_valid_hashes_for_downstream_consumers(tmp_path):
@@ -213,13 +213,13 @@ def test_strategy_output_full_round_trip(tmp_path):
     - Archive JSON re-reads byte-equal to the original payload
     - Archive MD matches session_artifacts.cycle_brief_md
     - Archive XLSX carries the Cycle Summary + Config Updates sheets
-    - Unrelated state (analysis_cache, trade_ledger, sourcing_brief) is
+    - Unrelated state (analysis_cache, trade_ledger, cycle_shortlist) is
       untouched
     """
     paths = build_fake_grailzee_tree(tmp_path)
     cache_before = paths["cache"].read_bytes()
     ledger_before = paths["ledger"].read_bytes()
-    brief_before = paths["brief"].read_bytes()
+    shortlist_before = paths["shortlist"].read_bytes()
 
     payload = make_strategy_output(
         cycle_id=FAKE_CYCLE_ID,
@@ -281,7 +281,7 @@ def test_strategy_output_full_round_trip(tmp_path):
     # Unrelated state untouched.
     assert paths["cache"].read_bytes() == cache_before
     assert paths["ledger"].read_bytes() == ledger_before
-    assert paths["brief"].read_bytes() == brief_before
+    assert paths["shortlist"].read_bytes() == shortlist_before
 
 
 def test_strategy_output_partial_update_round_trip(tmp_path):

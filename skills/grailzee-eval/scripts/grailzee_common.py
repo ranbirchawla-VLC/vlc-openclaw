@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import os
 import re
 import statistics
@@ -32,7 +33,6 @@ GRAILZEE_ROOT = (
 REPORTS_PATH  = f"{GRAILZEE_ROOT}/reports"
 CSV_PATH      = f"{GRAILZEE_ROOT}/reports_csv"
 OUTPUT_PATH   = f"{GRAILZEE_ROOT}/output"
-BRIEFS_PATH   = f"{OUTPUT_PATH}/briefs"
 STATE_PATH    = f"{GRAILZEE_ROOT}/state"
 BACKUP_PATH   = f"{GRAILZEE_ROOT}/backup"
 
@@ -47,7 +47,6 @@ WORKSPACE_STATE_PATH = str(
 )
 
 CACHE_PATH          = f"{STATE_PATH}/analysis_cache.json"
-BRIEF_PATH          = f"{STATE_PATH}/sourcing_brief.json"
 LEDGER_PATH         = f"{STATE_PATH}/trade_ledger.csv"
 NAME_CACHE_PATH     = f"{STATE_PATH}/name_cache.json"
 CYCLE_FOCUS_PATH    = f"{STATE_PATH}/cycle_focus.json"
@@ -204,19 +203,21 @@ def _target_margin() -> float:
 def max_buy_nr(median: float) -> float:
     """MAX BUY for No Reserve account.
 
-    Formula: (median - 149) / (1 + target_margin), rounded to nearest $10.
+    Formula: (median - 149) / (1 + target_margin), floored to nearest $10.
     Target margin is sourced from analyzer_config.json (Phase A.2).
+    Floor-round ensures every dollar at or below max_buy clears the 5% floor.
     """
-    return round((median - NR_FIXED) / (1 + _target_margin()), -1)
+    return math.floor((median - NR_FIXED) / (1 + _target_margin()) / 10) * 10
 
 
 def max_buy_reserve(median: float) -> float:
     """MAX BUY for Reserve account.
 
-    Formula: (median - 199) / (1 + target_margin), rounded to nearest $10.
+    Formula: (median - 199) / (1 + target_margin), floored to nearest $10.
     Target margin is sourced from analyzer_config.json (Phase A.2).
+    Floor-round ensures every dollar at or below max_buy clears the 5% floor.
     """
-    return round((median - RES_FIXED) / (1 + _target_margin()), -1)
+    return math.floor((median - RES_FIXED) / (1 + _target_margin()) / 10) * 10
 
 
 def breakeven_nr(max_buy: float) -> float:
@@ -238,7 +239,7 @@ def adjusted_max_buy(median: float, fixed_cost: float,
     Target margin is sourced from analyzer_config.json (Phase A.2).
     """
     adjusted_median = median * (1 + premium_adjustment_pct / 100)
-    return round((adjusted_median - fixed_cost) / (1 + _target_margin()), -1)
+    return math.floor((adjusted_median - fixed_cost) / (1 + _target_margin()) / 10) * 10
 
 
 def get_ad_budget(median_price: float) -> str:

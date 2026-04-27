@@ -5,9 +5,7 @@ trends -> changes -> breakouts -> watchlist -> brands -> ledger ->
 cycle rollup -> output builders -> cache write.
 
 v3 (2b): Step 6 uses load_and_canonicalize + analyze_buckets.run instead of
-analyze_references.run. Output builders (analyze_brands, build_spreadsheet,
-build_summary, build_brief, build_shortlist) read the v2 flat per-ref shape
-and are wrapped with log-and-skip until 2c restores their read paths.
+analyze_references.run. build_shortlist reads references from the v3 cache.
 
 Called by the report capability (Section 10.1):
     python3 scripts/run_analysis.py <csv> [<csv> ...] --output-dir DIR
@@ -56,12 +54,8 @@ from scripts.ingest import load_and_canonicalize
 from scripts import analyze_changes
 from scripts import analyze_breakouts
 from scripts import analyze_watchlist
-from scripts import analyze_brands
 from scripts import read_ledger
 from scripts import roll_cycle
-from scripts import build_spreadsheet
-from scripts import build_summary
-from scripts import build_brief
 from scripts import build_shortlist
 from scripts import write_cache
 
@@ -180,17 +174,7 @@ def run_analysis(
             span.set_status(StatusCode.ERROR, str(exc))
             raise
 
-    # Step 9: Brand rollups (2c-restore: reads flat per-ref shape; skipped in v3)
     brands: dict = {"brands": {}, "count": 0}
-    with tracer.start_as_current_span("analyze_brands.run") as span:
-        span.set_attribute("refs_count", len(all_results.get("references", {})))
-        try:
-            brands = analyze_brands.run(all_results, trends)
-            span.set_attribute("brand_count", brands.get("count", 0))
-        except Exception as exc:
-            span.record_exception(exc)
-            span.set_attribute("outcome", "skipped_2c_restore")
-            _log.warning("analyze_brands.run skipped (2c-restore; v3 bucket read-path): %s", exc)
 
     # Step 10: Ledger stats
     with tracer.start_as_current_span("read_ledger.run") as span:
@@ -234,50 +218,7 @@ def run_analysis(
         if not data.get("named", False)
     ]
 
-    # Step 14: Output builders (2c-restore: all read flat per-ref shape; skipped in v3)
     summary_path: str = ""
-    with tracer.start_as_current_span("build_spreadsheet.run") as span:
-        span.set_attribute("refs_count", len(all_results.get("references", {})))
-        try:
-            build_spreadsheet.run(
-                all_results, trends, changes, breakouts,
-                watchlist_result, brands, ledger_stats, output_folder,
-            )
-        except Exception as exc:
-            span.record_exception(exc)
-            span.set_attribute("outcome", "skipped_2c_restore")
-            _log.warning(
-                "build_spreadsheet.run skipped (2c-restore; v3 bucket read-path): %s", exc,
-            )
-
-    with tracer.start_as_current_span("build_summary.run") as span:
-        span.set_attribute("cycle_id", current_cycle_id)
-        try:
-            summary_path = build_summary.run(
-                all_results, trends, changes, breakouts,
-                watchlist_result, brands, ledger_stats,
-                current_cycle_id, output_folder,
-            )
-            span.set_attribute("output_path", summary_path)
-        except Exception as exc:
-            span.record_exception(exc)
-            span.set_attribute("outcome", "skipped_2c_restore")
-            _log.warning(
-                "build_summary.run skipped (2c-restore; v3 bucket read-path): %s", exc,
-            )
-
-    with tracer.start_as_current_span("build_brief.run") as span:
-        span.set_attribute("refs_count", len(all_results.get("references", {})))
-        try:
-            build_brief.run(
-                all_results, trends, changes, breakouts, brands, output_folder,
-            )
-        except Exception as exc:
-            span.record_exception(exc)
-            span.set_attribute("outcome", "skipped_2c_restore")
-            _log.warning(
-                "build_brief.run skipped (2c-restore; v3 bucket read-path): %s", exc,
-            )
 
     # Step 15: Cache write
     market_window = {

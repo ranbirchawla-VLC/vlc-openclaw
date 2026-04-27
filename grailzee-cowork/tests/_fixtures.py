@@ -1,8 +1,8 @@
 """Shared fixture builders for grailzee-cowork tests.
 
 These helpers build the minimum disk state the OUTBOUND and INBOUND
-bundle paths need: a fake GrailzeeData tree (state/, output/briefs/,
-reports_csv/, bundles/) with plausible, schema-valid content.
+bundle paths need: a fake GrailzeeData tree (state/, reports_csv/,
+bundles/) with plausible, schema-valid content.
 
 Kept deliberately small. Each test tweaks what it cares about; the
 builder fills in the rest.
@@ -100,6 +100,24 @@ def _default_run_history(cycle_id: str, with_boundary: bool) -> dict[str, Any]:
     return {"runs": entries}
 
 
+_SHORTLIST_HEADER = (
+    "brand,reference,model,dial_numerals,auction_type,dial_color,named_special,"
+    "signal,median,max_buy_nr,max_buy_res,st_pct,volume,risk_nr,"
+    "capital_required_nr,capital_required_res,expected_net_at_median_nr,"
+    "expected_net_at_median_res,trend_signal,trend_median_change,trend_median_pct,"
+    "momentum_score,momentum_label,confidence_trades,confidence_profitable,"
+    "confidence_win_rate,confidence_avg_roi,confidence_avg_premium,"
+    "confidence_last_trade,keep"
+)
+
+_SHORTLIST_DEFAULT_ROW = (
+    "Tudor,79830RB,BB GMT Pepsi,Arabic,nr,black,,Strong,3200,2910,2860,75.0,12,8.5,"
+    "2959,3009,241,191,,,,,,,,,,,,"
+)
+
+_DEFAULT_SHORTLIST_CSV = f"{_SHORTLIST_HEADER}\n{_SHORTLIST_DEFAULT_ROW}\n"
+
+
 def build_fake_grailzee_tree(
     root: Path,
     *,
@@ -111,7 +129,6 @@ def build_fake_grailzee_tree(
     quarterly_allocation: dict[str, Any] | None = None,
     run_history: dict[str, Any] | None = None,
     ledger_rows: list[dict[str, Any]] | None = None,
-    brief: dict[str, Any] | None = None,
     report_csv_contents: dict[str, str] | None = None,
     shortlist_csv_contents: str | None = None,
 ) -> dict[str, Path]:
@@ -158,18 +175,6 @@ def build_fake_grailzee_tree(
         ]
         ledger_path.write_text(header + "\n".join(lines) + ("\n" if lines else ""))
 
-    brief_path = briefs / f"sourcing_brief_{cycle_id}.json"
-    brief_path.write_text(
-        json.dumps(
-            brief
-            or {
-                "cycle_id": cycle_id,
-                "headline": "Tudor GMT momentum continues; SMD ceramic gaining.",
-                "sections": [],
-            }
-        )
-    )
-
     if report_csv_contents is None:
         report_csv_contents = {
             "grailzee_2026-04-15.csv": (
@@ -186,13 +191,10 @@ def build_fake_grailzee_tree(
         (reports_csv / name).write_text(contents)
 
     shortlist_path = state / f"cycle_shortlist_{cycle_id}.csv"
-    if shortlist_csv_contents is None:
-        shortlist_csv_contents = (
-            "reference,brand,signal,median,max_buy_nr,volume,keep\n"
-            "79830RB,Tudor,Strong,3200,2910,12,\n"
-            "210.30,Omega,Normal,4400,4200,6,\n"
-        )
-    shortlist_path.write_text(shortlist_csv_contents)
+    shortlist_path.write_text(
+        shortlist_csv_contents if shortlist_csv_contents is not None
+        else _DEFAULT_SHORTLIST_CSV
+    )
 
     return {
         "root": root,
@@ -207,7 +209,6 @@ def build_fake_grailzee_tree(
         "quarterly_allocation": quarterly_path,
         "run_history": run_history_path,
         "ledger": ledger_path,
-        "brief": brief_path,
         "shortlist": shortlist_path,
     }
 

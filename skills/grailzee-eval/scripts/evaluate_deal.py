@@ -349,10 +349,10 @@ def _error_response(error: str, message: str) -> dict:
         "reference": "",
         "bucket": None,
         "math": None,
-        "cycle_context": {"on_plan": False, "target_match": None},
+        "cycle_context": {"on_plan": None, "target_match": None},
         "match_resolution": "error",
         "match_resolution_label": "Lookup error",
-        "plan_status_label": "Off cycle plan",
+        "plan_status_label": "Lookup error",
         "bucket_label": None,
         "error": error,
         "message": message,
@@ -455,8 +455,8 @@ def evaluate(
         )
         span.set_attribute("bucket_key", bucket_key)
 
-        math = _decision_math(bucket, listing_price)
-        decision = _decide_yes_no(bucket, math)
+        deal_math = _decision_math(bucket, listing_price)
+        decision = _decide_yes_no(bucket, deal_math)
         span.set_attribute("decision", decision)
 
         return _build_response(
@@ -464,7 +464,7 @@ def evaluate(
             match_resolution="single_bucket",
             decision=decision,
             bucket=bucket,
-            math=math,
+            math=deal_math,
             cycle_context=cycle_context,
         )
 

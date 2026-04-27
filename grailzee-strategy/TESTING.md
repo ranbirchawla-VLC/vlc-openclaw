@@ -68,8 +68,8 @@ raises `StrategyOutputValidationError` on failure).
 2. Upload `.zip` to Chat with prompt: *"New cycle — plan it."*
 3. Expected skill behavior:
    - Activates `grailzee-strategy`.
-   - Reads `manifest.json`, `sourcing_brief.json`, `analysis_cache.json`,
-     and `cycle_focus_current.json` before writing anything.
+   - Reads `manifest.json`, `cycle_shortlist.csv`, `analysis_cache.json`,
+     and `cycle_focus.json` before writing anything.
    - Produces `strategy_output.json` with:
      - `session_mode: "cycle_planning"`
      - `decisions.cycle_focus` populated; other three decisions null
@@ -176,9 +176,8 @@ stay consistent, archive writes overwrite cleanly.
 2. Run a cycle_planning session against it.
 3. Apply the output.
 4. Re-export as a new outbound `.zip`.
-5. Confirm: the new bundle's `cycle_focus_current.json` reflects the
-   session's decisions, and `sourcing_brief.json` is consistent with
-   the targets chosen.
+5. Confirm: the new bundle's `cycle_focus.json` reflects the
+   session's decisions.
 
 Covered for the JSON leg by
 `test_round_trip.py::test_strategy_output_full_round_trip` on the
