@@ -20,9 +20,9 @@ Output: JSON to stdout with shape:
       "decision": "yes" | "no",
       "reference": str,
       "bucket": {dial_numerals, auction_type, dial_color, named_special} | null,
-      "math": {listing_price, premium_scalar, adjusted_price, max_buy, margin_pct} | null,
+      "math": {listing_price, premium_scalar, adjusted_price, max_buy, margin_pct, headroom_pct} | null,
       "cycle_context": {on_plan: bool, target_match: dict | null},
-      "match_resolution": "single_bucket | ambiguous | no_match | reference_not_found | error",
+      "match_resolution": "single_bucket | ambiguous | no_match | override_match | reference_not_found | error",
       "candidates": [bucket, ...]    # only on ambiguous
       "error": str                   # only when match_resolution == error
     }
@@ -282,6 +282,38 @@ def _decision_math(bucket: dict, listing_price: float) -> dict | None:
         "adjusted_price": round(adjusted_price, 2),
         "max_buy": max_buy,
         "margin_pct": round(margin_pct, 2),
+        "headroom_pct": None,
+    }
+
+
+def _override_math(override_price: float, listing_price: float) -> dict:
+    """Compute buy decision from operator override price.
+
+    Pure function. No premium scalar, no median, no fees — the operator's
+    override already encodes their strategy and pricing judgment.
+
+    Returns a dict with keys:
+        listing_price (float), premium_scalar (None), adjusted_price (None),
+        max_buy (float, == override_price), margin_pct (None),
+        headroom_pct (float, signed).
+
+    headroom_pct = ((override_price - listing_price) / override_price) * 100.
+    Positive when listing is below the ceiling; negative when above.
+
+    Raises ValueError if override_price <= 0.
+    """
+    if override_price <= 0:
+        raise ValueError(
+            f"override_price must be positive; got {override_price!r}"
+        )
+    headroom_pct = ((override_price - listing_price) / override_price) * 100
+    return {
+        "listing_price": listing_price,
+        "premium_scalar": None,
+        "adjusted_price": None,
+        "max_buy": override_price,
+        "margin_pct": None,
+        "headroom_pct": round(headroom_pct, 2),
     }
 
 
@@ -302,6 +334,7 @@ _MATCH_RESOLUTION_LABELS: dict[str, str] = {
     "single_bucket": "Matched single bucket",
     "ambiguous": "Multiple buckets possible. Clarify dial color, auction type, or numerals.",
     "no_match": "No bucket match for this listing",
+    "override_match": "On plan; override price applied",
     "reference_not_found": "Reference not in cache",
     "error": "Lookup error",
 }

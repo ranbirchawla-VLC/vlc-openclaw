@@ -37,9 +37,9 @@ Return shape:
       "decision": "yes" | "no",
       "reference": str,
       "bucket": {dial_numerals, auction_type, dial_color, named_special} | None,
-      "math": {listing_price, premium_scalar, adjusted_price, max_buy, margin_pct} | None,
+      "math": {listing_price, premium_scalar, adjusted_price, max_buy, margin_pct, headroom_pct} | None,
       "cycle_context": {on_plan: bool, target_match: dict | None},
-      "match_resolution": "single_bucket | ambiguous | no_match | reference_not_found",
+      "match_resolution": "single_bucket | ambiguous | no_match | override_match | reference_not_found | error",
       "candidates": [bucket_dict, ...]   # only on ambiguous
     }
 """
@@ -61,6 +61,8 @@ from scripts.grailzee_common import (
 from scripts.evaluate_deal import (
     evaluate,
     _match_buckets,
+    _override_math,
+    _MATCH_RESOLUTION_LABELS,
     _parse_price_arg,
     _plan_status_label,
 )
@@ -940,3 +942,93 @@ class TestLabelFields:
             assert isinstance(value, str) and value, (
                 f"{key} should be a non-empty string on single_bucket; got {value!r}"
             )
+
+
+# ─── Override math ───────────────────────────────────────────────────
+
+
+class TestOverrideMath:
+    """Unit tests for _override_math — pure function, no fixtures needed.
+
+    Hand-computed math (override=5000, listing=4800):
+      headroom_pct = (5000 - 4800) / 5000 * 100 = 4.0%
+
+    Boundary (at ceiling):
+      override=5000, listing=5000 → headroom_pct = 0.0%
+
+    Above ceiling (listing=5200):
+      headroom_pct = (5000 - 5200) / 5000 * 100 = -4.0%
+    """
+
+    def test_yes_below_override_ceiling(self):
+        result = _override_math(override_price=5000.0, listing_price=4800.0)
+        assert result["max_buy"] == 5000.0
+        assert result["listing_price"] == 4800.0
+        assert result["headroom_pct"] == pytest.approx(4.0, abs=0.01)
+
+    def test_yes_at_override_ceiling(self):
+        """listing_price == override_price is the boundary yes case."""
+        result = _override_math(override_price=5000.0, listing_price=5000.0)
+        assert result["max_buy"] == 5000.0
+        assert result["headroom_pct"] == pytest.approx(0.0, abs=0.01)
+
+    def test_no_above_override_ceiling(self):
+        """listing_price > override_price; headroom_pct is negative."""
+        result = _override_math(override_price=5000.0, listing_price=5200.0)
+        assert result["max_buy"] == 5000.0
+        assert result["headroom_pct"] == pytest.approx(-4.0, abs=0.01)
+
+    def test_max_buy_equals_override_price(self):
+        result = _override_math(override_price=7330.0, listing_price=6500.0)
+        assert result["max_buy"] == 7330.0
+
+    def test_premium_scalar_is_none(self):
+        result = _override_math(override_price=5000.0, listing_price=4800.0)
+        assert result["premium_scalar"] is None
+
+    def test_adjusted_price_is_none(self):
+        result = _override_math(override_price=5000.0, listing_price=4800.0)
+        assert result["adjusted_price"] is None
+
+    def test_margin_pct_is_none(self):
+        result = _override_math(override_price=5000.0, listing_price=4800.0)
+        assert result["margin_pct"] is None
+
+    def test_headroom_pct_positive_when_below(self):
+        result = _override_math(override_price=5000.0, listing_price=4000.0)
+        assert result["headroom_pct"] > 0
+
+    def test_headroom_pct_negative_when_above(self):
+        result = _override_math(override_price=5000.0, listing_price=6000.0)
+        assert result["headroom_pct"] < 0
+
+    def test_zero_override_price_raises(self):
+        with pytest.raises(ValueError, match="override_price must be positive"):
+            _override_math(override_price=0.0, listing_price=4800.0)
+
+
+class TestOverrideMatchResolution:
+    def test_override_match_label_defined(self):
+        """override_match key must exist in _MATCH_RESOLUTION_LABELS with a
+        non-empty operator-facing string."""
+        assert "override_match" in _MATCH_RESOLUTION_LABELS
+        label = _MATCH_RESOLUTION_LABELS["override_match"]
+        assert isinstance(label, str) and label
+
+
+class TestBucketMathHeadroomRegression:
+    """Regression: bucket math return dict includes headroom_pct: None
+    after Shape G addition. Confirms existing callers are not broken by
+    the new field."""
+
+    def test_bucket_math_headroom_pct_is_none(self, tmp_path):
+        cache_path = _write_cache(tmp_path, _make_v3_cache(refs={
+            "79830RB": _make_ref(buckets=[_make_bucket(median=3200)]),
+        }))
+        result = evaluate(
+            "Tudor", "79830RB", 2000,
+            cache_path=cache_path,
+            cycle_focus_path=str(tmp_path / "no_focus.json"),
+        )
+        assert result["match_resolution"] == "single_bucket"
+        assert result["math"]["headroom_pct"] is None
