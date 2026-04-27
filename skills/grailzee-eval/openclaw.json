@@ -1,45 +1,45 @@
 {
   "name": "grailzee-eval",
   "version": "1.0.0",
-  "description": "Grailzee deal-evaluation and report-ingest tools for the grailzee Telegram bot.",
+  "description": "Grailzee deal evaluator and cycle reporting agent for Vardalux Collections",
   "session": {
     "dmScope": "per-channel-peer"
   },
   "env": [
-    "GRAILZEE_DATA_ROOT",
-    "GRAILZEE_TZ"
+    "GRAILZEE_ROOT"
   ],
   "tools": [
     {
       "name": "evaluate_deal",
-      "description": "Evaluate one Grailzee deal against the v3 bucket cache. Reads brand, reference, and listing_price; optionally narrows by dial_numerals, auction_type, or dial_color when the operator names them. Returns yes/no with math (premium scalar applied uniformly) plus on_plan context. On ambiguous matches, returns candidate buckets so the LLM can ask one clarifying question. Call this for any message containing a brand + reference + dollar amount.",
+      "description": "Evaluate a Grailzee deal against the cycle plan and bucket cache",
       "command": "python3 /Users/ranbirchawla/ai-code/vlc-openclaw/skills/grailzee-eval/scripts/evaluate_deal.py",
       "inputSchema": {
         "type": "object",
         "properties": {
           "brand": {
             "type": "string",
-            "description": "Watch brand (e.g. Tudor, Breitling, Cartier, Omega)."
+            "description": "Watch brand, e.g. Tudor or Rolex"
           },
           "reference": {
             "type": "string",
-            "description": "Reference number as printed by the operator (e.g. 79830RB, 210.30, A17320)."
+            "description": "Reference number, e.g. 79830RB"
           },
           "listing_price": {
             "type": "string",
-            "description": "Listing price the operator can buy at. Accepts $ and commas (e.g. \"$2,750\" or 2750)."
+            "description": "Asking price in USD; strip $ and commas before passing (e.g. 2750)"
           },
           "dial_numerals": {
             "type": "string",
-            "description": "Optional keying axis (e.g. Arabic, Roman, Stick). Pass only when the operator names it."
+            "description": "Dial numerals style: Arabic, Roman, Stick, or No Numerals. Pass only when the operator names it."
           },
           "auction_type": {
             "type": "string",
-            "description": "Optional keying axis (NR, RES). Pass only when the operator names a listing format."
+            "enum": ["NR", "RES"],
+            "description": "Auction type: NR (No Reserve) or RES (Reserve). Pass only when the operator names it."
           },
           "dial_color": {
             "type": "string",
-            "description": "Optional keying axis (e.g. Black, Blue, Slate, Green, White, Silver). Pass only when the operator names it."
+            "description": "Dial color, e.g. Black, Blue, Pink, White. Pass only when the operator names it."
           }
         },
         "required": ["brand", "reference", "listing_price"]
@@ -47,21 +47,109 @@
     },
     {
       "name": "report_pipeline",
-      "description": "Ingest a Grailzee Pro xlsx report and run the full analyzer pipeline (ingest, glob, run_analysis). Use when the operator says any of: \"new report\", \"report is in\", \"process the new file\", \"new Grailzee Pro\".",
+      "description": "Regenerate the bucket cache from a Grailzee Pro report",
       "command": "python3 /Users/ranbirchawla/ai-code/vlc-openclaw/skills/grailzee-eval/scripts/report_pipeline.py",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "input_xlsx": {
+          "input_report": {
             "type": "string",
-            "description": "Absolute path to the Grailzee Pro xlsx report dropped by the operator."
+            "description": "Absolute path to the Grailzee Pro .xlsx workbook"
           },
           "output_folder": {
             "type": "string",
-            "description": "Absolute path to the folder where the run summary lands."
+            "description": "Absolute path to the output folder for the run summary"
           }
         },
-        "required": ["input_xlsx", "output_folder"]
+        "required": ["input_report"]
+      }
+    },
+    {
+      "name": "ledger_manager",
+      "description": "Read or write entries to the trade ledger",
+      "command": "python3 /Users/ranbirchawla/ai-code/vlc-openclaw/skills/grailzee-eval/scripts/ledger_manager.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "subcommand": {
+            "type": "string",
+            "enum": ["log", "summary", "premium", "cycle_rollup"],
+            "description": "Operation: log a trade, summarize ledger, show premium stats, or roll up a cycle"
+          },
+          "brand": {
+            "type": "string",
+            "description": "Watch brand"
+          },
+          "reference": {
+            "type": "string",
+            "description": "Reference number"
+          },
+          "account": {
+            "type": "string",
+            "enum": ["NR", "RES"],
+            "description": "Auction account type"
+          },
+          "buy_price": {
+            "type": "number",
+            "description": "Purchase price in USD"
+          },
+          "sell_price": {
+            "type": "number",
+            "description": "Sale price in USD"
+          },
+          "buy_date": {
+            "type": "string",
+            "description": "Purchase date in YYYY-MM-DD format"
+          },
+          "sell_date": {
+            "type": "string",
+            "description": "Sale date in YYYY-MM-DD format; defaults to today"
+          },
+          "cycle_id": {
+            "type": "string",
+            "description": "Cycle ID, e.g. cycle_2026-08"
+          },
+          "since": {
+            "type": "string",
+            "description": "Filter start date in YYYY-MM-DD format"
+          }
+        },
+        "required": ["subcommand"]
+      }
+    },
+    {
+      "name": "message",
+      "description": "Send Telegram messages with optional inline buttons",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Message text to send to the operator"
+          },
+          "buttons": {
+            "type": "array",
+            "description": "Optional inline keyboard rows; each row is an array of button objects",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "description": "Button label visible to the operator"
+                  },
+                  "callback_data": {
+                    "type": "string",
+                    "description": "Callback data returned when the operator taps the button"
+                  }
+                },
+                "required": ["text", "callback_data"]
+              }
+            }
+          }
+        },
+        "required": ["text"]
       }
     }
   ]
