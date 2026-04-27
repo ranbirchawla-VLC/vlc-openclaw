@@ -26,7 +26,7 @@
           },
           "listing_price": {
             "type": "string",
-            "description": "Asking price in USD; strip $ and commas before passing (e.g. 2750)"
+            "description": "Asking price in USD; $ and commas are accepted (e.g. \"$2,750\" or 2750)"
           },
           "dial_numerals": {
             "type": "string",

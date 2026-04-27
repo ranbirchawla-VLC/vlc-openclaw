@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 # Resolve paths relative to this test file.
 # test file: skills/grailzee-eval/tests/test_agent_surface.py
 # parents[0] = tests/
@@ -37,16 +39,22 @@ class TestAgentOpenclawJson:
         assert isinstance(tools, list), "'tools' must be a list"
         assert len(tools) == 4, f"expected 4 tool entries, got {len(tools)}"
 
+        for t in tools:
+            assert "name" in t, f"tool entry missing 'name' field: {t}"
+
         tool_names = {t["name"] for t in tools}
         assert tool_names == _EXPECTED_TOOLS, (
             f"tool names mismatch: expected {_EXPECTED_TOOLS}, got {tool_names}"
         )
 
 
+@pytest.mark.skipif(
+    not _ROOT_OPENCLAW_JSON.exists(),
+    reason="~/.openclaw/openclaw.json not present on this machine",
+)
 class TestRootOpenclawGrailzeeEvalEntry:
     def test_root_openclaw_grailzee_eval_entry(self):
         """Root openclaw.json grailzee-eval entry has tools.allow and env.GRAILZEE_ROOT."""
-        assert _ROOT_OPENCLAW_JSON.exists(), f"{_ROOT_OPENCLAW_JSON} not found"
         data = json.loads(_ROOT_OPENCLAW_JSON.read_text())
 
         agents = data.get("agents", {}).get("list", [])
@@ -79,6 +87,7 @@ class TestAgentsMd:
         for header in ("## Identity", "## Tools Available", "## Hard Rules"):
             assert header in content, f"'{header}' section missing from AGENTS.md"
 
-        assert "exec, read, write, edit, browser do not exist" in content, (
-            "Hard Rules must state 'exec, read, write, edit, browser do not exist'"
+        assert "exec, read, write, edit, browser, canvas do not exist" in content, (
+            "Hard Rules must state "
+            "'exec, read, write, edit, browser, canvas do not exist'"
         )

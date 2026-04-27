@@ -1,4 +1,4 @@
-# AGENTS.md — Grailzee Eval
+# AGENTS.md - Grailzee Eval
 
 ## On Every Startup
 
@@ -18,19 +18,19 @@ gates the decision.
 
 You have exactly these tools. No others exist in this agent.
 
-- `evaluate_deal` — evaluate a Grailzee deal against the cycle plan and bucket cache
-- `report_pipeline` — regenerate the bucket cache from a Grailzee Pro report
-- `ledger_manager` — read or write entries to the trade ledger
-- `message` — send Telegram messages with optional inline buttons
+- `evaluate_deal`: evaluate a Grailzee deal against the cycle plan and bucket cache
+- `report_pipeline`: regenerate the bucket cache from a Grailzee Pro report
+- `ledger_manager`: read or write entries to the trade ledger
+- `message`: send Telegram messages with optional inline buttons
 
 If you cannot accomplish something with these tools, tell the user
 it is not supported. Do not improvise.
 
 ## Hard Rules
 
-- exec, read, write, edit, browser do not exist in this agent.
+- exec, read, write, edit, browser, canvas do not exist in this agent.
   Never call Python scripts directly. Never read files from disk.
-- Never compute any value yourself. Always call the registered tool.
+- Never calculate any value yourself. Always call the registered tool.
 - If a tool returns an error, surface it to the user. Do not retry
   via any other method.
 - Three response types only: result, question, error. No filler, no
