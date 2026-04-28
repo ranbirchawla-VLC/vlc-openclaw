@@ -1,4 +1,4 @@
-"""write_meal_log — append a meal log entry for a user.
+"""write_meal_log: append a meal log entry for a user.
 
 Usage: python3 write_meal_log.py '<json_args>'
 """
@@ -22,9 +22,9 @@ class _Input(BaseModel):
     food_description: str
     macros: dict
     source: Literal["recipe", "ad_hoc"]
-    recipe_id: int | None
-    recipe_name_snapshot: str | None
-    supersedes_log_id: int | None
+    recipe_id: int | None = None
+    recipe_name_snapshot: str | None = None
+    supersedes_log_id: int | None = None
     active_timezone: str
 
     @model_validator(mode="after")

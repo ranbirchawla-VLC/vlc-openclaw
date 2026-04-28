@@ -102,6 +102,44 @@ def test_capability_prompt_empty_for_default_intent(tmp_path: Path) -> None:
     assert result["capability_prompt"] == ""
 
 
+def test_today_date_is_iso_date_string(tmp_path: Path) -> None:
+    """compute_turn_state result includes today_date as YYYY-MM-DD."""
+    import re
+    caps_dir = tmp_path / "caps"
+    caps_dir.mkdir()
+    session_dir = tmp_path / "sessions"
+    session_dir.mkdir()
+
+    result = compute_turn_state(
+        "what's up",
+        USER_ID,
+        session_dir=str(session_dir),
+        capabilities_dir=str(caps_dir),
+    )
+    assert "today_date" in result
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", result["today_date"]), (
+        f"today_date must be YYYY-MM-DD; got {result['today_date']!r}"
+    )
+
+
+def test_today_view_capability_file_loaded(tmp_path: Path) -> None:
+    """today_view intent maps to today_view.md and loads its content."""
+    caps_dir = tmp_path / "caps"
+    caps_dir.mkdir()
+    (caps_dir / "today_view.md").write_text("today view prompt")
+    session_dir = tmp_path / "sessions"
+    session_dir.mkdir()
+
+    result = compute_turn_state(
+        "what have i eaten today",
+        USER_ID,
+        session_dir=str(session_dir),
+        capabilities_dir=str(caps_dir),
+    )
+    assert result["intent"] == "today_view"
+    assert result["capability_prompt"] == "today view prompt"
+
+
 # ── intent state persistence ──────────────────────────────────────────────────
 
 def test_prior_intent_is_none_on_first_turn(tmp_path: Path) -> None:
@@ -348,6 +386,86 @@ def test_find_session_file_returns_none_when_session_file_key_absent(tmp_path: P
     path = session_dir / "sessions.json"
     path.write_text(json.dumps({"agent:nutriosv2:main": entry}))
     assert _find_session_file(USER_ID, str(session_dir)) is None
+
+
+# ── intent_override ───────────────────────────────────────────────────────────
+
+def test_intent_override_skips_classifier(tmp_path: Path) -> None:
+    """intent_override bypasses classify_intent; capability_prompt from override intent returned."""
+    caps_dir = tmp_path / "caps"
+    caps_dir.mkdir()
+    (caps_dir / "mesocycle_setup.md").write_text("mesocycle setup prompt")
+    session_dir = tmp_path / "sessions"
+    session_dir.mkdir()
+
+    with patch.object(ts_mod, "classify_intent") as mock_classifier:
+        result = compute_turn_state(
+            "/newcycle",
+            USER_ID,
+            intent_override="mesocycle_setup",
+            session_dir=str(session_dir),
+            capabilities_dir=str(caps_dir),
+        )
+
+    mock_classifier.assert_not_called()
+    assert result["intent"] == "mesocycle_setup"
+    assert result["ambiguous"] is False
+    assert result["capability_prompt"] == "mesocycle setup prompt"
+
+
+def test_intent_override_today_view_loads_capability_prompt(tmp_path: Path) -> None:
+    """intent_override='today_view' returns today_view.md content."""
+    caps_dir = tmp_path / "caps"
+    caps_dir.mkdir()
+    (caps_dir / "today_view.md").write_text("today view prompt")
+    session_dir = tmp_path / "sessions"
+    session_dir.mkdir()
+
+    result = compute_turn_state(
+        "/today",
+        USER_ID,
+        intent_override="today_view",
+        session_dir=str(session_dir),
+        capabilities_dir=str(caps_dir),
+    )
+    assert result["intent"] == "today_view"
+    assert result["capability_prompt"] == "today view prompt"
+
+
+def test_intent_override_invalid_returns_clean_error(capsys: pytest.CaptureFixture) -> None:
+    """Invalid intent_override emits err() JSON and exits 1; no traceback."""
+    payload = json.dumps({
+        "user_message": "/unknown",
+        "user_id": USER_ID,
+        "intent_override": "nonexistent_intent",
+    })
+
+    with patch("sys.stdin", io.StringIO(payload)):
+        with pytest.raises(SystemExit) as exc_info:
+            ts_mod.main()
+
+    assert exc_info.value.code == 1
+    captured = json.loads(capsys.readouterr().out)
+    assert captured["ok"] is False
+    assert "nonexistent_intent" in captured["error"]
+
+
+def test_no_intent_override_runs_classifier(tmp_path: Path) -> None:
+    """Without intent_override, classifier routes 'I had oatmeal' to meal_log (regression)."""
+    caps_dir = tmp_path / "caps"
+    caps_dir.mkdir()
+    (caps_dir / "meal_log.md").write_text("meal log prompt")
+    session_dir = tmp_path / "sessions"
+    session_dir.mkdir()
+
+    result = compute_turn_state(
+        "I had oatmeal",
+        USER_ID,
+        session_dir=str(session_dir),
+        capabilities_dir=str(caps_dir),
+    )
+    assert result["intent"] == "meal_log"
+    assert result["capability_prompt"] == "meal log prompt"
 
 
 # ── main() error boundary ─────────────────────────────────────────────────────

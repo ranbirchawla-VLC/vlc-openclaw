@@ -54,6 +54,8 @@ def test_cycle_read_back_trigger(phrase: str) -> None:
     "i ate chicken and rice",
     "i had a protein shake",
     "just ate lunch",
+    "just had a banana",
+    "I just had some oatmeal",
     "food log",
     "log food",
     "log breakfast",
@@ -64,6 +66,46 @@ def test_cycle_read_back_trigger(phrase: str) -> None:
 ])
 def test_meal_log_trigger(phrase: str) -> None:
     intent, ambiguous = classify_intent(phrase)
+    assert intent == "meal_log"
+    assert ambiguous is False
+
+
+# ── today_view ───────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("phrase", [
+    "what have i eaten today",
+    "what's left today",
+    "show me today",
+    "today view",
+    "what about today",
+    "what have i had today",
+    "What Have I Eaten Today",
+    "WHAT'S LEFT TODAY",
+])
+def test_today_view_trigger(phrase: str) -> None:
+    intent, ambiguous = classify_intent(phrase)
+    assert intent == "today_view"
+    assert ambiguous is False
+
+
+def test_today_view_trigger_embedded() -> None:
+    intent, ambiguous = classify_intent("Hey, show me today please")
+    assert intent == "today_view"
+    assert ambiguous is False
+
+
+def test_bare_today_does_not_route_to_today_view() -> None:
+    intent, _ = classify_intent("today")
+    assert intent != "today_view"
+
+
+def test_todays_target_does_not_route_to_today_view() -> None:
+    intent, _ = classify_intent("what's my target today")
+    assert intent != "today_view"
+
+
+def test_meal_log_fires_when_no_today_view_anchor() -> None:
+    intent, ambiguous = classify_intent("i had chicken for lunch")
     assert intent == "meal_log"
     assert ambiguous is False
 

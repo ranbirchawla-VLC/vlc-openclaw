@@ -21,7 +21,9 @@ from datetime import datetime, timezone
 from typing import TypedDict
 
 sys.path.insert(0, os.path.dirname(__file__))
-from common import SESSION_DIR, ok, err, read_json, write_json
+import zoneinfo
+
+from common import AGENT_TZ, SESSION_DIR, ok, err, read_json, write_json
 from intent_classifier import classify_intent
 
 _CAPABILITIES_DIR: str = os.path.join(
@@ -33,7 +35,10 @@ _CAPABILITY_FILES: dict[str, str] = {
     "mesocycle_setup": "mesocycle_setup.md",
     "cycle_read_back": "mesocycle_setup.md",
     "meal_log": "meal_log.md",
+    "today_view": "today_view.md",
 }
+
+_VALID_INTENTS: frozenset[str] = frozenset(set(_CAPABILITY_FILES) | {"default"})
 
 
 class TurnStateResult(TypedDict):
@@ -41,6 +46,7 @@ class TurnStateResult(TypedDict):
     ambiguous: bool
     boundary: bool
     capability_prompt: str
+    today_date: str
 
 
 def _state_path(user_id: int, session_dir: str) -> str:
@@ -110,14 +116,26 @@ def compute_turn_state(
     user_message: str,
     user_id: int,
     *,
+    intent_override: str | None = None,
     session_dir: str = SESSION_DIR,
     capabilities_dir: str = _CAPABILITIES_DIR,
 ) -> TurnStateResult:
     """Compute intent, boundary, and capability_prompt for one user turn.
 
+    intent_override: when provided, skips classifier and uses value directly
+    as the effective intent. Raises ValueError for unknown values.
     session_dir and capabilities_dir are injectable for testing.
     """
-    intent, ambiguous = classify_intent(user_message)
+    if intent_override is not None:
+        if intent_override not in _VALID_INTENTS:
+            raise ValueError(
+                f"intent_override={intent_override!r} is not a valid intent; "
+                f"valid: {sorted(_VALID_INTENTS)}"
+            )
+        intent = intent_override
+        ambiguous = False
+    else:
+        intent, ambiguous = classify_intent(user_message)
     prior_intent = _read_prior_intent(user_id, session_dir)
 
     boundary = (
@@ -143,12 +161,14 @@ def compute_turn_state(
     _write_intent_state(user_id, effective_intent, session_dir)
 
     capability_prompt = _load_capability_prompt(intent, capabilities_dir)
+    today_date = datetime.now(zoneinfo.ZoneInfo(AGENT_TZ)).strftime("%Y-%m-%d")
 
     return TurnStateResult(
         intent=intent,
         ambiguous=ambiguous,
         boundary=boundary,
         capability_prompt=capability_prompt,
+        today_date=today_date,
     )
 
 
@@ -161,6 +181,7 @@ def main() -> None:
 
     user_message = input_data.get("user_message", "")
     user_id = input_data.get("user_id")
+    intent_override = input_data.get("intent_override")
 
     if user_id is None:
         err("user_id is required")
@@ -173,7 +194,7 @@ def main() -> None:
         return
 
     try:
-        result = compute_turn_state(user_message, user_id)
+        result = compute_turn_state(user_message, user_id, intent_override=intent_override)
     except Exception as e:
         err(f"turn_state failed for user_id={user_id}: {e}")
         return

@@ -29,6 +29,7 @@ _MEAL_LOG_TRIGGERS: list[str] = [
     "i ate",
     "i had",
     "just ate",
+    "just had",
     "food log",
     "log food",
     "track a meal",
@@ -40,11 +41,20 @@ _MEAL_LOG_TRIGGERS: list[str] = [
     "log a snack",
 ]
 
+_TODAY_VIEW_TRIGGERS: list[str] = [
+    "what have i eaten today",
+    "what's left today",
+    "show me today",
+    "today view",
+    "what about today",
+    "what have i had today",
+]
+
 
 def classify_intent(message: str) -> tuple[str, bool]:
     """Classify a user message into (intent, ambiguous).
 
-    intent: "mesocycle_setup" | "cycle_read_back" | "meal_log" | "default"
+    intent: "mesocycle_setup" | "cycle_read_back" | "meal_log" | "today_view" | "default"
     ambiguous: True when no trigger phrase matched; callers default to continuation.
     """
     msg_lower = message.lower()
@@ -56,6 +66,10 @@ def classify_intent(message: str) -> tuple[str, bool]:
     for phrase in _CYCLE_READ_BACK_TRIGGERS:
         if phrase in msg_lower:
             return ("cycle_read_back", False)
+
+    for phrase in _TODAY_VIEW_TRIGGERS:
+        if phrase in msg_lower:
+            return ("today_view", False)
 
     for phrase in _MEAL_LOG_TRIGGERS:
         if phrase in msg_lower:

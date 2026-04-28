@@ -175,3 +175,39 @@ Items deferred from prior sub-step gates, with target sub-step for resolution. A
 - Fix: emit a stderr warning (or structured log) with the candidate count and session keys before returning `None`. Add a test for the multi-candidate case.
 - Priority: medium (real failure mode on OpenClaw restart; low probability in practice).
 - Target: sub-step Z commit 2 or standalone cleanup.
+
+---
+
+## feat(meal-log): estimate_macros carry-forward
+
+### NB-34: estimate_macros retry sends identical prompt at temperature=0
+
+- File: `scripts/estimate_macros.py`, `estimate_macros_from_description()`
+- Reason: retry path re-invokes `_call_llm` with the same description; at temperature=0 the second response is typically identical. Retry only helps on transient generation anomalies.
+- Followup: prepend a corrective instruction on retry, e.g. "Return only raw JSON, no markdown fences. Food: {description}".
+- Status: deferred.
+
+### NB-35: estimate_macros response parsing not guarded against empty or non-text content blocks
+
+- File: `scripts/estimate_macros.py`, `_call_llm()`
+- Reason: `resp.content[0].text` raises `IndexError` on empty content list, `AttributeError` on non-text block. Currently escapes `main()` unhandled.
+- Followup: guard before `.text` access; map to `err()` envelope.
+- Status: deferred.
+
+### NB-42: write_meal_log openclaw.json source description will be wrong for recipe path
+
+- File: `openclaw.json`, `write_meal_log` tool registration, `source` field description
+- Reason: current description says "Always 'ad_hoc' for user-described meals." When recipe_build
+  lands at sub-step 4, the recipe flow calls write_meal_log with source="recipe". The description
+  will then mislead the LLM.
+- Fix: update `source` description to cover both values ("'ad_hoc' for user-described meals;
+  'recipe' for recipe-based logs") when recipe_build is built.
+- Priority: low until sub-step 4 starts.
+- Target: sub-step 4 (recipe_build).
+
+### NB-36: estimate_macros validator and main() paths untested
+
+- File: `scripts/tests/test_estimate_macros.py`
+- Reason: `EstimateResult.all_non_negative`, `_Input.description_non_empty` empty-rejection, and `main()` sys.argv dispatch are uncovered.
+- Followup: add unit tests for each.
+- Status: deferred.

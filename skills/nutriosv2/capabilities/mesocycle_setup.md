@@ -36,10 +36,12 @@ verbatim; produce no values, dates, or structural facts in your own composition.
 ## NB-18: Numeric input confirmation
 
 When the user supplies a deficit value where unit or scope could be read more than one
-way, emit a read-back turn with three Telegram inline-keyboard buttons before computing.
+way, call the `message` tool with the confirmation text and buttons before computing.
+Your text block must be `NO_REPLY`.
 
-Example message text: "Got it — 1,850 kcal weekly deficit. Confirm?"
-buttons: [[{"text": "Yes", "callback_data": "yes"}, {"text": "No", "callback_data": "no"}, {"text": "Change", "callback_data": "change"}]]
+Example — call `message` tool with:
+- `message`: "Got it; 1,850 kcal weekly deficit. Confirm?"
+- `buttons`: `[[{"text": "Yes", "callback_data": "yes"}, {"text": "No", "callback_data": "no"}, {"text": "Change", "callback_data": "change"}]]`
 
 - **Yes:** value commits. Call compute_candidate_macros with deficit_unit="weekly_kcal"
   (or "daily_kcal" if the user stated daily). Flow advances.
@@ -59,9 +61,11 @@ Ask and wait for each answer before moving on. Do not front-load multiple questi
 
 1. Confirm intent: "Let's set up a new mesocycle. What do you want to call this cycle?"
 2. Ask: "How many weeks?"
-3. Ask: "What day do you dose?" — offer day buttons:
-   buttons: [[{"text": "Mon", "callback_data": "0"}, {"text": "Tue", "callback_data": "1"}, {"text": "Wed", "callback_data": "2"}, {"text": "Thu", "callback_data": "3"}, {"text": "Fri", "callback_data": "4"}, {"text": "Sat", "callback_data": "5"}, {"text": "Sun", "callback_data": "6"}]]
-   Never default the dose day. Always ask. Accept button callbacks (0..6) or day-name text.
+3. Ask "What day do you dose?" by calling the `message` tool with:
+   - `message`: "What day do you dose?"
+   - `buttons`: `[[{"text": "Mon", "callback_data": "0"}, {"text": "Tue", "callback_data": "1"}, {"text": "Wed", "callback_data": "2"}, {"text": "Thu", "callback_data": "3"}, {"text": "Fri", "callback_data": "4"}, {"text": "Sat", "callback_data": "5"}, {"text": "Sun", "callback_data": "6"}]]`
+   Text block must be `NO_REPLY`. Never default the dose day. Always ask.
+   Accept button callbacks (0..6) or day-name text.
 4. Collect intent; ask conversationally one at a time:
    - Weekly deficit target in kcal? Apply NB-18 confirmation if unit is ambiguous.
      Required when TDEE is given. 0 = true maintenance but must be stated; never infer 0 from cycle name.

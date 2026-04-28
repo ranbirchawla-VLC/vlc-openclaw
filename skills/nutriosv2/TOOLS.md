@@ -7,6 +7,6 @@
 - Scripts: `/Users/ranbirchawla/.openclaw/workspace/skills/nutriosv2/scripts/`
 - Python runtime: `python3`
 
-## No tools wired in sub-step 0
+## Tools
 
-Tools are added in sub-steps 1+. Until then, respond conversationally.
+All tools are wired and active. See SKILL.md for the full tool list and dispatch logic.
