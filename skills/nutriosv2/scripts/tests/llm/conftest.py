@@ -1,12 +1,25 @@
-"""LLM test fixtures — loads real agent config and capability prompt."""
+"""LLM test fixtures; loads real agent config.
+
+Capability content is NOT injected here. SKILL.md tells the LLM to call
+turn_state on every turn, which delivers capability_prompt read fresh from
+disk. Tests run against the same loading mechanism production uses.
+
+Model pin: LLM_TEST_MODEL in llm_test_utils must match the production agent
+model. A session-start assertion verifies this; if it fails, stop and update
+either the test pin or the production config before proceeding.
+"""
 
 from __future__ import annotations
 import json
 import os
+import sys
 from pathlib import Path
 
 import anthropic
 import pytest
+
+sys.path.insert(0, str(Path(__file__).parent))
+from llm_test_utils import LLM_TEST_MODEL
 
 _WORKSPACE = Path(__file__).parent.parent.parent.parent  # skills/nutriosv2/
 _OPENCLAW_CONFIG = Path.home() / ".openclaw" / "openclaw.json"
@@ -23,7 +36,42 @@ def _load_api_key() -> str:
         except KeyError:
             pass
     pytest.skip(
-        "ANTHROPIC_API_KEY not set and no key found at ~/.openclaw/openclaw.json — LLM tests cannot run"
+        "ANTHROPIC_API_KEY not set and no key found at ~/.openclaw/openclaw.json"
+        " -- LLM tests cannot run"
+    )
+
+
+def _production_model() -> str:
+    """Read the production model from the workspace openclaw.json agent defaults."""
+    workspace_cfg = _WORKSPACE / "openclaw.json"
+    if workspace_cfg.exists():
+        cfg = json.loads(workspace_cfg.read_text())
+        # Workspace openclaw.json does not carry a model field; fall back to root.
+        pass
+    if _OPENCLAW_CONFIG.exists():
+        root_cfg = json.loads(_OPENCLAW_CONFIG.read_text())
+        # Find the nutriosv2 agent entry.
+        for agent in root_cfg.get("agents", {}).get("list", []):
+            if agent.get("id") == "nutriosv2":
+                return agent.get("model", "")
+        # Fall back to agents.defaults.model.primary.
+        return root_cfg.get("agents", {}).get("defaults", {}).get("model", {}).get("primary", "")
+    return ""
+
+
+def _assert_model_matches_production() -> None:
+    prod_model = _production_model()
+    if not prod_model:
+        # Cannot determine production model; skip assertion but warn.
+        print(
+            f"\nWARN: could not read production model from config; "
+            f"test pin is {LLM_TEST_MODEL!r}"
+        )
+        return
+    assert LLM_TEST_MODEL == prod_model, (
+        f"LLM test model pin {LLM_TEST_MODEL!r} differs from production "
+        f"runtime model {prod_model!r}. Update LLM_TEST_MODEL in llm_test_utils.py "
+        f"or update the production agent config before running LLM tests."
     )
 
 
@@ -33,9 +81,7 @@ def _build_system_prompt() -> str:
         p = _WORKSPACE / fname
         if p.exists():
             parts.append(p.read_text())
-    capability = _WORKSPACE / "capabilities" / "mesocycle_setup.md"
-    if capability.exists():
-        parts.append(capability.read_text())
+    # Capability content is delivered via turn_state tool result, not pre-injected.
     return "\n\n---\n\n".join(parts)
 
 
@@ -51,10 +97,16 @@ def _build_tools() -> list[dict]:
     ]
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _verify_model_pin() -> None:
+    """Assert test model pin matches production before any LLM test runs."""
+    _assert_model_matches_production()
+
+
 @pytest.fixture(scope="session")
 def llm_client() -> anthropic.Anthropic:
     key = _load_api_key()
-    # Use real Anthropic API — mnemo proxy has a body-read bug that blocks test calls
+    # Use real Anthropic API; mnemo proxy has a body-read bug that blocks test calls.
     return anthropic.Anthropic(api_key=key)
 
 

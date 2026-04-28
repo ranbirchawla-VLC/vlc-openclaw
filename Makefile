@@ -1,4 +1,4 @@
-# vlc-openclaw — repo-level test runner
+# vlc-openclaw; repo-level test runner
 #
 # Named targets only. No variables, no wildcards.
 # Each target is a fixed string so it can be allowlisted in .claude/settings.json.
@@ -20,7 +20,7 @@
 PYTHON = .venv/bin/python
 PYTEST = $(PYTHON) -m pytest
 
-.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-llm
+.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x
 
 help:
 	@echo "Available targets:"
@@ -39,7 +39,10 @@ help:
 	@echo "  make test-nutriosv2-foundation   - run sub-step 0 common.py tests"
 	@echo "  make test-nutriosv2-models       - run Pydantic model tests"
 	@echo "  make test-nutriosv2-mesocycle    - run mesocycle tool tests"
-	@echo "  make test-nutriosv2-llm          - run NutriOS v3 LLM tests only"
+	@echo "  make test-nutriosv2-intent       - run intent classifier tests"
+	@echo "  make test-nutriosv2-turn-state   - run turn_state tool tests"
+	@echo "  make test-nutriosv2-llm          - run NutriOS v3 LLM tests (single run)"
+	@echo "  make test-nutriosv2-llm-3x       - run NutriOS v3 LLM tests 3x require-all-pass"
 
 setup:
 	test -d .venv || python3.11 -m venv .venv
@@ -77,7 +80,8 @@ test-nutrios-context:
 	$(PYTEST) skills/nutrios/tests/test_nutrios_context.py
 
 test-nutriosv2:
-	$(PYTEST) skills/nutriosv2/scripts/tests
+	$(PYTEST) skills/nutriosv2/scripts/tests -m "not llm"
+	$(PYTHON) skills/nutriosv2/scripts/run_llm_3x.py
 
 test-nutriosv2-foundation:
 	$(PYTEST) skills/nutriosv2/scripts/tests/test_common.py
@@ -88,5 +92,14 @@ test-nutriosv2-models:
 test-nutriosv2-mesocycle:
 	$(PYTEST) skills/nutriosv2/scripts/tests/test_mesocycle.py
 
+test-nutriosv2-intent:
+	$(PYTEST) skills/nutriosv2/scripts/tests/test_intent_classifier.py
+
+test-nutriosv2-turn-state:
+	$(PYTEST) skills/nutriosv2/scripts/tests/test_turn_state.py
+
 test-nutriosv2-llm:
 	$(PYTEST) skills/nutriosv2/scripts/tests/llm
+
+test-nutriosv2-llm-3x:
+	$(PYTHON) skills/nutriosv2/scripts/run_llm_3x.py

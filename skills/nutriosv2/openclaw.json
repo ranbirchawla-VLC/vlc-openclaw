@@ -1,7 +1,7 @@
 {
   "name": "nutriosv2",
   "version": "1.0.0",
-  "description": "NutriOS \u2014 conversational food and protocol companion",
+  "description": "NutriOS — conversational food and protocol companion",
   "session": {
     "dmScope": "per-channel-peer"
   },
@@ -11,15 +11,42 @@
   ],
   "tools": [
     {
+      "name": "turn_state",
+      "description": "Call first on every user turn. Classifies intent, detects intent-transition boundary, resets session JSONL on boundary, and returns the routed capability prompt read fresh from disk. Returns {intent, ambiguous, boundary, capability_prompt}.",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/skills/nutriosv2/scripts/turn_state.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_message": {
+            "type": "string",
+            "description": "The user's message text verbatim"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "Telegram user ID"
+          }
+        },
+        "required": ["user_message", "user_id"]
+      },
+      "env": [
+        "NUTRIOSV2_SESSION_DIR=/Users/ranbirchawla/.openclaw/agents/nutriosv2/sessions"
+      ]
+    },
+    {
       "name": "compute_candidate_macros",
-      "description": "Pure macro math from intent constraints. Returns {calories, protein_g, fat_g, carbs_g} \u2014 any field may be null if the corresponding input is missing.",
+      "description": "Pure macro math from intent constraints. Returns {weekly_deficit_kcal, daily_deficit_kcal, calories, protein_g, fat_g, carbs_g} — macro fields may be null if corresponding input is missing; deficit fields are null when target_deficit_kcal is not provided.",
       "command": "python3 /Users/ranbirchawla/.openclaw/workspace/skills/nutriosv2/scripts/compute_candidate_macros.py",
       "inputSchema": {
         "type": "object",
         "properties": {
           "target_deficit_kcal": {
             "type": "integer",
-            "description": "Weekly deficit in kcal"
+            "description": "Deficit value in the unit specified by deficit_unit"
+          },
+          "deficit_unit": {
+            "type": "string",
+            "enum": ["weekly_kcal", "daily_kcal"],
+            "description": "Unit of target_deficit_kcal. 'weekly_kcal' (default) or 'daily_kcal'. Tool converts daily to weekly automatically."
           },
           "protein_floor_g": {
             "type": "integer",
@@ -31,11 +58,14 @@
           },
           "estimated_tdee_kcal": {
             "type": "integer",
-            "description": "Estimated total daily energy expenditure"
+            "description": "Estimated total daily energy expenditure in kcal"
           }
         },
         "required": []
-      }
+      },
+      "env": [
+        "NUTRIOSV2_SESSION_DIR=/Users/ranbirchawla/.openclaw/agents/nutriosv2/sessions"
+      ]
     },
     {
       "name": "lock_mesocycle",
@@ -66,7 +96,7 @@
           },
           "macro_table": {
             "type": "array",
-            "description": "Exactly 7 MacroRow objects indexed by dose offset 0..6",
+            "description": "Exactly 7 rows for the 7-day plan. First row is the dose day; each subsequent row is one day later.",
             "items": {
               "type": "object",
               "properties": {
@@ -125,7 +155,10 @@
           "macro_table",
           "intent"
         ]
-      }
+      },
+      "env": [
+        "NUTRIOSV2_SESSION_DIR=/Users/ranbirchawla/.openclaw/agents/nutriosv2/sessions"
+      ]
     },
     {
       "name": "get_active_mesocycle",
@@ -142,7 +175,10 @@
         "required": [
           "user_id"
         ]
-      }
+      },
+      "env": [
+        "NUTRIOSV2_SESSION_DIR=/Users/ranbirchawla/.openclaw/agents/nutriosv2/sessions"
+      ]
     },
     {
       "name": "recompute_macros_with_overrides",
@@ -173,7 +209,7 @@
           },
           "overrides": {
             "type": "object",
-            "description": "Map of offset (string key '0'..'6') to row values. Each entry requires 'calories' (int); 'protein_g' and 'fat_g' are optional. Offset 0 = dose day, 1 = next day, ..., 6 = day before dose.",
+            "description": "Map of plan-position string key ('0'..'6') to row values. Key '0' is the dose day; each subsequent key is one day later. Each entry requires 'calories' (int); 'protein_g' and 'fat_g' are optional.",
             "additionalProperties": {
               "type": "object",
               "properties": {
@@ -201,7 +237,70 @@
           "fat_ceiling_g",
           "overrides"
         ]
-      }
+      },
+      "env": [
+        "NUTRIOSV2_SESSION_DIR=/Users/ranbirchawla/.openclaw/agents/nutriosv2/sessions"
+      ]
+    },
+    {
+      "name": "write_meal_log",
+      "description": "Append a meal log entry for a user. Returns {log_id}.",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/skills/nutriosv2/scripts/write_meal_log.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "description": "Telegram user ID"
+          },
+          "food_description": {
+            "type": "string",
+            "description": "What the user ate, in their words"
+          },
+          "macros": {
+            "type": "object",
+            "description": "Macro breakdown for this meal",
+            "properties": {
+              "calories": {"type": "integer"},
+              "protein_g": {"type": "integer"},
+              "fat_g": {"type": "integer"},
+              "carbs_g": {"type": "integer"}
+            },
+            "required": ["calories", "protein_g", "fat_g", "carbs_g"]
+          },
+          "source": {
+            "type": "string",
+            "description": "Always 'ad_hoc' for user-described meals"
+          },
+          "recipe_id": {
+            "description": "Pass null for ad_hoc meals"
+          },
+          "recipe_name_snapshot": {
+            "description": "Pass null for ad_hoc meals"
+          },
+          "supersedes_log_id": {
+            "description": "Pass null unless correcting a previous log entry"
+          },
+          "active_timezone": {
+            "type": "string",
+            "description": "User's IANA timezone, e.g. 'America/Denver'"
+          }
+        },
+        "required": [
+          "user_id",
+          "food_description",
+          "macros",
+          "source",
+          "recipe_id",
+          "recipe_name_snapshot",
+          "supersedes_log_id",
+          "active_timezone"
+        ]
+      },
+      "env": [
+        "NUTRIOS_DATA_ROOT",
+        "NUTRIOSV2_SESSION_DIR=/Users/ranbirchawla/.openclaw/agents/nutriosv2/sessions"
+      ]
     }
   ]
 }

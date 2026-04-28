@@ -101,7 +101,7 @@ Items deferred from prior sub-step gates, with target sub-step for resolution. A
 
 ### ~~NB-23 (sub-step 1 architectural lesson): Per-capability HARD RULES are insufficient for cross-cutting LLM behavior~~ (resolved)
 - Pattern: the translator-not-calculator rule leaked twice through per-capability enforcement. Cross-cutting rules require: (1) project-level statement in CLAUDE.md, (2) universal test enforcement, (3) per-capability restating for emphasis only.
-- Resolution: architectural lesson recorded here; process updated. No code change required.
+- Resolution (Sub-step Z commit 2, SHA TBD): "LLM voice rules" section added to vlc-openclaw CLAUDE.md; assert_no_process_narration universal helper in LLM test utils; mesocycle_setup.md HARD RULES replaced with CLAUDE.md reference. Fully closed.
 
 ---
 
@@ -119,10 +119,9 @@ Items deferred from prior sub-step gates, with target sub-step for resolution. A
 
 ## Sub-step 1 follow-up (gate 3 findings)
 
-### NB-18 (sub-step 1 gate 3): LLM does not disambiguate units/scope on numeric input
+### ~~NB-18 (sub-step 1 gate 3): LLM does not disambiguate units/scope on numeric input~~ (resolved)
 - Instance: "weekly deficit"; user said 1850, intending weekly. Ambiguity: does the user mean weekly kcal or daily kcal? Pattern applies to every numeric intake: TDEE (daily vs weekly avg), protein (g vs oz), fat (g vs oz), weight (lb vs kg).
-- Fix: not per-field. LLM must clarify units and scope by default when collecting any numeric input. Requires a spec session (Opus-side) to define the clarification protocol before implementation.
-- Priority: deferred; spec session before remediation.
+- Resolution (Sub-step Z commit 2, SHA TBD): NB-18 numeric-confirmation subsection added to CLAUDE.md "LLM voice rules"; assert_metric_confirmation helper added to LLM test utils; "Missing numeric input: ask, do not infer" rule added to CLAUDE.md voice rules. Architecture locked (Yes/No/Change read-back pattern). Full LLM-test enforcement lands when check-in capability is built.
 
 ---
 
@@ -141,4 +140,38 @@ Items deferred from prior sub-step gates, with target sub-step for resolution. A
 - **NB-20**: resolved in sub-step 1 follow-up #2 commit; adjustment-flow section + three HARD RULES added to `capabilities/mesocycle_setup.md`.
 - **NB-21**: resolved in sub-step 1 follow-up #3 commit; intent-change recompute HARD RULE + LLM test added.
 - **NB-22**: resolved in sub-step 1 follow-up #3 commit; zero-arithmetic rule in CLAUDE.md + universal assert_no_llm_arithmetic in test utils.
-- **NB-23**: resolved in sub-step 1 follow-up #3 commit; architectural lesson recorded.
+- **NB-23**: resolved in sub-step 1 follow-up #3 commit (architectural lesson) and Sub-step Z commit 2 (CLAUDE.md voice rules section + assert_no_process_narration + capability cleanup). Fully closed.
+- **NB-24** (closed-by-architecture, Sub-step Z commit 1): capability prompts loaded once per bot session fixed by Decision 1. turn_state tool reads capability_prompt fresh from disk on every user turn; no caching at any layer. Closed by architecture, not a code workaround.
+- **NB-25** (logged Sub-step Z commit 1, open): session scope is per-bot-lifetime; stopgap atomic-rename on intent-transition boundary implemented in turn_state.py. Closure condition: migration to native OpenClaw session_control.boundary primitive when that API ships. Until then the rename stopgap is load-bearing.
+- **NB-26** (resolved Sub-step Z commit 2, SHA TBD): process-narration cousins (date arithmetic, script description, offset language, intermediate values) covered by assert_no_process_narration universal helper in LLM test utils. Rule generalized in CLAUDE.md "LLM voice rules" forbidden-patterns table.
+- **NB-27** (resolved Sub-step Z commit 2, SHA TBD): test-runtime parity discipline locked in CLAUDE.md "Test conditions match production conditions" section. Multi-turn harness fixture arc rewritten to reproduce the four production differences (intent bundling, continuity turn, deficit-change-after-locked-offer, override on new baseline). Fail-before-fix confirmation documented in fixture comments.
+
+---
+
+## Sub-step Z carry-forward
+
+### NB-29 (sub-step Z commit 2 review): `assert_metric_confirmation` defined but unused
+
+- File: `scripts/tests/llm/llm_test_utils.py`
+- Issue: `assert_metric_confirmation` is defined and exported but has no call sites in any test fixture.
+- Fix: call sites land in the check-in capability build (sub-step 2 or later). When the check-in
+  capability is built, add LLM-test fixtures that call `assert_metric_confirmation` for each metric
+  input field (weekly deficit, TDEE, protein floor, fat ceiling, target calories).
+- Priority: low (no correctness impact; NB-18 architecture is locked).
+- Target: check-in capability build.
+
+### NB-33: Session boundary rename disabled
+
+- File: `scripts/turn_state.py`, `compute_turn_state()`
+- Reason: rename was firing too aggressively; default-to-continuation rule does not protect against intent classifier mis-calling continuation turns as new intents. Banana flow regression 2026-04-26.
+- Status: deferred.
+- Fix: redesign boundary detection before re-enabling `_reset_session_file`. Definition retained in `turn_state.py` for one-line re-enable. Detection still runs and logs to stderr.
+- Target: boundary detection redesign (dedicated sub-step).
+
+### NB-28 (sub-step Z commit 1 review): `_find_session_file` silently returns None for multi-candidate case
+
+- File: `scripts/turn_state.py`, `_find_session_file()`
+- Issue: when `sessions.json` contains more than one entry matching `(accountId=nutriosv2, from=telegram:<user_id>)`, the function returns `None` with no log or structured error. `_reset_session_file` silently no-ops; the boundary transition records the new intent but does not rename the session file. The user experiences stale context with no diagnosable signal.
+- Fix: emit a stderr warning (or structured log) with the candidate count and session keys before returning `None`. Add a test for the multi-candidate case.
+- Priority: medium (real failure mode on OpenClaw restart; low probability in practice).
+- Target: sub-step Z commit 2 or standalone cleanup.

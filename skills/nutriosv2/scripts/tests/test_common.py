@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from common import (
     CorruptStateError,
     DATA_ROOT,
+    SESSION_DIR,
     User,
     active_txt_path,
     append_jsonl,
@@ -285,6 +286,41 @@ def test_dose_offset_sunday_offset_6():
 def test_dose_offset_thursday_offset_4():
     # off-cycle case: Thursday dose (3), offset 4 → Monday ((3+4)%7 = 0)
     assert dose_offset_to_weekday(3, 4) == "Monday"
+
+
+# ── SESSION_DIR ───────────────────────────────────────────────────────────────
+
+def test_session_dir_from_env():
+    """SESSION_DIR reads from NUTRIOSV2_SESSION_DIR env var when set."""
+    import importlib
+    import common as common_mod
+    original = os.environ.get("NUTRIOSV2_SESSION_DIR")
+    try:
+        os.environ["NUTRIOSV2_SESSION_DIR"] = "/tmp/test_nutriosv2_sessions"
+        importlib.reload(common_mod)
+        assert common_mod.SESSION_DIR == "/tmp/test_nutriosv2_sessions"
+    finally:
+        if original is None:
+            os.environ.pop("NUTRIOSV2_SESSION_DIR", None)
+        else:
+            os.environ["NUTRIOSV2_SESSION_DIR"] = original
+        importlib.reload(common_mod)
+
+
+def test_session_dir_fallback_when_env_unset():
+    """SESSION_DIR has a non-empty fallback path when NUTRIOSV2_SESSION_DIR is unset."""
+    import importlib
+    import common as common_mod
+    original = os.environ.get("NUTRIOSV2_SESSION_DIR")
+    try:
+        os.environ.pop("NUTRIOSV2_SESSION_DIR", None)
+        importlib.reload(common_mod)
+        assert common_mod.SESSION_DIR
+        assert "nutriosv2" in common_mod.SESSION_DIR.lower()
+    finally:
+        if original is not None:
+            os.environ["NUTRIOSV2_SESSION_DIR"] = original
+        importlib.reload(common_mod)
 
 
 def test_today_str_timezone_affects_date():

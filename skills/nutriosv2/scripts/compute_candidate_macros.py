@@ -3,16 +3,15 @@
 Usage: python3 compute_candidate_macros.py '<json_args>'
 
 Args JSON schema:
-  target_deficit_kcal: int | null  — WEEKLY deficit in kcal (divided by 7 internally)
+  target_deficit_kcal: int | null  — deficit value; unit determined by deficit_unit
+  deficit_unit: "weekly_kcal" | "daily_kcal"  — default "weekly_kcal"
   protein_floor_g: int | null      — minimum daily protein in grams
   fat_ceiling_g: int | null        — maximum daily fat in grams
   estimated_tdee_kcal: int | null  — estimated total daily energy expenditure
 
-Returns {calories, protein_g, fat_g, carbs_g} — any field may be null if the
-corresponding input is missing. LLM negotiates the rest with the user.
-
-Weekly-to-daily: calories = tdee - (weekly_deficit / 7). Pass the weekly number
-the user gives you verbatim; never convert before calling this tool.
+Returns {weekly_deficit_kcal, daily_deficit_kcal, calories, protein_g, fat_g, carbs_g}.
+Any macro field may be null if the corresponding input is missing.
+deficit fields are null when target_deficit_kcal is not provided.
 """
 
 # TODO(otel): span="mesocycle.compute_candidate_macros" attrs={outcome}
@@ -21,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from typing import Literal
 
 sys.path.insert(0, os.path.dirname(__file__))
 from common import err, ok
@@ -30,18 +30,27 @@ from pydantic import BaseModel, ConfigDict
 
 class _Input(BaseModel):
     model_config = ConfigDict(strict=True)
-    # Weekly deficit in kcal — divide by 7 for daily target
     target_deficit_kcal: int | None = None
+    deficit_unit: Literal["weekly_kcal", "daily_kcal"] = "weekly_kcal"
     protein_floor_g: int | None = None
     fat_ceiling_g: int | None = None
     estimated_tdee_kcal: int | None = None
 
 
 def compute(inp: _Input) -> dict:
+    # Normalize to weekly deficit regardless of unit supplied
+    weekly_deficit: int | None = None
+    daily_deficit: int | None = None
+    if inp.target_deficit_kcal is not None:
+        if inp.deficit_unit == "daily_kcal":
+            weekly_deficit = inp.target_deficit_kcal * 7
+        else:
+            weekly_deficit = inp.target_deficit_kcal
+        daily_deficit = round(weekly_deficit / 7)
+
     calories: int | None = None
-    if inp.estimated_tdee_kcal is not None and inp.target_deficit_kcal is not None:
-        # Weekly deficit → daily: divide by 7 before subtracting from TDEE
-        calories = round(inp.estimated_tdee_kcal - inp.target_deficit_kcal / 7)
+    if inp.estimated_tdee_kcal is not None and weekly_deficit is not None:
+        calories = round(inp.estimated_tdee_kcal - weekly_deficit / 7)
 
     protein_g: int | None = inp.protein_floor_g
     fat_g: int | None = inp.fat_ceiling_g
@@ -52,6 +61,8 @@ def compute(inp: _Input) -> dict:
         carbs_g = carbs_kcal // 4 if carbs_kcal >= 0 else None
 
     return {
+        "weekly_deficit_kcal": weekly_deficit,
+        "daily_deficit_kcal": daily_deficit,
         "calories": calories,
         "protein_g": protein_g,
         "fat_g": fat_g,

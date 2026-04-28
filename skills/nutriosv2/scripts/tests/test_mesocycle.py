@@ -104,6 +104,65 @@ def test_compute_overconstrained_returns_none_carbs():
     assert result["carbs_g"] is None
 
 
+def test_compute_returns_weekly_and_daily_deficit():
+    inp = MacrosInput(
+        estimated_tdee_kcal=2400,
+        target_deficit_kcal=3500,
+        protein_floor_g=180,
+        fat_ceiling_g=60,
+    )
+    result = compute(inp)
+    assert result["weekly_deficit_kcal"] == 3500
+    assert result["daily_deficit_kcal"] == 500
+
+
+def test_compute_daily_unit_converts_to_weekly():
+    # 500 daily → 3500 weekly; same macros as weekly=3500 with TDEE=2400
+    inp_daily = MacrosInput(
+        estimated_tdee_kcal=2400,
+        target_deficit_kcal=500,
+        deficit_unit="daily_kcal",
+        protein_floor_g=180,
+        fat_ceiling_g=60,
+    )
+    inp_weekly = MacrosInput(
+        estimated_tdee_kcal=2400,
+        target_deficit_kcal=3500,
+        protein_floor_g=180,
+        fat_ceiling_g=60,
+    )
+    r_daily = compute(inp_daily)
+    r_weekly = compute(inp_weekly)
+    assert r_daily["weekly_deficit_kcal"] == 3500
+    assert r_daily["daily_deficit_kcal"] == 500
+    assert r_daily["calories"] == r_weekly["calories"]
+    assert r_daily["protein_g"] == r_weekly["protein_g"]
+    assert r_daily["fat_g"] == r_weekly["fat_g"]
+    assert r_daily["carbs_g"] == r_weekly["carbs_g"]
+
+
+def test_compute_daily_unit_without_tdee_returns_deficit_only():
+    inp = MacrosInput(target_deficit_kcal=264, deficit_unit="daily_kcal")
+    result = compute(inp)
+    assert result["weekly_deficit_kcal"] == 264 * 7
+    assert result["daily_deficit_kcal"] == 264
+    assert result["calories"] is None
+
+
+def test_compute_weekly_unit_explicit():
+    # Explicit weekly_kcal behaves identically to default
+    inp = MacrosInput(
+        estimated_tdee_kcal=2350,
+        target_deficit_kcal=1850,
+        deficit_unit="weekly_kcal",
+        protein_floor_g=175,
+        fat_ceiling_g=65,
+    )
+    result = compute(inp)
+    assert result["weekly_deficit_kcal"] == 1850
+    assert abs(result["calories"] - 2086) <= 1
+
+
 # ── lock_mesocycle ────────────────────────────────────────────────────────────
 
 def test_lock_first_cycle_id_is_one(tmp_path):

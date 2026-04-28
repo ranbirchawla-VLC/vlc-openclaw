@@ -17,6 +17,11 @@ DATA_ROOT = os.environ.get(
 
 AGENT_TZ = os.environ.get("NUTRIOS_TZ", "America/Denver")
 
+SESSION_DIR = os.environ.get(
+    "NUTRIOSV2_SESSION_DIR",
+    "/Users/ranbirchawla/.openclaw/agents/nutriosv2/sessions"
+)
+
 
 class CorruptStateError(Exception):
     """Raised when a state file exists but cannot be parsed or validated."""

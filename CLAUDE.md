@@ -16,6 +16,113 @@ The LLM is a translator, never a calculator. It reads numbers back, it does not 
 **LLM emits zero arithmetic.** Every numeric value in user-facing LLM output must trace to a Python tool return. The LLM does not compute, redistribute, sum, average, or restate-with-recomputed-totals. If a number appears in output, a tool produced it. This rule applies to every capability across every agent in this project. Per-capability prompts may restate this rule for emphasis; they may not weaken or scope-limit it.
 
 
+## LLM voice rules
+
+**The LLM does not narrate its own process.** Every user-facing turn is
+conversational, not procedural.
+
+**Mechanism.** Every user-facing number, date, and structural fact comes
+from a tool result. The LLM reads tool-returned values verbatim and never
+produces values, dates, or structural facts in its own composition.
+
+**Forbidden patterns and rewrites.**
+
+| Forbidden | Preferred |
+|---|---|
+| "Today plus 10 weeks is July 5..." | "Your cycle ends July 5." (date returned by tool) |
+| "The script takes a single JSON string. One call covers all rows." | (no narration; produce the user-facing result) |
+| "Dose day is Sunday (weekday 6), so offset 0 = Sunday, offset 1 = Monday." | "Sunday is dose day. Monday is the day after." |
+| "The baseline row is: 1,729 cal, 175g protein..." (then a different tool-returned number) | (suppress the intermediate; show only the final tool-returned value) |
+| "Let me compute that for you..." | (call the tool; produce the result) |
+| "Your weekly deficit divided by 7 is..." | (call the tool; produce the daily target) |
+
+The list extends when a new cousin surfaces in production. New cousin
+equals: new row in the table, plus regression test in the LLM-test suite,
+plus capability-prompt patch only if the cousin is capability-specific
+(default: no capability-prompt change; the rule lives here).
+
+**For capability-prompt authors.** Capability prompts carry per-capability
+phrasing only: output shape, clarification flows, intent-specific framing.
+Cross-cutting LLM voice rules live in this section. Capability prompts
+reference this section by name and do not restate the forbidden patterns.
+The standing instruction the capability prompt must carry: read
+tool-returned values verbatim and produce no values, dates, or structural
+facts in your own composition.
+
+**Test enforcement.** `assert_no_process_narration` helper in the LLM test
+utilities checks every assistant turn against the forbidden patterns
+above. Called from every LLM test fixture. Today's seed: zero-arithmetic,
+plus the four cousins logged today (date arithmetic in prose, script
+description, offset language, intermediate values). Helper extends in
+lock-step with the table.
+
+**Missing numeric input: ask, do not infer.** When a metric input is absent
+where one is expected, the bot asks for it; never substitutes a default or
+inferred value.
+
+### NB-18: Numeric-input unit/scope disambiguation
+
+**Locked behavior: read-back with Yes/No/Change buttons.** Fires on metric
+inputs only (cycle plan and check-in: weekly deficit, weight, TDEE, protein
+floor, fat ceiling, target calories). Does not fire on food descriptions; the
+meal-log path parses naturally and routes corrections through sub-step 5.
+
+When a user supplies a numeric value where unit or scope could be read more
+than one way, the bot reads back its assumption in plain language ("Got it,
+1850 calorie weekly deficit. Yes?") and shows three buttons:
+
+- **Yes:** value commits, flow advances.
+- **No:** bot asks what the user meant in conversation.
+- **Change:** bot opens edit on the value or unit.
+
+**Enforcement:** lexical assertion in the LLM-test utility checks that metric
+inputs trigger a confirmation turn before the value lands in any tool call.
+New ambiguity class found in production: new pattern row plus regression test.
+
+
+## Test conditions match production conditions
+
+Test fixtures must demonstrate they reproduce the production failure mode they
+claim to cover. A new test that closes a production bug is confirmed to fail
+against unfixed code before the fix is applied. Test conditions match
+production conditions or the test is decorative.
+
+**Specific failure modes (non-exhaustive).**
+
+1. Single-shot LLM tests do not exercise multi-turn state carryover. Multi-turn
+   harness required for rules that depend on in-context state.
+2. Test fixtures load capability prompts fresh per run; production caches in
+   JSONL. Tests must run against the same loading mechanism production uses
+   (Decision 1 pattern closes this by construction).
+3. Clean fixture arcs do not reproduce messy production arcs (intent bundling,
+   embedded constraints, continuity turns, locked-then-changed offers). Multi-turn
+   fixtures must reproduce the actual failure shape, not a sanitized version.
+4. Intent classification ambiguity: tests assume clean transitions; production
+   hands ambiguous turns. Fixtures include the ambiguous case.
+
+5. LLM tests do not pin model or temperature. Tests that run against a different
+   model version or with non-zero temperature do not reproduce production conditions.
+   LLM tests must pin the model string to the production runtime model (verified at
+   session start) and set temperature=0 for determinism. Each LLM test runs 3x
+   with require-all-pass: a test that passes in one run but fails in another is
+   flaky at temperature=0 and the gate does not clear until all 3 runs pass. Flaky
+   tests at temperature=0 indicate an undertested capability or an assertion that
+   does not match what the model reliably produces.
+6. **Cross-cutting assertion scope.** Cross-cutting LLM rules (voice, narration)
+   are enforced via dedicated fixtures, not layered on every per-capability test.
+   Per-capability tests assert per-capability behavior (argument correctness,
+   tool-call shape, output structure). Layering cross-cutting assertions on every
+   test produces cascading failures when the assertion catches a real cousin in
+   unrelated code paths. The cross-cutting rule still fires; it fires in its own
+   fixture series.
+
+**Gate report extension.** Every sub-step gate report explicitly answers three
+questions: "Does this test reproduce the production failure?"; "Did this test
+fail against unfixed code before the fix was applied?"; "What model and
+temperature were used, and do they match the production agent config?" If any
+answer is "no," the gate does not clear.
+
+
 ## Testing Requirements
 
 ### TDD is the default
@@ -92,6 +199,11 @@ Self-review by the build agent is insufficient. Same model, same blind spots.
 Operator runs the new capability end-to-end in the real client (Telegram, CLI, whatever the agent's interface is). One pass. Confirms the integrated system behaves as the LLM tests said it would.
 
 If gate 3 surfaces something the LLM tests missed, that's a new LLM test to add — not a reason to relax the gate definition.
+
+Gate 3 is the production-parity check. Tests can pass and the subagent can
+clear and the sub-step can still be broken in production. Gate 3 closes only
+when production behavior matches the spec. No sub-step ships without Gate 3
+passing.
 
 
 ## Commit Discipline
