@@ -1,0 +1,9 @@
+{
+  "id": "nutriosv2-tools",
+  "name": "NutriOS v2 Tools",
+  "description": "Custom tools for the NutriOS v2 agent",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}
