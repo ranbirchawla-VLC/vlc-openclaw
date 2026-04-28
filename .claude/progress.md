@@ -2,7 +2,7 @@
 
 **Working root**: `/Users/ranbirchawla/ai-code/vlc-openclaw` (not `.openclaw/workspace`)
 **Branch**: `feature/grailzee-eval-v2`
-**Remote**: in sync at `2ce167f` (pushed 2026-04-27)
+**Remote**: in sync at `d5c9c34` (pushed 2026-04-28; 1c + 1c.5 + tests-commit)
 **Canonical state doc**: `GRAILZEE_SYSTEM_STATE.md` at repo root. Read that first.
 
 Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
@@ -27,6 +27,7 @@ Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
 | Shape K 1a (GRAILZEE_ROOT env-var) | DONE; `a790f5d` + `1e38de7` pushed |
 | Shape K 1b (agent surface lockdown) | DONE; `8c9cc8f` + `2ce167f` pushed |
 | env object revert (gateway blowup fix) | DONE; `~/.openclaw/openclaw.json` edited directly, not committed |
+| Laptop rebase onto origin/main | BLOCKED — terminal restart needed (see note below) |
 | Shape K 1b.5 (stdin dispatch: report_pipeline + ledger_manager) | NEXT UP — scope expanded from report_pipeline-only |
 | Shape K 1c (plugin scaffold + register evaluate_deal) | DONE; `8e83b25` local (not pushed) |
 | Shape K 1c.5 (spec-drift fixup: JSON _run_from_argv, spawnArgv, error envelope) | DONE; local (not pushed) |
@@ -64,6 +65,25 @@ Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
 **Step 5** — Verify report pipeline — verification only
 
 Architecture lock: three surfaces (Telegram bot, cowork, chat strategy skill). Wide CSV is strategy input. Yes/no only on deal eval. Premium scalar uniform. No inter-cycle tracking in this stack.
+
+---
+
+## Laptop rebase — blocked (2026-04-28)
+
+**Branch**: `feature/grailzee-eval-v2` at `d5c9c34`, clean working tree, in sync with origin.
+
+**origin/main advances**: 8 commits (NutriOS v3 merge + support commits). Rebase is needed.
+
+**Blocker 1 (resolved)**: `pydantic` not installed on laptop. Added by 1c.5 to `requirements.txt` but never installed here. Fixed: `pip install pydantic==2.13.3`.
+
+**Blocker 2 (pending)**: 37 test failures in `test-grailzee-eval` — all `PermissionError: [Errno 1] Operation not permitted` on Google Drive Shared Drive paths (`GrailzeeData/state/`). Affected test files: `test_monthly_goals_starter.py` (11), `test_quarterly_allocation_starter.py` (11), `test_roll_cycle.py` (14), `test_grailzee_common.py` (1). Root cause: terminal process lacks Full Disk Access on this laptop. Fix: grant Full Disk Access to terminal in System Settings → Privacy & Security → Full Disk Access, then **restart terminal**. Pre-rebase baseline on desktop was 1030/71/0.
+
+**Resume sequence after terminal restart**:
+1. Confirm `python3.12 -m pytest skills/grailzee-eval/tests` green (expect ~1030 passed, 71 skipped, 0 failed)
+2. Run `make test-grailzee-cowork` (expect 235 passed)
+3. `git rebase origin/main` (expected conflict-free — NutriOS paths are parallel)
+4. Re-run both test targets; confirm counts match pre-rebase
+5. `git push --force-with-lease`
 
 ---
 
