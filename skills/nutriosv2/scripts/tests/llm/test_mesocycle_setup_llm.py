@@ -899,3 +899,88 @@ def test_narration_compliance_multi_turn(
         "Change the weekly deficit to 4000 kcal instead.",
         check_narration=True,
     )
+
+
+# ── single-call semantics + day-override routing ──────────────────────────────
+
+@pytest.mark.llm
+def test_compute_called_once_day_override_routes_to_recompute(
+    llm_client: Any, agent_system_prompt: str, agent_tools: list[dict], tmp_path: Any
+) -> None:
+    """Step 5 single-call contract: compute_candidate_macros fires exactly once;
+    per-day override routes to recompute_macros_with_overrides, not a second compute call.
+
+    Production failure mode this covers: step 5 previously said "for each of the 7 days,
+    call compute_candidate_macros" — implying 7 calls. The rewrite says call once and
+    apply uniformly. A second compute call in response to a day override would mean the
+    LLM mis-read the routing rule (conflating underlying-input recompute with per-day
+    override recompute).
+
+    Seven-day uniformity contract (gate D addition): turn 1 response must show the same
+    four values for every day that does not have an explicit override. Any day showing
+    different numbers without an operator-issued override is silent computation and fails.
+    """
+    session_dir = str(tmp_path / "sessions")
+    Path(session_dir).mkdir()
+    harness = MultiTurnHarness(
+        llm_client, agent_system_prompt, agent_tools,
+        data_root=str(tmp_path / "data"),
+        session_dir=session_dir,
+    )
+
+    # Turn 1: full setup; request full 7-day table
+    # TDEE 2300, deficit 3500, Sunday dose, protein 175, fat 65
+    # daily_cal = round(2300 - 3500/7) = round(2300 - 500.0) = 1800
+    t1_tools, t1_text = harness.send(
+        "New mesocycle: name 'cut', 4 weeks, Sunday dose, "
+        "protein floor 175g, fat ceiling 65g, TDEE 2300 kcal/day, "
+        "weekly deficit 3500 kcal. Compute the macros and show me the full 7-day table.",
+        max_tokens=2048, check_arithmetic=False, check_narration=False,
+    )
+
+    compute_t1 = [t for t in t1_tools if t.name == "compute_candidate_macros"]
+    assert len(compute_t1) == 1, (
+        f"Turn 1: expected exactly 1 compute_candidate_macros call, "
+        f"got {len(compute_t1)}. Tools: {[t.name for t in t1_tools]}"
+    )
+    assert compute_t1[0].input.get("target_deficit_kcal") == 3500, (
+        f"Turn 1: expected deficit=3500, got {compute_t1[0].input.get('target_deficit_kcal')}"
+    )
+
+    # Seven-day uniformity: all days should show 1800 cal (no overrides yet).
+    # Check that the response contains "1800" and does NOT contain a different
+    # 4-digit calorie value that would indicate silent per-day computation.
+    assert t1_text, "Turn 1: expected a text response"
+    stripped1 = t1_text.replace(",", "")
+    assert re.search(r"(?<!\d)1800(?!\d)", stripped1), (
+        f"Turn 1: expected base calories 1800 in response. Text: {t1_text[:400]}"
+    )
+
+    # Turn 2: per-day override; must route to recompute, not a second compute call
+    # Monday override = 1550; expected other days = 1841 (from _ADJ_OTHER_DAYS)
+    t2_tools, t2_text = harness.send(
+        "Monday should be 1,550 kcal; redistribute the other days.",
+        max_tokens=2048, check_arithmetic=False, check_narration=False,
+    )
+
+    compute_t2 = [t for t in t2_tools if t.name == "compute_candidate_macros"]
+    assert len(compute_t2) == 0, (
+        f"Turn 2: per-day override must NOT trigger compute_candidate_macros; "
+        f"got {len(compute_t2)} call(s). Per-day overrides route to "
+        f"recompute_macros_with_overrides. Tools called: {[t.name for t in t2_tools]}"
+    )
+
+    recompute_t2 = [t for t in t2_tools if t.name == "recompute_macros_with_overrides"]
+    assert recompute_t2, (
+        f"Turn 2: expected recompute_macros_with_overrides for per-day override; "
+        f"not called. Tools called: {[t.name for t in t2_tools]}"
+    )
+
+    assert t2_text, "Turn 2: expected a text response"
+    stripped2 = t2_text.replace(",", "")
+    assert re.search(r"(?<!\d)1550(?!\d)", stripped2), (
+        f"Turn 2: Monday value 1550 not found in response. Text: {t2_text[:400]}"
+    )
+    assert re.search(r"(?<!\d)" + str(_ADJ_OTHER_DAYS) + r"(?!\d)", stripped2), (
+        f"Turn 2: other-day value {_ADJ_OTHER_DAYS} not found. Text: {t2_text[:400]}"
+    )

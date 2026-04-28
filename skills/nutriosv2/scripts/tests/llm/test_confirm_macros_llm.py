@@ -40,6 +40,7 @@ from llm_test_utils import (
 
 _WORKSPACE = Path(__file__).parent.parent.parent.parent  # skills/nutriosv2/
 _CAPABILITIES_DIR = _WORKSPACE / "capabilities"
+_TOOLS_SCHEMA = _WORKSPACE.parent.parent / "plugins" / "nutriosv2-tools" / "tools.schema.json"
 
 
 def _build_confirm_macros_system_prompt() -> str:
@@ -56,7 +57,7 @@ def _build_confirm_macros_system_prompt() -> str:
 
 
 def _build_confirm_tools() -> list[dict]:
-    config = json.loads((_WORKSPACE / "openclaw.json").read_text())
+    config = json.loads(_TOOLS_SCHEMA.read_text())
     return [
         {
             "name": t["name"],

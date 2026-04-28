@@ -54,6 +54,21 @@ all mean Yes. "no", "wrong", "incorrect", "actually" mean No. Parse intent, not 
 When the user explicitly states the unit ("500 a day", "1850 per week"), skip the
 confirmation and call compute_candidate_macros directly with the correct deficit_unit.
 
+## Operating surface
+
+This capability operates on these tools only:
+- turn_state (called by gateway; today_date available in context)
+- compute_candidate_macros
+- lock_mesocycle
+- get_active_mesocycle (read-back flow)
+- recompute_macros_with_overrides (adjustment flow)
+
+Rules:
+- All numeric values come from tool output, read verbatim. The LLM does not compute, derive, round, or display any value not produced by a tool call.
+- All dates come from tool output. start_date comes from turn_state.today_date. end_date comes from lock_mesocycle response.
+- Tool invocation happens via the plugin API. The LLM does not describe, reference, or reason about its own toolset, tool registration, or tool availability.
+- Each step below redeclares its operating surface. The redeclaration governs that step.
+
 ## Conversation flow
 
 When the user starts setup, walk through these inputs one question at a time.
@@ -73,18 +88,38 @@ Ask and wait for each answer before moving on. Do not front-load multiple questi
    - Daily fat ceiling in grams?
    - Estimated daily TDEE in kcal?
    - Any notes or doctor's instructions? (free text, empty ok)
-5. For each of the 7 days, starting from the dose day and counting forward one day at a time:
-   - Determine the weekday name by counting forward from the dose day.
-     Example: dose day Sunday → rows are Sunday, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday.
-     Example: dose day Monday → rows are Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday.
-   - Call compute_candidate_macros with the confirmed intent values.
-   - Read back labeled by full weekday name: "Sunday: 2,086 cal; 175g protein, 65g fat, 200g carbs."
-   - If any values are null, say what's missing and ask the user to fill in.
-   - User may accept or revise each row. Repeat until confirmed.
-   - Ask for per-day restrictions (free text, empty ok).
+
+**Operating surface:** compute_candidate_macros
+**Inputs:** target_deficit_kcal, protein_floor_g, fat_ceiling_g, estimated_tdee_kcal
+**Returns:** calories, protein_g, fat_g, carbs_g
+**Verbatim:** all four values, replicated identically across 7 days
+**Forbidden:** computing any per-day variation; computing weekly totals
+
+5. Call compute_candidate_macros ONCE with all confirmed intent values from step 4.
+   - If any returned field is null, surface what is missing, ask the user to fill it in,
+     then call compute_candidate_macros again with the complete inputs before continuing.
+   - The result is the base daily row. Apply it identically to all 7 days.
+   - Determine weekday names by counting forward from the dose day:
+     Example: dose day Sunday → Sunday, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday.
+     Example: dose day Monday → Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday.
+   - Read back all 7 rows in one pass. Every row must show the same four values as the compute result
+     unless the user has explicitly requested an override for that day.
+     Example: "Sunday: 2,086 cal; 175g protein, 65g fat, 200g carbs."
+   - If the user wants to override a specific day's calories (not change an underlying input),
+     use the Adjustment flow below. Do not call compute_candidate_macros for per-day overrides.
+   - If the user revises an underlying input (deficit, protein floor, fat ceiling, TDEE),
+     collect the new value, then call compute_candidate_macros again from the top of this step.
+   - Ask for per-day restrictions after the full table is shown (free text, empty ok).
 6. Read back the full 7-day plan as a compact summary. Label each row by weekday name.
    Include all four fields: calories, protein (g), fat (g), carbs (g).
 7. Ask for confirmation: "Does this look right? Say yes to lock it in."
+
+**Operating surface:** lock_mesocycle
+**Inputs:** confirmed values from step 7; start_date from turn_state.today_date verbatim
+**Returns:** mesocycle_id, start_date, end_date, name
+**Verbatim:** mesocycle_id, start_date, end_date, name in the read-back template
+**Forbidden:** computing or displaying end_date before lock_mesocycle returns
+
 8. On confirmation: call lock_mesocycle with all collected values.
    - Use today's date (ISO format: YYYY-MM-DD) as start_date. Do not ask the user.
    - Read back: "Done. [name] locked. ID [id], runs [start] to [end]."
@@ -93,6 +128,12 @@ Ask and wait for each answer before moving on. Do not front-load multiple questi
 
 When the user proposes changing a specific day's calories during table negotiation
 (e.g., "Monday should be 1,550; raise the rest"):
+
+**Operating surface:** recompute_macros_with_overrides
+**Inputs:** estimated_tdee_kcal, target_deficit_kcal verbatim from confirmed intent; dose_weekday, protein_floor_g, fat_ceiling_g from active setup; overrides map
+**Returns:** weekly_kcal_target, rows (7 rows, each: calories, protein_g, fat_g, carbs_g, restrictions)
+**Verbatim:** all row values and weekly_kcal_target from tool result
+**Forbidden:** redistributing calories manually; computing per-day values
 
 1. Map the named weekday to its plan position:
    dose day = position 0, one day later = position 1, continuing to position 6.
@@ -111,6 +152,12 @@ When the user proposes changing a specific day's calories during table negotiati
 
 When the user asks about their active cycle ("what's my cycle", "show my plan",
 "what are my macros today", etc.):
+
+**Operating surface:** get_active_mesocycle
+**Inputs:** user_id
+**Returns:** cycle name, id, dose_weekday, start_date, end_date, macro_table
+**Verbatim:** all cycle fields from tool result
+**Forbidden:** computing today's macro position; computing date range
 
 1. Call get_active_mesocycle.
 2. If null: "No active cycle yet. Want to set one up?"

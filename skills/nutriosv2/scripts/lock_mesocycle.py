@@ -148,7 +148,12 @@ def run_lock_mesocycle(inp: _Input, data_root: str = DATA_ROOT) -> dict:
     # TODO(otel): child span="mesocycle.write_active_txt"
     write_text_atomic(active_txt_path(inp.user_id, data_root), str(new_id))
 
-    return {"mesocycle_id": new_id}
+    return {
+        "mesocycle_id": new_id,
+        "name": inp.name,
+        "start_date": inp.start_date,
+        "end_date": end_date,
+    }
 
 
 def main() -> None:

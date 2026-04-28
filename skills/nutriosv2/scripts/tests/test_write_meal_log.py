@@ -1,4 +1,4 @@
-"""Tests for scripts/write_meal_log.py — TDD first."""
+"""Tests for scripts/write_meal_log.py; TDD first."""
 
 from __future__ import annotations
 import json
@@ -195,3 +195,20 @@ def test_timezone_at_log_matches_input(tmp_path):
     log_file = tmp_path / "42" / "meal_log.jsonl"
     record = json.loads(log_file.read_text().strip())
     assert record["timezone_at_log"] == "Europe/London"
+
+
+# ── NB-6: macros field is now typed Macros, not dict ─────────────────────────
+
+def test_macros_float_protein_rejected():
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        _Input(
+            user_id=42,
+            food_description="protein shake",
+            macros=dict(calories=200, protein_g=30.5, fat_g=5, carbs_g=10),
+            source="ad_hoc",
+            recipe_id=None,
+            recipe_name_snapshot=None,
+            supersedes_log_id=None,
+            active_timezone="America/Denver",
+        )

@@ -2,6 +2,9 @@
   "name": "nutriosv2-tools",
   "version": "1.0.0",
   "type": "module",
+  "scripts": {
+    "build:schemas": "node scripts/emit-schemas.js"
+  },
   "openclaw": {
     "extensions": ["./index.js"],
     "compat": {

@@ -20,7 +20,7 @@ class _Input(BaseModel):
     model_config = ConfigDict(strict=True)
     user_id: int
     food_description: str
-    macros: dict
+    macros: Macros
     source: Literal["recipe", "ad_hoc"]
     recipe_id: int | None = None
     recipe_name_snapshot: str | None = None
@@ -69,14 +69,13 @@ def run_write_meal_log(inp: _Input, data_root: str = DATA_ROOT) -> dict:
     print(json.dumps({"tool": "write_meal_log", "phase": "input", "args": inp.model_dump()}), file=sys.stderr)
 
     log_id = _next_log_id(inp.user_id, data_root)
-    macros = Macros(**inp.macros)
     entry = MealLog(
         log_id=log_id,
         user_id=inp.user_id,
         timestamp_utc=now_utc(),
         timezone_at_log=inp.active_timezone,
         food_description=inp.food_description,
-        macros=macros,
+        macros=inp.macros,
         source=inp.source,
         recipe_id=inp.recipe_id,
         recipe_name_snapshot=inp.recipe_name_snapshot,

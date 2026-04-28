@@ -211,3 +211,14 @@ Items deferred from prior sub-step gates, with target sub-step for resolution. A
 - Reason: `EstimateResult.all_non_negative`, `_Input.description_non_empty` empty-rejection, and `main()` sys.argv dispatch are uncovered.
 - Followup: add unit tests for each.
 - Status: deferred.
+
+---
+
+## P3.2 carry-forward
+
+### NB-44 (P3.2 review, B-3): workspace openclaw.json tool entries diverge from plugin
+
+- Files: `skills/nutriosv2/openclaw.json` (legacy workspace manifest), `plugins/nutriosv2-tools/index.js` (active plugin)
+- Issue: LLM test harness reads `skills/nutriosv2/openclaw.json` for `agent_tools`; the active gateway uses the plugin. Two surfaces for the same tools; schema changes must be applied to both or they diverge. Tactical alignment applied for `lock_mesocycle.intent` nullable fields in post-P3.2 commit. Strategic decision pending: deprecate workspace tool entries entirely, or maintain as dual surface with a reconciliation check.
+- Priority: medium; resolve before exec lockdown.
+- Target: exec lockdown prep or standalone cleanup pass.
