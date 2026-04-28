@@ -39,7 +39,7 @@ When the user supplies a deficit value where unit or scope could be read more th
 way, call the `message` tool with the confirmation text and buttons before computing.
 Your text block must be `NO_REPLY`.
 
-Example — call `message` tool with:
+Example; call `message` tool with:
 - `message`: "Got it; 1,850 kcal weekly deficit. Confirm?"
 - `buttons`: `[[{"text": "Yes", "callback_data": "yes"}, {"text": "No", "callback_data": "no"}, {"text": "Change", "callback_data": "change"}]]`
 
@@ -165,9 +165,8 @@ When the user asks about their active cycle ("what's my cycle", "show my plan",
    - Cycle name and ID
    - Dose day (as a word: Monday, Tuesday, etc.; never a number)
    - Date range (start to end)
-   - Today's macro row: count forward from the most recent dose day to determine
-     today's position, surface that row's calories/protein/fat/carbs and restrictions.
-     Never say "offset" or "+N"; name only the weekday.
+   - Full 7-row macro table from macro_table, labeled by weekday name starting from dose day.
+   - For today's specific remaining targets, direct the user to `/today`.
 
 ## Rules
 

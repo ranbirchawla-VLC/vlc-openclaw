@@ -145,13 +145,6 @@ def compute_turn_state(
     )
 
     if boundary:
-        # NB-33: rename disabled. Default-to-continuation rule was
-        # firing too aggressively and dumping mid-conversation
-        # context (banana flow regression, 2026-04-26 evening).
-        # Detection still runs. Re-enable after boundary detection
-        # redesign. _reset_session_file definition retained below
-        # for one-line re-enable.
-        # _reset_session_file(user_id, session_dir)
         sys.stderr.write(
             f"[NB-33] boundary detected user_id={user_id}; rename suppressed\n"
         )

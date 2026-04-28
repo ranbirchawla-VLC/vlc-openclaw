@@ -222,3 +222,49 @@ Items deferred from prior sub-step gates, with target sub-step for resolution. A
 - Issue: LLM test harness reads `skills/nutriosv2/openclaw.json` for `agent_tools`; the active gateway uses the plugin. Two surfaces for the same tools; schema changes must be applied to both or they diverge. Tactical alignment applied for `lock_mesocycle.intent` nullable fields in post-P3.2 commit. Strategic decision pending: deprecate workspace tool entries entirely, or maintain as dual surface with a reconciliation check.
 - Priority: medium; resolve before exec lockdown.
 - Target: exec lockdown prep or standalone cleanup pass.
+
+---
+
+## Sub-step closure review carry-forward
+
+### NB-45: meal_log.md hardcodes America/Denver timezone
+
+- File: `skills/nutriosv2/capabilities/meal_log.md` lines 72, 76-77
+- Issue: capability instructs LLM to pass literal `"America/Denver"` to write_meal_log and get_daily_reconciled_view; ignores user profile home_timezone. Produces wrong timestamps for any user outside Mountain Time.
+- Priority: high; blocks second-user activation.
+- Target: before Naomi/Marissa activation (sub-step or standalone pass).
+
+### NB-46: estimate_macros.py return type declared as dict instead of EstimateResult
+
+- File: `skills/nutriosv2/scripts/estimate_macros.py:100`
+- Issue: function signature declares `-> dict`; internally builds EstimateResult and calls model_dump() before returning. Return type should be `EstimateResult` for strict typing.
+- Priority: low; no runtime impact.
+- Target: cleanup pass.
+
+### NB-47: compute_candidate_macros.compute() returns bare dict
+
+- File: `skills/nutriosv2/scripts/compute_candidate_macros.py`
+- Issue: compute() returns a raw dict; a typed CandidateMacros model would match the rest of the codebase pattern.
+- Priority: low.
+- Target: cleanup pass.
+
+### NB-48: DATA_ROOT and SESSION_DIR defaults are undocumented absolute paths
+
+- File: `skills/nutriosv2/scripts/common.py:13-15,20-23`
+- Issue: env-overridable fallback paths include /Users/ranbirchawla absolute defaults; not documented in TOOLS.md or SKILL.md. Add one-line note per env var to TOOLS.md.
+- Priority: low; borderline exemption under criterion 4.
+- Target: cleanup pass.
+
+### NB-49: recompute_macros_with_overrides.py internal docstring uses "offset" vocabulary
+
+- File: `skills/nutriosv2/scripts/recompute_macros_with_overrides.py:11`
+- Issue: module docstring refers to "offset string key '0'..'6'"; internal only, not user-facing, but inconsistent with "position" vocabulary used elsewhere.
+- Priority: low.
+- Target: cleanup pass.
+
+### NB-50: intent.rationale required in plugin schema but optional in Python model
+
+- File: `plugins/nutriosv2-tools/tool-schemas.js` lock_mesocycle intent object
+- Issue: rationale in required[] in plugin schema but models.py has rationale: str = "" (optional). If LLM omits rationale the plugin schema rejects the call before Python sees it; confusing failure mode.
+- Priority: medium; fix by removing rationale from plugin required[] or removing the Python default.
+- Target: next plugin touch.

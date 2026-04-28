@@ -1,20 +1,19 @@
-"""compute_candidate_macros — pure macro math from intent constraints.
+"""compute_candidate_macros; pure macro math from intent constraints.
 
 Usage: python3 compute_candidate_macros.py '<json_args>'
 
 Args JSON schema:
-  target_deficit_kcal: int | null  — deficit value; unit determined by deficit_unit
-  deficit_unit: "weekly_kcal" | "daily_kcal"  — default "weekly_kcal"
-  protein_floor_g: int | null      — minimum daily protein in grams
-  fat_ceiling_g: int | null        — maximum daily fat in grams
-  estimated_tdee_kcal: int | null  — estimated total daily energy expenditure
+  target_deficit_kcal: int | null  ; deficit value; unit determined by deficit_unit
+  deficit_unit: "weekly_kcal" | "daily_kcal"  ; default "weekly_kcal"
+  protein_floor_g: int | null      ; minimum daily protein in grams
+  fat_ceiling_g: int | null        ; maximum daily fat in grams
+  estimated_tdee_kcal: int | null  ; estimated total daily energy expenditure
 
 Returns {weekly_deficit_kcal, daily_deficit_kcal, calories, protein_g, fat_g, carbs_g}.
 Any macro field may be null if the corresponding input is missing.
 deficit fields are null when target_deficit_kcal is not provided.
 """
 
-# TODO(otel): span="mesocycle.compute_candidate_macros" attrs={outcome}
 
 from __future__ import annotations
 import json
