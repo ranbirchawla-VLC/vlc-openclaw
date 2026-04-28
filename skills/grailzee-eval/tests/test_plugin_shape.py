@@ -82,7 +82,7 @@ class TestIndexJsDispatch:
             "evaluate_deal registration must use spawnArgv (1c.5 fixup)"
         )
 
-    def test_evaluate_deal_not_spawntdin(self):
+    def test_evaluate_deal_not_spawnstdin(self):
         content = (_PLUGIN_DIR / "index.js").read_text()
         assert 'spawnStdin("evaluate_deal.py"' not in content, (
             "evaluate_deal registration must not use spawnStdin after 1c.5"

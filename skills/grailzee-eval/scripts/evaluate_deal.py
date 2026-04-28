@@ -548,6 +548,8 @@ def _run_from_dict(data: dict) -> int:
         inp = _Input(**schema_data)
     except ValidationError as exc:
         errors = exc.errors()
+        # Pydantic v2 raises "missing" before "extra_forbidden" when both are
+        # present; missing_arg takes precedence over bad_input in that case.
         if any(e["type"] == "missing" for e in errors):
             missing = ", ".join(
                 str(e["loc"][-1]) for e in errors if e["type"] == "missing"
@@ -582,6 +584,9 @@ def _run_from_argv() -> int:
         payload = json.loads(sys.argv[1])
     except json.JSONDecodeError as exc:
         print(json.dumps(_error_response("bad_input", f"Invalid JSON in argv[1]: {exc}")))
+        return 0
+    if not isinstance(payload, dict):
+        print(json.dumps(_error_response("bad_input", f"Expected JSON object, got {type(payload).__name__}")))
         return 0
     return _run_from_dict(payload)
 

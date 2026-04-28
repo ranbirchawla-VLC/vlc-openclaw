@@ -17,10 +17,12 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from scripts.grailzee_common import CACHE_SCHEMA_VERSION
+from scripts.evaluate_deal import _run_from_argv
 
 _SCRIPT = str(
     Path(__file__).resolve().parent.parent / "scripts" / "evaluate_deal.py"
@@ -327,6 +329,8 @@ class TestErrorPaths:
         assert result["match_resolution_label"] == "Lookup error"
         assert result["error"] == expected_error
         assert "message" in result
+        assert "plan_status_label" in result, "error envelope must include plan_status_label"
+        assert "bucket_label" in result, "error envelope must include bucket_label"
 
     def test_no_cache_error(self, tmp_path):
         missing_cache = str(tmp_path / "nonexistent.json")
@@ -530,7 +534,7 @@ class TestArgvDispatch:
         assert result["match_resolution"] == "single_bucket"
         assert result["decision"] == "yes"
 
-    def test_argv_error_bad_input(self, tmp_path):
+    def test_argv_error_bad_input(self):
         proc = subprocess.run(
             [sys.executable, _SCRIPT, "{not valid json"],
             capture_output=True,
@@ -563,6 +567,60 @@ class TestArgvDispatch:
         assert result["match_resolution"] == "error"
         assert result["match_resolution_label"] == "Lookup error"
         assert result["error"] == "no_cache"
+
+    def _call_run_from_argv_with(self, argv1: str, capsys) -> tuple[int, dict]:
+        """Call _run_from_argv() directly with a patched sys.argv[1]."""
+        with patch.object(sys, "argv", ["evaluate_deal.py", argv1]):
+            rc = _run_from_argv()
+        captured = capsys.readouterr()
+        return rc, json.loads(captured.out)
+
+    def test_argv_non_object_json_integer(self, capsys):
+        """argv[1] that is valid JSON but not an object must return bad_input at rc 0."""
+        rc, result = self._call_run_from_argv_with("42", capsys)
+        assert rc == 0
+        assert result["match_resolution"] == "error"
+        assert result["error"] == "bad_input"
+
+    def test_argv_non_object_json_string(self, capsys):
+        rc, result = self._call_run_from_argv_with('"hello"', capsys)
+        assert rc == 0
+        assert result["match_resolution"] == "error"
+        assert result["error"] == "bad_input"
+
+    def test_argv_non_object_json_list(self, capsys):
+        rc, result = self._call_run_from_argv_with("[1, 2, 3]", capsys)
+        assert rc == 0
+        assert result["match_resolution"] == "error"
+        assert result["error"] == "bad_input"
+
+
+# ─── Pydantic validation behavior pins ───────────────────────────────
+
+
+class TestValidationBehaviorPins:
+    """Pin edge-case Pydantic validation behavior so upgrades don't silently flip it."""
+
+    def test_missing_field_takes_precedence_over_extra_field(self, tmp_path):
+        """When payload omits a required field AND includes an unknown field,
+        missing_arg is returned (not bad_input). This pins the Pydantic v2
+        behavior documented in _run_from_dict: missing errors sort before
+        extra_forbidden errors in the ValidationError list."""
+        cache_path = _write_cache(tmp_path, _make_v3_cache())
+        rc, result = _call_via_stdin(
+            {
+                "reference": "79830RB",
+                "listing_price": "2000",
+                "unexpected_extra_field": "should_also_be_rejected",
+            },
+            cache_path,
+        )
+        assert rc == 0
+        assert result["match_resolution"] == "error"
+        assert result["error"] == "missing_arg", (
+            "missing_arg must take precedence over bad_input when both "
+            "a required field is absent and an unknown field is present"
+        )
 
 
 # ─── Idempotency ─────────────────────────────────────────────────────
