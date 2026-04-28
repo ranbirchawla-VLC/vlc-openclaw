@@ -1,0 +1,13 @@
+{
+  "name": "nutriosv2",
+  "version": "1.0.0",
+  "description": "NutriOS — conversational food and protocol companion",
+  "session": {
+    "dmScope": "per-channel-peer"
+  },
+  "tools": [],
+  "env": [
+    "NUTRIOS_DATA_ROOT",
+    "NUTRIOS_TZ"
+  ]
+}
