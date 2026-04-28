@@ -1,0 +1,9 @@
+{
+  "id": "grailzee-eval-tools",
+  "name": "Grailzee Eval Tools",
+  "description": "Deal evaluation and cycle reporting tools for the Grailzee agent",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}
