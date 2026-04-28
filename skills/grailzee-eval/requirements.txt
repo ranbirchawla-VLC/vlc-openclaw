@@ -1,5 +1,6 @@
 # Core dependencies
 openpyxl>=3.1.0
+pydantic>=2.0.0
 
 # Observability (no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set)
 opentelemetry-api>=1.25.0

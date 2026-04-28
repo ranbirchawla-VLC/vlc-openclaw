@@ -70,6 +70,25 @@ class TestPluginPackageShape:
         )
 
 
+# ─── Plugin dispatch method ───────────────────────────────────────────
+
+
+class TestIndexJsDispatch:
+    """Verify evaluate_deal uses spawnArgv (not spawnStdin) after 1c.5."""
+
+    def test_evaluate_deal_uses_spawnargv(self):
+        content = (_PLUGIN_DIR / "index.js").read_text()
+        assert 'spawnArgv("evaluate_deal.py"' in content, (
+            "evaluate_deal registration must use spawnArgv (1c.5 fixup)"
+        )
+
+    def test_evaluate_deal_not_spawntdin(self):
+        content = (_PLUGIN_DIR / "index.js").read_text()
+        assert 'spawnStdin("evaluate_deal.py"' not in content, (
+            "evaluate_deal registration must not use spawnStdin after 1c.5"
+        )
+
+
 # ─── Path A absence ──────────────────────────────────────────────────
 
 

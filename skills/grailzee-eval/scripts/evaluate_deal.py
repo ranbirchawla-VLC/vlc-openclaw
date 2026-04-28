@@ -35,6 +35,9 @@ import math
 import os
 import sys
 from pathlib import Path
+from typing import Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 V2_ROOT = SCRIPT_DIR.parent
@@ -54,6 +57,28 @@ from scripts.grailzee_common import (
 )
 
 tracer = get_tracer(__name__)
+
+
+# ─── Plugin input contract ────────────────────────────────────────────
+
+
+class _Input(BaseModel):
+    """Pydantic model for the registered JSON Schema (§1.2).
+
+    Validates the six schema fields. extra='forbid' ensures unknown fields
+    (fields not in the registered schema) are rejected as bad_input, preventing
+    silent drift between the plugin's JSON Schema and the Python contract.
+    Test hooks (cache_path, cycle_focus_path) are extracted before _Input
+    validation and never reach this model.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    brand: str
+    reference: str
+    listing_price: str
+    dial_numerals: Optional[Literal["Arabic", "Roman", "Stick", "No Numerals"]] = None
+    auction_type: Optional[Literal["NR", "RES"]] = None
+    dial_color: Optional[str] = None
 
 
 # ─── CLI argument parsing ────────────────────────────────────────────
@@ -506,49 +531,63 @@ def evaluate(
 
 
 def _run_from_dict(data: dict) -> int:
-    """Stdin/JSON entry point. Used by OpenClaw tool wiring.
+    """JSON dispatch. Validates with _Input, calls evaluate(), emits result.
 
-    Expected keys: brand, reference, listing_price (required); optional
-    dial_numerals, auction_type, dial_color, cache_path, cycle_focus_path.
-    Returns process exit code; prints result JSON to stdout.
+    Test hooks (cache_path, cycle_focus_path) are extracted before _Input
+    validation so they never reach the strict model. All error paths emit
+    _error_response() (full §1.3 shape) and return 0 per §4.3.
     """
+    cache_path = data.get("cache_path")
+    cycle_focus_path = data.get("cycle_focus_path")
+    schema_data = {
+        k: v for k, v in data.items()
+        if k not in ("cache_path", "cycle_focus_path")
+    }
+
     try:
-        brand = str(data["brand"])
-        reference = str(data["reference"])
-        price = _parse_price_arg(str(data["listing_price"]))
-    except KeyError as exc:
-        print(json.dumps({
-            "decision": "no",
-            "reference": str(data.get("reference", "")),
-            "match_resolution": "error",
-            "error": "missing_arg",
-            "message": f"Missing required field: {exc}",
-        }))
-        return 1
+        inp = _Input(**schema_data)
+    except ValidationError as exc:
+        errors = exc.errors()
+        if any(e["type"] == "missing" for e in errors):
+            missing = ", ".join(
+                str(e["loc"][-1]) for e in errors if e["type"] == "missing"
+            )
+            code, msg = "missing_arg", f"Missing required field: {missing}"
+        else:
+            code, msg = "bad_input", str(exc)
+        print(json.dumps(_error_response(code, msg)))
+        return 0
+
+    try:
+        price = _parse_price_arg(inp.listing_price)
     except ValueError as exc:
-        print(json.dumps({
-            "decision": "no",
-            "reference": str(data.get("reference", "")),
-            "match_resolution": "error",
-            "error": "bad_price",
-            "message": f"Cannot parse price: {exc}",
-        }))
-        return 1
+        print(json.dumps(_error_response("bad_price", f"Cannot parse price: {exc}")))
+        return 0
 
     result = evaluate(
-        brand, reference, price,
-        dial_numerals=data.get("dial_numerals"),
-        auction_type=data.get("auction_type"),
-        dial_color=data.get("dial_color"),
-        cache_path=data.get("cache_path"),
-        cycle_focus_path=data.get("cycle_focus_path"),
+        inp.brand, inp.reference, price,
+        dial_numerals=inp.dial_numerals,
+        auction_type=inp.auction_type,
+        dial_color=inp.dial_color,
+        cache_path=cache_path,
+        cycle_focus_path=cycle_focus_path,
     )
     print(json.dumps(result, indent=2, default=str))
     return 0
 
 
 def _run_from_argv() -> int:
-    """argparse entry point. Used by tests and direct operator invocation."""
+    """Plugin spawnArgv entry point: reads sys.argv[1] as JSON string."""
+    try:
+        payload = json.loads(sys.argv[1])
+    except json.JSONDecodeError as exc:
+        print(json.dumps(_error_response("bad_input", f"Invalid JSON in argv[1]: {exc}")))
+        return 0
+    return _run_from_dict(payload)
+
+
+def _run_legacy() -> int:
+    """Argparse entry point for direct CLI testing (python3 evaluate_deal.py brand ref price)."""
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -594,20 +633,16 @@ def _run_from_argv() -> int:
 
 
 if __name__ == "__main__":
-    # Dual entry: argparse when CLI args are present (tests / direct
-    # operator runs); stdin-JSON when invoked with no args by OpenClaw
-    # per AGENT_ARCHITECTURE.md tool-script pattern.
-    if len(sys.argv) > 1:
+    # argv[1] starts with "{" → JSON payload from spawnArgv plugin dispatch.
+    if len(sys.argv) > 1 and sys.argv[1].startswith("{"):
         sys.exit(_run_from_argv())
-    try:
-        payload = json.loads(sys.stdin.read())
-    except json.JSONDecodeError as exc:
-        print(json.dumps({
-            "decision": "no",
-            "reference": "",
-            "match_resolution": "error",
-            "error": "bad_input",
-            "message": f"Invalid JSON on stdin: {exc}",
-        }))
-        sys.exit(1)
-    sys.exit(_run_from_dict(payload))
+    # No extra argv → stdin path (legacy spawnStdin compat; also used in tests).
+    if len(sys.argv) == 1:
+        try:
+            payload = json.loads(sys.stdin.read())
+        except json.JSONDecodeError as exc:
+            print(json.dumps(_error_response("bad_input", f"Invalid JSON on stdin: {exc}")))
+            sys.exit(0)
+        sys.exit(_run_from_dict(payload))
+    # argv[1] present but not JSON → argparse path (direct CLI testing).
+    sys.exit(_run_legacy())

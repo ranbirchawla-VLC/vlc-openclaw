@@ -2,7 +2,7 @@
 
 **Working root**: `/Users/ranbirchawla/ai-code/vlc-openclaw` (not `.openclaw/workspace`)
 **Branch**: `feature/grailzee-eval-v2`
-**Remote**: in sync at `4d65a4e` (pushed 2026-04-26); Step 2 pending push
+**Remote**: in sync at `2ce167f` (pushed 2026-04-27)
 **Canonical state doc**: `GRAILZEE_SYSTEM_STATE.md` at repo root. Read that first.
 
 Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
@@ -14,30 +14,52 @@ Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
 | Item | State |
 |---|---|
 | Schema version | v3 (cache `schema_version: 3` since 2b) |
-| Tests | `make test-grailzee-eval`: 987 passed, 54 skipped |
+| Tests | `make test-grailzee-eval`: 1030 passed, 71 skipped, 0 failed |
 | Cowork suite | `make test-grailzee-cowork`: 235 passed, 0 failed |
 | Step 0 (schema lock) | DONE; `bfc68cd` pushed |
 | Step 1 (`evaluate_deal.py` + bot wiring) | DONE; `c8b8494` pushed |
 | Step 1 patch (margin-floor rounding) | DONE; `2ec21e5` pushed |
-| Step 1.3 (human-facing label fields + deal.md) | DONE; `4d65a4e` pushed; release check passed |
-| Step 2 (producer chain + bundle validation) | DONE; commit pending push |
-| Step 3 (strategy skill update) | NOT STARTED; next up |
-| State doc Section 4 | Pending operator draft; entries: ae253aa, 2a852cb, c7f90d5, bfc68cd, c8b8494, 2ec21e5, 4d65a4e + Step 2 commit |
+| Step 1.3 (human-facing label fields + deal.md) | DONE; `4d65a4e` pushed |
+| Step 2 (producer chain + bundle validation) | DONE; `2113935` pushed |
+| Chore (clean baseline before Shape G) | DONE; `374ee54` pushed |
+| Shape G commit 1 (override math layer) | DONE; `607f793` pushed |
+| Doc: Branch A guardrails + lock #2 clause | DONE; `b21a0c4` pushed |
+| Shape K 1a (GRAILZEE_ROOT env-var) | DONE; `a790f5d` + `1e38de7` pushed |
+| Shape K 1b (agent surface lockdown) | DONE; `8c9cc8f` + `2ce167f` pushed |
+| env object revert (gateway blowup fix) | DONE; `~/.openclaw/openclaw.json` edited directly, not committed |
+| Shape K 1b.5 (stdin dispatch: report_pipeline + ledger_manager) | NEXT UP — scope expanded from report_pipeline-only |
+| Shape K 1c (plugin scaffold + register evaluate_deal) | DONE; `8e83b25` local (not pushed) |
+| Shape K 1c.5 (spec-drift fixup: JSON _run_from_argv, spawnArgv, error envelope) | DONE; local (not pushed) |
+| Shape K 1d (report_pipeline plugin registration) | NOT STARTED |
+| Shape K 1e (update_name_cache plugin registration) | NOT STARTED |
+| Shape K 1f (AGENTS.md final pass + SKILL.md hard rules) | NOT STARTED |
+| Shape K commit 2 (override wiring + deal.md branch) | NOT STARTED |
+| Step 3 (strategy skill update) | NOT STARTED |
+| INBOUND apply (cycle_2026-08) | DONE; `state/cycle_focus.json` written |
+| State doc Section 4 | Pending operator draft; entries: ae253aa, 2a852cb, c7f90d5, bfc68cd, c8b8494, 2ec21e5, 4d65a4e, 2113935, 374ee54, 607f793, b21a0c4, a790f5d, 1e38de7, 8c9cc8f, 2ce167f |
 | §5.5 spot-check | Rides next live Grailzee cycle |
 | 2a ingest_and_archive live rehearsal | Open; closes with §5.5 |
-| Telegram release check (Step 2) | PASS; Branch D: "Reference not in cache" + comp-search; Branch E: "Deal evaluation failed: {message}"; em-dashes: 0 |
-| Bundle assembly check (Step 2) | PASS; 12 roles (10+2 conditional), sha256 all OK, shortlist validates |
+| Operator gate (gateway restart + Telegram test) | BLOCKED on 1b.5 + GRAILZEE_ROOT injection resolution |
 
 ---
 
 ## Rational sequence (current)
 
-From `Grailzee_Implementation_Sequence_2026-04-26.md` and `Grailzee_Architecture_Lock_2026-04-26.md`.
-
 **Step 0** — Lock schemas — **DONE** (`bfc68cd`)
-**Step 1** — Wire bot end-to-end against mock — **DONE** (`c8b8494` + `2ec21e5` patch)
-**Step 2** — Wire producer chain forward — **DONE** (commit this session)
-**Step 3** — Wire strategy session — Sonnet; next up
+**Step 1** — Wire bot end-to-end against mock — **DONE** (`c8b8494` + `2ec21e5` + `4d65a4e`)
+**Step 2** — Wire producer chain forward — **DONE** (`2113935`)
+**Shape G commit 1** — Override math layer — **DONE** (`607f793`)
+**Doc commit** — Branch A guardrails + lock #2 clause — **DONE** (`b21a0c4`)
+**Shape K 1a** — GRAILZEE_ROOT env-var refactor — **DONE** (`a790f5d` + `1e38de7`)
+**Shape K 1b** — Agent surface lockdown — **DONE** (`8c9cc8f` + `2ce167f`)
+**Shape K 1b.5** — stdin dispatch for report_pipeline + ledger_manager — **NEXT UP**
+**Shape K 1c** — plugin scaffold + register evaluate_deal — **DONE** (`8e83b25`)
+**Shape K 1c.5** — spec-drift fixup on 1c — **DONE** (local)
+**Shape K 1d** — report_pipeline plugin registration — after 1b.5
+**Shape K 1e** — update_name_cache plugin registration — after 1d
+**Shape K 1f** — AGENTS.md final pass + SKILL.md hard rules — after 1e
+**Shape K commit 2** — Wire override into `evaluate()` + deal.md branch
+**Step 3** — Wire strategy session — Sonnet
 **Step 4** — Sale folder json ingest — design outstanding
 **Step 5** — Verify report pipeline — verification only
 
@@ -45,128 +67,206 @@ Architecture lock: three surfaces (Telegram bot, cowork, chat strategy skill). W
 
 ---
 
-## Session 2026-04-26 (third): Step 1 bot end-to-end + floor-round patch
+## Shape K 1c.5 — spec-drift fixup (2026-04-28)
 
-### What landed (`c8b8494`, `2ec21e5`)
+**Cause:** 1c surfaced that `_run_from_argv` in evaluate_deal.py is argparse-based; spec §1.5 assumed it was JSON-aware. 1c used spawnStdin as a workaround. 1c.5 fixes the root.
 
-**`evaluate_deal.py`** (full rewrite). Reads v3 bucket cache; matcher narrows by 0–3 optional axes (`dial_numerals`, `auction_type`, `dial_color`); ambiguous returns candidates so the LLM asks one clarifying question. New return shape: `decision`, `bucket`, `math`, `cycle_context`, `match_resolution`, `candidates` (when ambiguous). Yes/no only; no MAYBE. `_on_demand_analysis` deleted; cache miss → `reference_not_found` / no. Premium scalar applied uniformly from `analyzer_config.scoring.premium_scalar_fraction` (default 0.10). Dual entry (argparse + stdin-JSON) for OpenClaw + tests.
+**Scope:**
+- `evaluate_deal.py`: added `_Input(BaseModel, extra='forbid')`, rewired `_run_from_dict` to use Pydantic validation with correct error codes (all exit 0), added JSON-aware `_run_from_argv`, renamed old argparse path to `_run_legacy`. Detection: `sys.argv[1].startswith("{")` → JSON path; `len(sys.argv)==1` → stdin; else → argparse. Used `{` prefix (unambiguous for JSON object) instead of `not startswith("-")` (breaks on positional args).
+- `index.js`: evaluate_deal switched from `spawnStdin` to `spawnArgv`.
+- `requirements.txt`: `pydantic>=2.0.0` added.
+- `Grailzee_Plugin_API_Spec_v1.md`: dated addendum at end of file correcting §1.5/§1.6.
+- Tests: contract tests updated with strict exit-0 assertions and full error envelope checks; `test_argv_error_bad_input` uses `{not valid json` (starts with `{`, goes to JSON path); unknown-field rejection test added; no_match test added; `candidate_bucket_labels` length assertion added; argv dispatch test class added.
 
-**`scripts/grailzee_common.py`**: added `premium_scalar_fraction: 0.10` to `ANALYZER_CONFIG_FACTORY_DEFAULTS["scoring"]`. `state/analyzer_config.json` regenerated via installer.
+**Gates closed from 1c subagent:** M2 (error envelope inconsistency), m4 (exit code), m1 (candidate_bucket_labels), m2 (no_match coverage).
 
-**Per-agent `openclaw.json`** at `skills/grailzee-eval/openclaw.json`. Two tools: `evaluate_deal` (with optional axes) and `report_pipeline`. Absolute repo paths in `command`. NutriOS-style stdin-JSON inputSchema. `accountId` not `default`. Operator handles root `~/.openclaw/openclaw.json` repoint.
-
-**`SKILL.md` cuts**: Path 1 (ledger), Path 4 (performance query), Path 5 (targets) removed. Paths 2 (deal eval), 2a (priceless), 3 (report) retained. Capability list reduced to `deal.md` + `report.md`.
-
-**`capabilities/deal.md`** (full rewrite). Single yes/no narration from verbatim `math` numbers per AA §2.7. Branches A–E mapped to `match_resolution`. On `decision: "no"` ends with single line `Comp search not yet wired.` (§4.6 cut; Step 2 builds backend). Em-dash–free.
-
-**Capability deletes**: `capabilities/ledger.md`, `capabilities/targets.md`. No standalone test modules referenced them.
-
-**Mock + INBOUND + e2e**: `grailzee-cowork/tests/fixtures/mock_strategy_output.json` (12 targets across Tudor / Breitling / Cartier / Omega; capital_target 60000; target_margin_fraction 0.05; monthly_return_pct 0.12; cycle_id `cycle_2026-15`). `tests/test_step1_mock_inbound.py` exercises `unpack_bundle.apply_strategy_output` and asserts atomic state writes. `skills/grailzee-eval/tests/test_step1_e2e_bot.py` runs mock → unpack → `evaluate()` end-to-end (3 tests: yes on plan, no on plan math fails, off plan reference_not_found).
-
-**Floor-round patch (`2ec21e5`)**. Architecture lock §1: 5% margin floor non-negotiable. `max_buy = round(unrounded, -1)` could let a deal land 1–4 dollars below the floor with `decision: yes`. Switched to `math.floor(unrounded/10)*10` so every dollar at or below `max_buy` clears the floor. Boundary test added (`test_max_buy_floor_rounds_below_5pct_unrounded`): median=2768 → unrounded=2757.90 → floor=2750 (margin 5.30%); old nearest-round=2760 (margin 4.92%, the bug).
-
-**Tests**: 1047 grailzee-eval pass (was 1033; +14 net after replacing v2 contract; +1 boundary test). 234 grailzee-cowork pass (was 230; +4 INBOUND-against-mock).
-
-**Code review** (subagent, fresh context, two passes):
-- Step 1: SHIP-WITH-FIXES, no BLOCKERS. Two MAJORs carry-forward (fee constants externalization, margin-floor rounding). Eight architecture-lock decisions all PASS.
-- Patch: SHIP, no BLOCKERS. Reviewer's 100k random sweep (NR/RES, premium 0–30%, median 50–50k) confirmed zero floor violations under floor-round.
-
-**Two-commit pattern applied per gate; Step 1 squashed to single commit; patch is its own commit per §5 directive.**
-
-### State of tree
-
-- `2ec21e5` (patch) → `c8b8494` (Step 1) → `bfc68cd` (Step 0) → `c7f90d5`. All pushed to `origin/feature/grailzee-eval-v2`.
-- `state/analyzer_config.json` regenerated to include `scoring.premium_scalar_fraction`.
-- New per-agent `openclaw.json` at `skills/grailzee-eval/openclaw.json`; root config repoint operator-handled at gateway restart.
-- `Makefile` adds `test-grailzee-eval-evaluate-deal` target.
-
-### Architecture-lock §1 floor leak (carry-forward, MAJOR)
-
-Same nearest-rounding gap exists in `grailzee_common.max_buy_nr()` and `max_buy_reserve()` (both use `round(_, -1)`). Feeds:
-- `scripts/query_targets.py` → Telegram targets list (Surface 1).
-- `scripts/build_brief.py`, `build_summary.py`, `build_spreadsheet.py` → strategy bundle outputs (Surface 3).
-- `scripts/analyze_references.py` → bucket-cached `max_buy_nr` / `max_buy_res`.
-- `scripts/grailzee_common.py::adjusted_max_buy()` → premium-applied cache writes.
-- `scripts/read_ledger.py` → ledger-derived `max_buy_at_trade`.
-
-Floor applies to every operator-facing buy ceiling. Land as Step 1.1 patch or roll into Step 2 producer-chain work; either is defensible since strategy-bundle outputs (Surface 3) get rebuilt in Step 2.
-
-### Other carry-forwards (MINOR; out of Step 1 scope)
-
-- `_bucket_fees` reads hardcoded `NR_FIXED=149` / `RES_FIXED=199`; should externalize to `analyzer_config.fees`.
-- `_decide_yes_no` precondition order vs. non-null-median Low data buckets.
-- `_run_from_dict` accepts `cache_path` / `cycle_focus_path` not declared in `inputSchema`.
-- Symmetric span attributes on error path.
-- `report_pipeline` tool description duplicates intent triggers from SKILL.md.
-- `test_apply_blocks_cycle_id_mismatch` final assertion polish.
-- `test_step1_e2e_bot.py` `sys.path` edit → conftest plug.
-- `skills/grailzee-eval/scripts.zip` and `tests.zip` artifacts untracked; `.gitignore` candidates.
+**Baseline:** 1021 → 1030 / 71 / 0.
 
 ---
 
-## Session 2026-04-26 (second): Step 0 schema lock
+## Session 2026-04-28: env object revert (gateway blowup)
 
-### What landed (`bfc68cd`)
+### Problem
 
-**`cycle_shortlist_v1.json`** (new): 30-column bucket-row CSV contract.
-- Canonical at `grailzee-cowork/schema/`, byte-identical mirror at `grailzee-strategy/schema/`.
-- Column inventory captured from `build_shortlist.py` output (authoritative).
-- Three spec-checklist drifts surfaced and accepted: `generated_at`, `cycle_id`, `condition_mix` absent from script output. Script is canonical.
-- `check_schema_mirror.py` extended to check both schema pairs; both green.
+Commit 1b added `"env": {"GRAILZEE_ROOT": "..."}` as an object under the `grailzee-eval` entry in `~/.openclaw/openclaw.json`. This is a non-working pattern — gateway rejected it on restart.
 
-**`strategy_output_v1.json`** (amended in both copies):
-- `monthly_return_pct` added to `monthly_goals.properties`: oneOf null or number in (0,1) exclusive. Optional; NOT in required. `strategy_output_version` stays 1.
-- Pre-existing em-dash in top-level description replaced with semicolon (code-review blocker, caught and fixed).
+### Fix
 
-**`cycle_shortlist_schema.py`** (new): stdlib-only hand-rolled CSV validator mirroring `strategy_schema.py` pattern. `validate_schema_file` + `validate_csv(path, schema_path)` with dotted-path errors.
+Removed the `env` object block from the grailzee-eval agent entry in `~/.openclaw/openclaw.json` directly. `tools.allow` block is intact and unchanged. The file is outside the repo; no commit needed.
 
-**`strategy_schema.py`** (amended): `_validate_monthly_goals` replaced `_require_exact_keys` with inline required/optional split. `monthly_return_pct` validated when present; null or absent passes.
+**Current grailzee-eval entry shape** (post-revert):
+```json
+{
+  "id": "grailzee-eval",
+  "name": "grailzee-eval",
+  "workspace": "/Users/ranbirchawla/ai-code/vlc-openclaw/skills/grailzee-eval",
+  "agentDir": "/Users/ranbirchawla/.openclaw/agents/grailzee-eval/agent",
+  "model": "claude-sonnet-4-6",
+  "tools": {
+    "allow": ["evaluate_deal", "report_pipeline", "ledger_manager", "message"]
+  }
+}
+```
 
-**Tests**: +37 new cowork tests (230 total). `test_cycle_shortlist_schema.py`: schema-level + CSV-level coverage. `test_strategy_output_schema.py`: 7 `monthly_return_pct` range-bound tests. `_fixtures.py`: `_monthly_goals_with_return_pct` helper.
+### Open question: GRAILZEE_ROOT injection
 
-**Code review** (subagent, fresh context): one BLOCKER (em-dash), fixed before squash. All other checks PASS. Verdict: SHIP.
+With the `env` object removed, `GRAILZEE_ROOT` is not being injected into tool processes at gateway launch. `grailzee_common.py` has an env var fallback to the hardcoded Drive path (`os.getenv("GRAILZEE_ROOT", "<hardcoded>")`), so tools will function — they fall back to the default. But the env-var override path from 1a is not active.
 
-**Two-commit pattern applied; squashed to single Step 0 commit.**
+**What the workspace `openclaw.json` declares**: `"env": ["GRAILZEE_ROOT"]` — an array of var names, which is the informational declaration format per AGENT_ARCHITECTURE.md. This does not inject the value; it just tells OpenClaw what the tool expects.
 
----
-
-## Session 2026-04-26 (first): Wave 1.1 + audit + planning
-
-### What landed (pushed to remote)
-
-**Wave 1.1 `build_shortlist.py`**: `ae253aa` (tests), `2a852cb` (impl), `c7f90d5` (Makefile).
-- 30-column bucket-row CSV; `_flatten_row(ref_entry, bucket_key, bucket)`; deterministic sort with tiebreaks; Decisions 8/9/10/11 PASS; run_analysis.py 2c-restore try/except removed.
-- Makefile targets added: `test-grailzee-eval`, `test-grailzee-eval-build-shortlist`, `test-grailzee-eval-run-analysis`, `test-grailzee-cowork`.
-- **Standing rule**: always `make test-*`; never raw pytest.
-
-**Wave 1 audit** (`discovery/schema_v3/phase_2c/audit_findings.md`): cowork bundle roles mapped; strategy skill v2-era reads documented; skip-marker gap in `analyze_brands.py` surfaced.
-
-**State docs added** to `state/`: Decision Lock Addendum (Decisions 8-11 + Opus process decision); 2b close-out.
+**Resolution needed before operator gate**: Determine the correct syntax for injecting env var values via root openclaw.json (if the gateway supports it at all), or confirm that shell-level export is the expected injection mechanism. Until resolved, the fallback path in grailzee_common.py covers live operation.
 
 ---
 
-## Open items into Step 2
+## Session 2026-04-28: Capability contract review (read-only)
 
-1. **State doc Section 4**: six commit entries pending — ae253aa, 2a852cb, c7f90d5, bfc68cd, c8b8494, 2ec21e5.
-2. **Telegram release check** (Step 1 §5 third gate): operator-driven; bot answers a deal eval against mocked state with yes/no + math; off-plan / math-failing deal returns no with `Comp search not yet wired.`
-3. **Operator action**: repoint root `~/.openclaw/openclaw.json` workspace path (or symlink) before gateway restart so OpenClaw discovers the per-agent `openclaw.json` at `skills/grailzee-eval/`.
-4. **`grailzee_common.max_buy_*` floor leak**: Step 1.1 patch or Step 2 producer-chain absorption.
-5. **Step 2 prompt drafting**: `build_shortlist.py` schema-validation OUTBOUND; cowork OUTBOUND wide-CSV validation; bundle assembly with state + sale-folder JSONs; KNOWN_ISSUES #1 / #3 fixes.
-6. **`analyze_brands.py` skip-marker gap**: determine pass/fail before Step 2 sequencing.
-7. **§5.5 spot-check**: generate v3 cache from branch against live W2 CSV; closes 2a ingest_and_archive rehearsal.
+Full read-only analysis of all three registered tools against openclaw.json dispatch shape, capability files, and Architecture Lock.
+
+### evaluate_deal — Honored
+
+**Dispatch**: Works correctly. Script has dual entry: `len(sys.argv) > 1` → argparse (tests/CLI); no args → `json.loads(sys.stdin.read())` (OpenClaw). JSON piped by OpenClaw maps correctly to `_run_from_dict`. All errors routed to stdout as shaped JSON; no stack trace leaks.
+
+**deal.md fit**: Well-matched with two documented gaps, both expected (not-yet-shipped):
+- `headroom_pct` field in `math` dict undocumented (always `None` in single_bucket path today; will carry a value when override_match ships in commit 2)
+- `override_match` branch absent from deal.md and from the `match_resolution` enum in the documented output shape
+
+**Contract quality**: Strong. Label fields (`match_resolution_label`, `plan_status_label`, `bucket_label`, `candidate_bucket_labels`) are all display-ready verbatim strings. Verbatim-render rule is fully implemented. Errors are operator-visible. Idempotent.
+
+### ledger_manager — Mechanically broken
+
+**Dispatch**: Broken. Script is argparse-only, no stdin dispatch. OpenClaw pipes JSON to stdin; `parser.parse_args()` gets empty `sys.argv[1:]`; `args.command is None`; exits 2 with help text to stdout. The `subcommand` key in the inputSchema never reaches the script.
+
+**Capability file**: None exists. `ls capabilities/` shows only `deal.md` and `report.md`. The Architecture Lock explicitly cut `ledger.md` from the operator surface (trade logging flows via sale folder json drops, not Telegram). However, `ledger_manager` is registered in openclaw.json and in `tools.allow`, and the query subcommands (`summary`, `premium`, `cycle_rollup`) are not explicitly cut.
+
+**Supervisor question**: Is `ledger_manager` on the Telegram tool surface intentionally (for future use) or accidentally? Without a capability file, the LLM has no routing instructions for it. The `log` subcommand should not be reachable from Telegram per the architecture lock, but all four subcommands are available to the argparse entry point.
+
+**Output shape**: Errors go to `file=sys.stderr` in `cmd_log` and others — inconsistent with `evaluate_deal.py` pattern (which routes all errors to stdout as shaped JSON). If OpenClaw only surfaces stdout to the LLM, error messages are invisible.
+
+**Fix scope for 1b.5**: Stdin dispatch wrapper at `__main__` mapping `subcommand` key → argv tokens, plus required-arg validation per subcommand. Estimate ~40 lines. Supervisor must also decide: add a capability file, or remove `ledger_manager` from `tools.allow` until Phase D.
+
+### report_pipeline — Mechanically broken
+
+**Dispatch**: Broken. Same pattern as ledger_manager: argparse-only, no stdin dispatch. argparse errors on missing positional `input_report` (required). JSON piped by OpenClaw is never read.
+
+**Fix scope for 1b.5**: Stdin dispatch wrapper at `__main__` mapping `input_report` → positional argv and `output_folder` → `--output-folder` flag, then delegating to `main()`. Estimate ~20 lines. Internal override flags (`--csv-dir`, `--ledger`, etc.) are not in the inputSchema and need not be exposed.
+
+**report.md fit**: Two structural contradictions with the post-1b surface:
+
+1. **Step 2 "find newest workbook"**: Instructs the LLM to run `ls -t reports/*.xlsx | head -1` when the operator doesn't supply a path. `exec` is removed from `tools.allow`. This path is dead. `input_report` is required in the inputSchema — the LLM must always have a path. If the operator doesn't supply one, there's no mechanism to discover it. Fix: either make the script scan for the newest xlsx internally when `input_report` is omitted, or update report.md to require the operator to always name the file.
+
+2. **Step 5 name-cache append**: Instructs the LLM to call `python3 -c "from scripts.grailzee_common import append_name_cache_entry; ..."`. This requires `exec`. Dead. Fix options: (a) register `append_name_cache` as a fifth tool, or (b) have `report_pipeline` perform name-cache resolution internally and return resolved names in the output dict, removing the LLM from that loop entirely. Option (b) is cleaner and aligns with Decision #2 (Python deterministic).
+
+**Error output**: `report_pipeline.py` routes errors to `file=sys.stderr` (line 162). On failure, stdout is empty. The LLM sees nothing and has no error to surface. Fix alongside the stdin dispatch wrapper.
+
+---
+
+## Session 2026-04-28: Dispatch verification (partial read-only, interrupted)
+
+Pre-session on 2026-04-28, a dispatch-verification read (per-tool Q1-Q6 on script entry points) was started but interrupted by the user before the report was delivered. The capability contract review above supersedes and covers the same ground more completely. Key finding from that read:
+
+**Reference agent (nutriosv2 `compute_candidate_macros.py`) deviates from AGENT_ARCHITECTURE.md canonical pattern.** The canonical template specifies `json.loads(sys.stdin.read())`. nutriosv2 scripts use `sys.argv[1]` as a JSON string argument. The two patterns are incompatible — OpenClaw cannot use both simultaneously. Which pattern OpenClaw actually uses needs to be confirmed at the gateway level before 1b.5 is implemented. `evaluate_deal.py`'s stdin dispatch is the assumed-correct pattern given the openclaw.json command entries have no `args` field and no positional args after the script path. Verify against a working nutriosv2 session log or OpenClaw gateway source before building 1b.5.
+
+---
+
+## Shape K 1b.5 — Scope (expanded)
+
+**Original scope**: report_pipeline stdin dispatch only.
+
+**Expanded scope after capability review**:
+1. `report_pipeline.py`: stdin dispatch wrapper + error routing to stdout
+2. `ledger_manager.py`: stdin dispatch wrapper + error routing to stdout
+3. `report.md`: fix Steps 2 and 5 (dead exec paths) — supervisor decides fix direction for each
+4. Confirm `ledger_manager` surface decision (capability file or remove from tools.allow)
+5. Confirm GRAILZEE_ROOT injection mechanism before operator gate
+
+**Prerequisite**: Confirm which invocation pattern OpenClaw actually uses (stdin JSON vs. sys.argv[1] JSON string). See dispatch verification note above.
+
+**Blocks**: operator gate (gateway restart + Telegram test).
+
+---
+
+## Shape K 1b outstanding items (carried forward)
+
+**1c — SKILL.md + capability prompt hardening**: Add `## Hard Rules` block at top of SKILL.md before dispatch. Add "call the registered tool; do not call via exec" framing to deal.md and report.md. No code change; doc-only commit. Depends on report.md fixes landing in 1b.5 first.
+
+**query_targets registration** deferred to Phase D. Script at old workspace path reads deprecated `sourcing_brief.json`. Not in scope until Phase D rebuild.
+
+**Operator gate** (after 1b.5 + 1c + GRAILZEE_ROOT resolved + gateway restart):
+- `openclaw gateway restart` then `openclaw tui`
+- Decision on `~/.openclaw/agents/grailzee/agent/` (two small files: auth-profiles.json 37B, models.json 696B — safe to accept fresh start)
+- Send one test deal through Telegram; confirm normal response
+- `audit_session.py --latest grailzee-eval`: expect 0 forbidden, 0 exec bypasses
+
+---
+
+## Shape K commit 2 carry-forwards (from Shape G commit 1)
+
+- Wire `_override_math` into `evaluate()`: new branch when `_match_buckets()` returns `no_match`, `cycle_context["on_plan"]` is True, and `target_match["max_buy_override"]` is not None
+- Override path does not floor-round `max_buy` (operator committed to precise price)
+- New `deal.md` Branch C for `override_match` resolution (inherits Branch A guardrails)
+- OTEL span coverage for `_override_math` and `_decision_math` (both currently unspanned)
+- Update deal.md math shape to include `headroom_pct`; update `match_resolution` enum to include `override_match`
+
+---
+
+## Session 2026-04-27: Shape K hardening (1a + 1b)
+
+### Forensic audit baseline
+
+Ran `audit_session.py --latest grailzee` against most recent session JSONL. Result: **13/13 tool calls forbidden, 9 exec->python bypasses, 0 registered.** Agent read SKILL.md and deal.md via `read`, then called `evaluate_deal.py` directly via `exec` for every deal eval. Forensic audit confirmed working on agent id `grailzee` (not `grailzee-eval`).
+
+### Shape K 1a — `a790f5d` + `1e38de7`
+
+`grailzee_common.py` lines 28-32: `GRAILZEE_ROOT` hardcoded literal replaced with `os.getenv("GRAILZEE_ROOT", "<same default>")`. `os` was already imported. Three new tests in `test_grailzee_root_env.py`: default fall-through, override, derived-path inheritance. `_restore_module` fixture has `try/finally` guard (review fix). Smoke test confirmed: schema_version 3 / cycle_2026-08 / 3,878 refs, Drive accessible with env var unset. Baseline: 982 → 985 passed.
+
+### Shape K 1b — `8c9cc8f` + `2ce167f`
+
+**`skills/grailzee-eval/openclaw.json`** rewritten: 4 tools (evaluate_deal, report_pipeline, ledger_manager, message). Env updated from `["GRAILZEE_DATA_ROOT", "GRAILZEE_TZ"]` to `["GRAILZEE_ROOT"]`.
+
+**`~/.openclaw/openclaw.json`** (outside repo): `grailzee` → `grailzee-eval` rename (id, name, agentDir). `tools.allow` added with 4 tools. `env.GRAILZEE_ROOT` declared as object (pattern later found non-working; reverted 2026-04-28). Binding `agentId` updated; `accountId: "grailzee"` unchanged (ties to bot token).
+
+**`AGENTS.md`** replaced wholesale: grailzee-specific content per AGENT_ARCHITECTURE.md template. Identity, Tools Available (4 tools), Hard Rules (exec/read/write/edit/browser/canvas prohibited, never calculate, NO_REPLY rule, no codebase exploration).
+
+**3 new tests** in `test_agent_surface.py`: workspace openclaw.json shape, root config entry shape, AGENTS.md section presence. Baseline: 985 → 988 passed.
+
+Note: `test_agent_surface.py` tests the root config shape as it was in commit 1b (with the env object). After the 2026-04-28 revert, the root config no longer matches what those tests assert. Tests will need updating in 1b.5.
+
+---
+
+## Session 2026-04-27: Doc commit — Branch A guardrails + lock #2 clause (`b21a0c4`)
+
+Doc-only; no code, no tests.
+
+**`skills/grailzee-eval/capabilities/deal.md`** — `### Composition guardrails` section inserted inside Branch A, after the example shape template. Three hard constraints: numbers verbatim, framing decision-helping not decision-making, length-bounded (1 paragraph, 3-5 sentences). Branch C inherits all three.
+
+**`docs/decisions/Grailzee_Architecture_Lock_2026-04-26.md`** — added to repo for the first time (was project-knowledge-only at Downloads path). Clarifying clause appended under decision #2: LLM may compose Branch A prose around verbatim math; Branch A guardrails are the sole sanctioned slot; all other surfaces remain pure verbatim.
+
+---
+
+## Session 2026-04-27: Shape G commit 1 (`607f793`)
+
+**`_override_math(override_price, listing_price) -> dict`** — pure function, no I/O.
+- `max_buy = override_price`; `headroom_pct = ((override_price - listing_price) / override_price) * 100`
+- `premium_scalar`, `adjusted_price`, `margin_pct` all `None`; guard: `ValueError` if `override_price <= 0`
+
+**`headroom_pct: None`** added to `_decision_math()` return dict (shape parity).
+
+**`"override_match"`** added to `_MATCH_RESOLUTION_LABELS` — emitted in Shape K commit 2.
+
+**12 new tests**: `TestOverrideMath` (10), `TestOverrideMatchResolution` (1), `TestBucketMathHeadroomRegression` (1). Count: 970 → 982 passed.
 
 ---
 
 ## Pointers
 
 - State truth: `GRAILZEE_SYSTEM_STATE.md` (repo root)
-- Architecture lock: `Downloads/GZ-4-25/GZ-4-26/files/Grailzee_Architecture_Lock_2026-04-26.md`
+- Decision locks: `docs/decisions/`
+- Architecture lock: `docs/decisions/Grailzee_Architecture_Lock_2026-04-26.md` (in repo since `b21a0c4`)
 - Rational sequence: `Downloads/GZ-4-25/GZ-4-26/files/Grailzee_Implementation_Sequence_2026-04-26.md`
-- Step 0 spec: `Downloads/GZ-4-25/GZ-4-26/Grailzee_Step0_Schema_Specification_2026-04-26.md`
-- Decision locks: `state/Grailzee_Schema_v3_Decision_Lock_2026-04-24_v1.md` + `state/Grailzee_Schema_v3_Decision_Lock_Addendum_2026-04-26_v1.md`
-- 2c audit findings: `discovery/schema_v3/phase_2c/audit_findings.md`
 - Strategy skill: `grailzee-strategy/` (repo root)
 - Cowork plugin: `grailzee-cowork/` (repo root)
-- Step 1 mock fixture: `grailzee-cowork/tests/fixtures/mock_strategy_output.json`
 - Per-agent OpenClaw config: `skills/grailzee-eval/openclaw.json`
+- Root OpenClaw config: `~/.openclaw/openclaw.json` (outside repo; env object removed 2026-04-28)
+- Step 1 mock fixture: `grailzee-cowork/tests/fixtures/mock_strategy_output.json`
+- INBOUND apply bundle path: `GrailzeeData/bundles/` (NOT `output/`)
 - Full prior build log: `.claude/progress-v0.md`

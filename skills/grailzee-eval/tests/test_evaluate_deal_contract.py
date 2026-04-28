@@ -1,17 +1,15 @@
-"""evaluate_deal contract tests for Shape K 1c.
+"""evaluate_deal contract tests for Shape K 1c / 1c.5.
 
 Tests the script's API contract per Grailzee_Plugin_API_Spec_v1.md §1.
 
-Invokes evaluate_deal.py via subprocess with JSON on stdin (the spawnStdin
-path used in index.js for this script — see 1c surface notes on spawnArgv
-vs. spawnStdin conflict). The argparse CLI path is already covered in
-test_evaluate_deal.py; these tests cover the JSON dispatch contract
-specifically.
+Two invocation helpers:
+- _call_via_stdin: stdin JSON dispatch (len(sys.argv)==1 path). Preserved
+  for backward compat; used by the original 1c tests.
+- _call_via_argv: argv[1] JSON dispatch (spawnArgv plugin path). The primary
+  plugin path after 1c.5; all tests in TestArgvDispatch use this.
 
-Notes on spec vs. reality:
-- No Pydantic _Input model exists in evaluate_deal.py; schema parity tests
-  verify effective dispatch behavior via _run_from_dict.
-- Unknown fields are silently ignored (no strict rejection); noted as gap.
+Exit code invariant per §4.3: all shaped business errors exit 0. Non-zero
+exit is reserved for framework-level failure (import error, OOM, etc.).
 """
 from __future__ import annotations
 
@@ -27,10 +25,6 @@ from scripts.grailzee_common import CACHE_SCHEMA_VERSION
 _SCRIPT = str(
     Path(__file__).resolve().parent.parent / "scripts" / "evaluate_deal.py"
 )
-
-_PREMIUM_SCALAR = 0.10
-_NR_FIXED = 149
-_TARGET_MARGIN = 0.05
 
 
 # ─── Fixture helpers ─────────────────────────────────────────────────
@@ -121,14 +115,37 @@ def _make_ref(
     }
 
 
-def _call_via_stdin(payload: dict, cache_path: str, cycle_focus_path: str | None = None) -> tuple[int, dict]:
-    """Invoke evaluate_deal.py via stdin JSON (the spawnStdin path)."""
+def _call_via_stdin(
+    payload: dict,
+    cache_path: str,
+    cycle_focus_path: str | None = None,
+) -> tuple[int, dict]:
+    """Invoke via stdin JSON (len(sys.argv)==1 path; preserved for compat)."""
     full_payload = {**payload, "cache_path": cache_path}
     if cycle_focus_path:
         full_payload["cycle_focus_path"] = cycle_focus_path
     proc = subprocess.run(
         [sys.executable, _SCRIPT],
         input=json.dumps(full_payload),
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    result = json.loads(proc.stdout)
+    return proc.returncode, result
+
+
+def _call_via_argv(
+    payload: dict,
+    cache_path: str,
+    cycle_focus_path: str | None = None,
+) -> tuple[int, dict]:
+    """Invoke via argv[1] JSON (spawnArgv plugin path)."""
+    full_payload = {**payload, "cache_path": cache_path}
+    if cycle_focus_path:
+        full_payload["cycle_focus_path"] = cycle_focus_path
+    proc = subprocess.run(
+        [sys.executable, _SCRIPT, json.dumps(full_payload)],
         capture_output=True,
         text=True,
         timeout=15,
@@ -230,7 +247,7 @@ class TestHappyPath:
         assert result["match_resolution"] == "single_bucket"
         assert result["bucket"]["dial_color"] == "Blue"
 
-    def test_ambiguous_returns_candidate_bucket_labels(self, tmp_path):
+    def test_ambiguous_returns_candidates_and_labels(self, tmp_path):
         cache = _make_v3_cache(refs={
             "79830RB": _make_ref(buckets=[
                 _make_bucket(dial_color="Black"),
@@ -247,6 +264,8 @@ class TestHappyPath:
         assert "candidates" in result
         assert isinstance(result["candidates"], list)
         assert len(result["candidates"]) == 2
+        assert "candidate_bucket_labels" in result
+        assert len(result["candidate_bucket_labels"]) == len(result["candidates"])
 
     def test_reference_not_found_returns_shaped_no(self, tmp_path):
         cache_path = _write_cache(tmp_path, _make_v3_cache())
@@ -257,6 +276,31 @@ class TestHappyPath:
         assert rc == 0
         assert result["decision"] == "no"
         assert result["match_resolution"] == "reference_not_found"
+
+    def test_no_match_returns_full_envelope(self, tmp_path):
+        cache = _make_v3_cache(refs={
+            "79830RB": _make_ref(buckets=[
+                _make_bucket(dial_color="Black"),
+                _make_bucket(dial_color="Blue"),
+            ])
+        })
+        cache_path = _write_cache(tmp_path, cache)
+        rc, result = _call_via_stdin(
+            {
+                "brand": "Tudor",
+                "reference": "79830RB",
+                "listing_price": "2000",
+                "dial_color": "Purple",
+            },
+            cache_path,
+        )
+        assert rc == 0
+        assert result["decision"] == "no"
+        assert result["match_resolution"] == "no_match"
+        assert "match_resolution_label" in result
+        assert "plan_status_label" in result
+        assert result["bucket"] is None
+        assert result["math"] is None
 
     def test_price_formats_dollar_comma(self, tmp_path):
         cache = _make_v3_cache(refs={
@@ -275,7 +319,9 @@ class TestHappyPath:
 
 
 class TestErrorPaths:
-    def _assert_error_envelope(self, result: dict, expected_error: str) -> None:
+    def _assert_error_envelope(self, rc: int, result: dict, expected_error: str) -> None:
+        """Assert §1.3 failure shape: exit 0, full envelope, correct code."""
+        assert rc == 0, f"shaped error must exit 0, got {rc}"
         assert result["decision"] == "no"
         assert result["match_resolution"] == "error"
         assert result["match_resolution_label"] == "Lookup error"
@@ -288,8 +334,7 @@ class TestErrorPaths:
             {"brand": "Tudor", "reference": "79830RB", "listing_price": "2000"},
             missing_cache,
         )
-        assert rc == 0
-        self._assert_error_envelope(result, "no_cache")
+        self._assert_error_envelope(rc, result, "no_cache")
 
     def test_stale_schema_error(self, tmp_path):
         stale = _make_v3_cache()
@@ -299,8 +344,7 @@ class TestErrorPaths:
             {"brand": "Tudor", "reference": "79830RB", "listing_price": "2000"},
             cache_path,
         )
-        assert rc == 0
-        self._assert_error_envelope(result, "stale_schema")
+        self._assert_error_envelope(rc, result, "stale_schema")
 
     def test_missing_arg_brand(self, tmp_path):
         cache_path = _write_cache(tmp_path, _make_v3_cache())
@@ -308,20 +352,15 @@ class TestErrorPaths:
             {"reference": "79830RB", "listing_price": "2000"},
             cache_path,
         )
-        assert rc in (0, 1)
-        assert result["match_resolution"] == "error"
-        assert result["error"] == "missing_arg"
+        self._assert_error_envelope(rc, result, "missing_arg")
 
     def test_missing_arg_reference(self, tmp_path):
         cache_path = _write_cache(tmp_path, _make_v3_cache())
-        proc = subprocess.run(
-            [sys.executable, _SCRIPT],
-            input=json.dumps({"brand": "Tudor", "listing_price": "2000", "cache_path": cache_path}),
-            capture_output=True, text=True, timeout=15,
+        rc, result = _call_via_stdin(
+            {"brand": "Tudor", "listing_price": "2000"},
+            cache_path,
         )
-        result = json.loads(proc.stdout)
-        assert result["match_resolution"] == "error"
-        assert result["error"] == "missing_arg"
+        self._assert_error_envelope(rc, result, "missing_arg")
 
     def test_bad_price_error(self, tmp_path):
         cache_path = _write_cache(tmp_path, _make_v3_cache())
@@ -329,30 +368,28 @@ class TestErrorPaths:
             {"brand": "Tudor", "reference": "79830RB", "listing_price": "notanumber"},
             cache_path,
         )
-        assert result["error"] == "bad_price"
-        assert result["match_resolution"] == "error"
+        self._assert_error_envelope(rc, result, "bad_price")
 
-    def test_bad_input_invalid_json_stdin(self, tmp_path):
+    def test_bad_input_invalid_json_stdin(self):
         proc = subprocess.run(
             [sys.executable, _SCRIPT],
             input="this is not json",
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
         result = json.loads(proc.stdout)
+        assert proc.returncode == 0, f"bad_input must exit 0, got {proc.returncode}"
         assert result["match_resolution"] == "error"
         assert result["error"] == "bad_input"
+        assert result.get("match_resolution_label") == "Lookup error"
 
 
 # ─── Schema parity ────────────────────────────────────────────────────
 
 
 class TestSchemaParity:
-    """Verify _run_from_dict accepts all 6 fields from the registered JSON Schema.
-
-    Note: no Pydantic _Input model exists in evaluate_deal.py (spec assumed one).
-    These tests verify effective dispatch behavior. Unknown-field rejection does
-    not exist; noted as gap vs. §1.5 spec.
-    """
+    """Verify _Input accepts the 6 registered JSON Schema fields and rejects unknowns."""
 
     def test_all_three_required_fields_accepted(self, tmp_path):
         cache = _make_v3_cache(refs={
@@ -364,7 +401,7 @@ class TestSchemaParity:
             cache_path,
         )
         assert result["match_resolution"] != "error", (
-            "All three required fields accepted should produce a non-error response"
+            "All three required fields must produce a non-error response"
         )
 
     def test_dial_numerals_optional_field_accepted(self, tmp_path):
@@ -429,6 +466,22 @@ class TestSchemaParity:
         )
         assert result["match_resolution"] == "single_bucket"
 
+    def test_unknown_field_rejected_bad_input(self, tmp_path):
+        """_Input must reject unknown fields per §4.2 (extra='forbid')."""
+        cache_path = _write_cache(tmp_path, _make_v3_cache())
+        rc, result = _call_via_stdin(
+            {
+                "brand": "Tudor",
+                "reference": "79830RB",
+                "listing_price": "2000",
+                "unexpected_field": "should_fail",
+            },
+            cache_path,
+        )
+        assert rc == 0
+        assert result["match_resolution"] == "error"
+        assert result["error"] == "bad_input"
+
     def test_premium_scalar_is_fraction_not_percentage(self, tmp_path):
         cache = _make_v3_cache(refs={
             "79830RB": _make_ref(buckets=[_make_bucket(median=3200.0)])
@@ -458,6 +511,60 @@ class TestSchemaParity:
         assert result["math"]["headroom_pct"] is None
 
 
+# ─── Argv dispatch path (spawnArgv / plugin primary path) ─────────────
+
+
+class TestArgvDispatch:
+    """Verify the argv[1] JSON dispatch path — the plugin's actual call path."""
+
+    def test_argv_happy_path(self, tmp_path):
+        cache = _make_v3_cache(refs={
+            "79830RB": _make_ref(buckets=[_make_bucket(median=3200.0)])
+        })
+        cache_path = _write_cache(tmp_path, cache)
+        rc, result = _call_via_argv(
+            {"brand": "Tudor", "reference": "79830RB", "listing_price": "2000"},
+            cache_path,
+        )
+        assert rc == 0
+        assert result["match_resolution"] == "single_bucket"
+        assert result["decision"] == "yes"
+
+    def test_argv_error_bad_input(self, tmp_path):
+        proc = subprocess.run(
+            [sys.executable, _SCRIPT, "{not valid json"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        result = json.loads(proc.stdout)
+        assert proc.returncode == 0
+        assert result["match_resolution"] == "error"
+        assert result["error"] == "bad_input"
+
+    def test_argv_missing_arg(self, tmp_path):
+        cache_path = _write_cache(tmp_path, _make_v3_cache())
+        rc, result = _call_via_argv(
+            {"reference": "79830RB", "listing_price": "2000"},
+            cache_path,
+        )
+        assert rc == 0
+        assert result["match_resolution"] == "error"
+        assert result["error"] == "missing_arg"
+
+    def test_argv_error_envelope_full_shape(self, tmp_path):
+        missing_cache = str(tmp_path / "nonexistent.json")
+        rc, result = _call_via_argv(
+            {"brand": "Tudor", "reference": "79830RB", "listing_price": "2000"},
+            missing_cache,
+        )
+        assert rc == 0
+        assert result["decision"] == "no"
+        assert result["match_resolution"] == "error"
+        assert result["match_resolution_label"] == "Lookup error"
+        assert result["error"] == "no_cache"
+
+
 # ─── Idempotency ─────────────────────────────────────────────────────
 
 
@@ -474,3 +581,16 @@ class TestIdempotency:
         assert r1["match_resolution"] == r2["match_resolution"]
         assert r1["math"]["max_buy"] == r2["math"]["max_buy"]
         assert r1["math"]["margin_pct"] == r2["math"]["margin_pct"]
+
+    def test_argv_stdin_same_output(self, tmp_path):
+        """argv[1] and stdin paths produce identical output for the same payload."""
+        cache = _make_v3_cache(refs={
+            "79830RB": _make_ref(buckets=[_make_bucket(median=3200.0)])
+        })
+        cache_path = _write_cache(tmp_path, cache)
+        payload = {"brand": "Tudor", "reference": "79830RB", "listing_price": "2000"}
+        _, r_stdin = _call_via_stdin(payload, cache_path)
+        _, r_argv = _call_via_argv(payload, cache_path)
+        assert r_stdin["decision"] == r_argv["decision"]
+        assert r_stdin["match_resolution"] == r_argv["match_resolution"]
+        assert r_stdin["math"]["max_buy"] == r_argv["math"]["max_buy"]

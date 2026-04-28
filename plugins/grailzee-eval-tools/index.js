@@ -79,7 +79,7 @@ export default definePluginEntry({
         required: ["brand", "reference", "listing_price"],
       },
       async execute(_id, params) {
-        return toToolResult(spawnStdin("evaluate_deal.py", params));
+        return toToolResult(spawnArgv("evaluate_deal.py", params));
       },
     });
   },
