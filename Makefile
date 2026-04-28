@@ -17,24 +17,46 @@
 #   3. Add each new target name to the .PHONY line and to the help echo list.
 #   4. Allowlist the new Bash(make test-<skill-name>*) patterns in .claude/settings.json.
 
-PYTEST = python3.11 -m pytest
+PYTHON = .venv/bin/python
+PYTEST = $(PYTHON) -m pytest
 
-.PHONY: help test test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation
+.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-llm
 
 help:
 	@echo "Available targets:"
-	@echo "  make test                        - run full test suite (all skills)"
+	@echo "  make setup                       - create .venv and install workspace dev deps (idempotent)"
+	@echo "  make test                        - full suite (Python + LLM)"
+	@echo "  make test-fast                   - Python tests only (skip LLM)"
+	@echo "  make test-llm                    - LLM integration tests only"
+	@echo "  make lint                        - no-op (ruff not configured yet)"
 	@echo "  make test-nutrios                - run all NutriOS v1 tests"
 	@echo "  make test-nutrios-time           - run nutrios_time tests"
 	@echo "  make test-nutrios-store          - run nutrios_store tests"
 	@echo "  make test-nutrios-engine         - run nutrios_engine tests"
 	@echo "  make test-nutrios-models         - run nutrios_models tests"
 	@echo "  make test-nutrios-context        - run nutrios_context tests"
-	@echo "  make test-nutriosv2              - run all NutriOS v3 tests"
+	@echo "  make test-nutriosv2              - run all NutriOS v3 tests (Python + LLM)"
 	@echo "  make test-nutriosv2-foundation   - run sub-step 0 common.py tests"
+	@echo "  make test-nutriosv2-models       - run Pydantic model tests"
+	@echo "  make test-nutriosv2-mesocycle    - run mesocycle tool tests"
+	@echo "  make test-nutriosv2-llm          - run NutriOS v3 LLM tests only"
+
+setup:
+	test -d .venv || python3.11 -m venv .venv
+	$(PYTHON) -m pip install --upgrade pip
+	$(PYTHON) -m pip install -e "./skills/nutriosv2[dev]"
 
 test:
 	$(PYTEST)
+
+test-fast:
+	$(PYTEST) -m "not llm"
+
+test-llm:
+	$(PYTEST) -m "llm"
+
+lint:
+	@echo "lint: no linter configured (ruff not installed)"
 
 test-nutrios:
 	$(PYTEST) skills/nutrios/tests
@@ -59,3 +81,12 @@ test-nutriosv2:
 
 test-nutriosv2-foundation:
 	$(PYTEST) skills/nutriosv2/scripts/tests/test_common.py
+
+test-nutriosv2-models:
+	$(PYTEST) skills/nutriosv2/scripts/tests/test_models.py
+
+test-nutriosv2-mesocycle:
+	$(PYTEST) skills/nutriosv2/scripts/tests/test_mesocycle.py
+
+test-nutriosv2-llm:
+	$(PYTEST) skills/nutriosv2/scripts/tests/llm

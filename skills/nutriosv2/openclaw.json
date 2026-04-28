@@ -1,13 +1,207 @@
 {
   "name": "nutriosv2",
   "version": "1.0.0",
-  "description": "NutriOS — conversational food and protocol companion",
+  "description": "NutriOS \u2014 conversational food and protocol companion",
   "session": {
     "dmScope": "per-channel-peer"
   },
-  "tools": [],
   "env": [
     "NUTRIOS_DATA_ROOT",
     "NUTRIOS_TZ"
+  ],
+  "tools": [
+    {
+      "name": "compute_candidate_macros",
+      "description": "Pure macro math from intent constraints. Returns {calories, protein_g, fat_g, carbs_g} \u2014 any field may be null if the corresponding input is missing.",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/skills/nutriosv2/scripts/compute_candidate_macros.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target_deficit_kcal": {
+            "type": "integer",
+            "description": "Weekly deficit in kcal"
+          },
+          "protein_floor_g": {
+            "type": "integer",
+            "description": "Minimum daily protein in grams"
+          },
+          "fat_ceiling_g": {
+            "type": "integer",
+            "description": "Maximum daily fat in grams"
+          },
+          "estimated_tdee_kcal": {
+            "type": "integer",
+            "description": "Estimated total daily energy expenditure"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "lock_mesocycle",
+      "description": "End any active mesocycle and lock a new one. Returns {mesocycle_id}.",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/skills/nutriosv2/scripts/lock_mesocycle.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "description": "Telegram user ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Cycle name, e.g. 'cut'"
+          },
+          "weeks": {
+            "type": "integer",
+            "description": "Duration in weeks (>= 1)"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "ISO date, set by Python to today"
+          },
+          "dose_weekday": {
+            "type": "integer",
+            "description": "0=Mon .. 6=Sun"
+          },
+          "macro_table": {
+            "type": "array",
+            "description": "Exactly 7 MacroRow objects indexed by dose offset 0..6",
+            "items": {
+              "type": "object",
+              "properties": {
+                "calories": {
+                  "type": "integer"
+                },
+                "protein_g": {
+                  "type": "integer"
+                },
+                "fat_g": {
+                  "type": "integer"
+                },
+                "carbs_g": {
+                  "type": "integer"
+                },
+                "restrictions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "calories",
+                "protein_g",
+                "fat_g",
+                "carbs_g",
+                "restrictions"
+              ]
+            }
+          },
+          "intent": {
+            "type": "object",
+            "properties": {
+              "target_deficit_kcal": {
+                "type": "integer"
+              },
+              "protein_floor_g": {
+                "type": "integer"
+              },
+              "fat_ceiling_g": {
+                "type": "integer"
+              },
+              "rationale": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "user_id",
+          "name",
+          "weeks",
+          "start_date",
+          "dose_weekday",
+          "macro_table",
+          "intent"
+        ]
+      }
+    },
+    {
+      "name": "get_active_mesocycle",
+      "description": "Return the current active mesocycle for this user, or null if none.",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/skills/nutriosv2/scripts/get_active_mesocycle.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "description": "Telegram user ID"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "recompute_macros_with_overrides",
+      "description": "Redistribute a weekly kcal budget across 7 days given per-day calorie overrides. Call when the user proposes changing a specific day's calories during table negotiation. Returns {weekly_kcal_target, rows} ; 7 MacroRow objects with the redistributed values.",
+      "command": "python3 /Users/ranbirchawla/.openclaw/workspace/skills/nutriosv2/scripts/recompute_macros_with_overrides.py",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "estimated_tdee_kcal": {
+            "type": "integer",
+            "description": "User's estimated total daily energy expenditure"
+          },
+          "target_deficit_kcal": {
+            "type": "integer",
+            "description": "Weekly deficit in kcal (pass through verbatim from user)"
+          },
+          "dose_weekday": {
+            "type": "integer",
+            "description": "0=Mon..6=Sun ; the dose day for this cycle"
+          },
+          "protein_floor_g": {
+            "type": "integer",
+            "description": "Minimum daily protein in grams"
+          },
+          "fat_ceiling_g": {
+            "type": "integer",
+            "description": "Maximum daily fat in grams"
+          },
+          "overrides": {
+            "type": "object",
+            "description": "Map of offset (string key '0'..'6') to row values. Each entry requires 'calories' (int); 'protein_g' and 'fat_g' are optional. Offset 0 = dose day, 1 = next day, ..., 6 = day before dose.",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "calories": {
+                  "type": "integer"
+                },
+                "protein_g": {
+                  "type": "integer"
+                },
+                "fat_g": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "calories"
+              ]
+            }
+          }
+        },
+        "required": [
+          "estimated_tdee_kcal",
+          "target_deficit_kcal",
+          "dose_weekday",
+          "protein_floor_g",
+          "fat_ceiling_g",
+          "overrides"
+        ]
+      }
+    }
   ]
 }

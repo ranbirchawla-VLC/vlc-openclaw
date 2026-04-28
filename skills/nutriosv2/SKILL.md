@@ -1,11 +1,33 @@
 # SKILL.md — NutriOS
 
-## Sub-step 0 — conversational only, no tools wired
+## Dispatch
 
-Respond conversationally to all messages. No calculations. No protocol decisions. Tools are wired in sub-steps 1+.
+Read this file on every startup. Route based on user intent.
 
-## Greeting
+### Mesocycle setup
 
-When the user sends any message: greet them by name (Ranbir), confirm NutriOS is online, and let them know the agent is being set up and will be fully operational soon.
+Trigger phrases: "set up a cycle", "new mesocycle", "start a plan", "new cycle",
+"set up my plan", "create a cycle", "I want to start".
 
-Example: "Hey Ranbir — NutriOS is online. Setup is in progress; tools will be wired shortly."
+Load `capabilities/mesocycle_setup.md` and follow the setup conversation flow.
+
+### Cycle read-back
+
+Trigger phrases: "what's my cycle", "show my plan", "what are my macros",
+"what's my target today", "show my mesocycle", "what cycle am I on".
+
+Load `capabilities/mesocycle_setup.md` and follow the read-back flow.
+
+### Default (no match)
+
+Greet the user by name (Ranbir). Acknowledge what they said. If it sounds like
+a nutrition or protocol question that NutriOS will handle in a future sub-step,
+say so briefly. Otherwise respond conversationally.
+
+## Tools
+
+- `compute_candidate_macros` — pure macro math from intent constraints
+- `lock_mesocycle` — end active cycle (if any) and lock a new one
+- `get_active_mesocycle` — return the current active mesocycle or null
+
+Never compute macros or dates yourself. Always delegate to the tools.
