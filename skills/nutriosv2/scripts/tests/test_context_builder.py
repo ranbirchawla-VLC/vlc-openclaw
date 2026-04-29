@@ -66,7 +66,7 @@ _LOG_YESTERDAY = {
     "macros": {"calories": 350, "protein_g": 15, "fat_g": 6, "carbs_g": 55},
     "source": "ad_hoc", "recipe_id": None, "recipe_name_snapshot": None, "supersedes": None,
 }
-# Superseded entry (log_id 4 supersedes log_id 4a)
+# Superseded entry: _LOG_CORRECTION (log_id=5) supersedes _LOG_ORIGINAL (log_id=4)
 _LOG_ORIGINAL = {
     "log_id": 4, "user_id": _USER_ID,
     "timestamp_utc": "2026-04-29T15:00:00Z",
@@ -151,6 +151,9 @@ def test_date_day_name_matches_injected_date(tmp_path):
 def test_date_from_system_clock_when_today_none(tmp_path):
     from datetime import datetime
     import zoneinfo
+    # Capture expected_iso BEFORE calling the function to avoid midnight-straddle flake
+    tz = zoneinfo.ZoneInfo(_TZ)
+    expected_iso = datetime.now(tz).date().isoformat()
     result = run_context_builder(
         user_id=_USER_ID,
         active_timezone=_TZ,
@@ -158,8 +161,6 @@ def test_date_from_system_clock_when_today_none(tmp_path):
         user_profile_path="",
         today=None,
     )
-    tz = zoneinfo.ZoneInfo(_TZ)
-    expected_iso = datetime.now(tz).date().isoformat()
     assert result["date"]["iso"] == expected_iso
 
 
@@ -215,6 +216,20 @@ def test_mesocycle_not_expired_when_active(tmp_path):
 def test_mesocycle_expired_when_past_end_date(tmp_path):
     _write_mesocycle(tmp_path, _MESOCYCLE)
     result = _ctx(tmp_path, today=date(2026, 7, 10))  # after 2026-07-08
+    assert result["mesocycle"]["is_expired"] is True
+
+
+def test_mesocycle_not_expired_on_last_active_day(tmp_path):
+    # end_date=2026-07-08 is exclusive; 2026-07-07 is the last active day
+    _write_mesocycle(tmp_path, _MESOCYCLE)
+    result = _ctx(tmp_path, today=date(2026, 7, 7))
+    assert result["mesocycle"]["is_expired"] is False
+
+
+def test_mesocycle_expired_on_end_date(tmp_path):
+    # end_date itself is the first expired day (exclusive upper bound)
+    _write_mesocycle(tmp_path, _MESOCYCLE)
+    result = _ctx(tmp_path, today=date(2026, 7, 8))
     assert result["mesocycle"]["is_expired"] is True
 
 

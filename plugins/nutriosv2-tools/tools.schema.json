@@ -448,7 +448,8 @@
           },
           "servings": {
             "type": "number",
-            "description": "Number of servings (default 1.0)"
+            "description": "Number of servings (default 1.0)",
+            "default": 1
           }
         },
         "required": [

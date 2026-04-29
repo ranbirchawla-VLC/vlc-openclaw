@@ -220,7 +220,7 @@ export const TOOLS = [
           required: ["calories", "protein_g", "fat_g", "carbs_g"],
         },
         portion: { type: "number", description: "Fraction of one serving (1.0 = full, 0.5 = half, 0.33 = one-third)" },
-        servings: { type: "number", description: "Number of servings (default 1.0)" },
+        servings: { type: "number", description: "Number of servings (default 1.0)", default: 1.0 },
       },
       required: ["base_macros", "portion"],
     },

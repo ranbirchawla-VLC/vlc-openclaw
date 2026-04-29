@@ -93,7 +93,8 @@ def run_context_builder(
     if cycle_data is not None:
         start = date_type.fromisoformat(cycle_data["start_date"])
         end = date_type.fromisoformat(cycle_data["end_date"])
-        week = (today - start).days // 7 + 1
+        # clamp to 1: a future-dated active cycle would otherwise produce week=0
+        week = max(1, (today - start).days // 7 + 1)
         is_expired = today >= end
         dose_offset = (today.weekday() - cycle_data["dose_weekday"]) % 7
         row = cycle_data["macro_table"][dose_offset]
@@ -144,6 +145,9 @@ def main() -> None:
     try:
         result = run_context_builder(inp.user_id, inp.active_timezone)
     except CorruptStateError as e:
+        err(str(e))
+        return
+    except Exception as e:
         err(str(e))
         return
     ok(result)

@@ -18,14 +18,10 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 from common import err, ok
 
-from pydantic import BaseModel, ConfigDict, field_validator
-
-
-_REQUIRED_MACRO_KEYS = frozenset({"calories", "protein_g", "fat_g", "carbs_g"})
+from pydantic import BaseModel, field_validator
 
 
 class _BaseMacros(BaseModel):
-    model_config = ConfigDict(strict=True)
     calories: int
     protein_g: int
     fat_g: int
