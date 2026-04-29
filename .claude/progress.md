@@ -39,7 +39,7 @@ has 5 additional state-file-conditional tests passing (skipif on installed state
 | 1.3 lockfile + atomic write | DONE | `43c47d0` (commit A + commit B) |
 | 1.4 Rule Y dedup-and-update | DONE | `5d5d47f` |
 | 1.5 pruning + ADR-0004 nullability | DONE | `30cfd7f` |
-| 1.6 archive move | DONE | pending commit |
+| 1.6 archive move | DONE | `61f6f6a` |
 | 1.7 top-level orchestrator | NOT STARTED | — |
 | Phase 1 Gate 3 smoke | NOT STARTED | — |
 
@@ -48,7 +48,7 @@ has 5 additional state-file-conditional tests passing (skipif on installed state
 ## Sub-step closeouts
 
 **1.6 closeout (2026-04-29)**:
-- Branch tip: pending commit
+- Branch tip: `61f6f6a`
 - test-grailzee-ledger-archive: 25 passed / 0 skipped (new)
 - test-grailzee-ledger: 201 passed / 0 skipped (+25 from 1.5)
 - test-grailzee-eval: 1234 passed / 71 skipped (unchanged skips)
