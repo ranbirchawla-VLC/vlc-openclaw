@@ -21,10 +21,21 @@ Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
 
 ---
 
-### Track 2 — Ledger Redo Phase 1 (ACTIVE)
+### Track 2 — Ledger Redo Phase 1 (BLOCKED on Gate 3 triage)
+
+**Next-session entry point**: Phase 1 sub-steps 1.1–1.7 are all DONE and
+committed. Gate 3 attempted against the operator-supplied production
+fixture and HALTED on a fixture-format gap (transform_jsonl expects single
+JSON object with nested sales/purchases arrays; production fixture is
+line-delimited flat transaction records with a `type` discriminator). See
+"Gate 3 — first-attempt outcome" block below for full triage. Atomicity
+contract held; the architecture is fine. Two routes (A: refresh fixture;
+B: corrective pass on `transform_jsonl` + design v1 §7 amendment) need
+supervisor decision before any code lands. Working tree clean.
 
 **Branch**: `feature/grailzee-ledger-phase1-v2` (off `feature/grailzee-eval-v2`)
-**Tip**: `d7be685` (progress.md chore on top of `61f6f6a` — 1.6 commit)
+**Tip**: `8d73c35` ([ledger 1.7 commit 2 of 2] integration tests, OTEL outcome
+consolidation, CLI surface). Plus pending chore commit for this progress.md.
 **Remote**: not pushed yet
 **Design spec**: `Downloads/GZ-4-28.v3/Grailzee_Ledger_Redo_Design_v1.md` — not present on disk at last check (2026-04-29). Content referenced from ADRs and session history.
 **Tests**: 1342 eval / 71 skipped / 235 cowork / 308 ledger
@@ -41,12 +52,102 @@ has 5 additional state-file-conditional tests passing (skipif on installed state
 | 1.4 Rule Y dedup-and-update | DONE | `5d5d47f` |
 | 1.5 pruning + ADR-0004 nullability | DONE | `30cfd7f` |
 | 1.6 archive move | DONE | `61f6f6a` |
-| 1.7 top-level orchestrator | DONE | (commit 2 tip after this commit) |
-| Phase 1 Gate 3 smoke | NOT STARTED | — |
+| 1.7 top-level orchestrator | DONE | `8d73c35` (commit 2 of 2) |
+| Phase 1 Gate 3 smoke | ATTEMPTED — HALTED | see Gate 3 attempt block below |
+
+---
+
+### Gate 3 — first-attempt outcome (2026-04-29) — BLOCKER
+
+**Status**: attempted; HALTED on stop condition #1 (Step 2 raised). Awaiting
+supervisor triage before retry. Atomicity contract held under unplanned failure
+(production state byte-identical to pre-run); the architecture is not the
+problem.
+
+**Fixture used**: `$GRAILZEE_ROOT/sales_data/watchtrack_full_final.jsonl`
+(operator-supplied; original prompt name `watchtrack_full_final__1_.jsonl`
+without the download-dedup tail).
+
+**Failure**: `json.decoder.JSONDecodeError: Extra data: line 2 column 1
+(char 4388)` from `_transform_jsonl_inner` line 709 on the first file.
+
+**Two contract gaps surfaced (not one)**:
+
+1. **Parse strategy**. `_transform_jsonl_inner` calls `json.loads(path.read_text())`
+   expecting a single JSON document. Production fixture is true JSONL
+   (line-delimited, one JSON object per line). Function name `transform_jsonl`
+   matches conventional `.jsonl` semantics but implementation matches design
+   v1 §7's "single JSON object" claim.
+
+2. **Schema shape**. Each line of the production fixture is a flat transaction
+   record discriminated by a `type` field:
+   ```
+   {"transaction_id": "TEYPA1088", "type": "Purchase", ...}    (line 1, 4388 chars)
+   {"transaction_id": "TEY1104",   "type": "Sale",     ...}    (line 2)
+   ```
+   Implementation expects nested arrays:
+   ```
+   {"sales": [{...}, {...}], "purchases": [{...}, {...}]}
+   ```
+   Even with a JSONL reader bolted on, transform would still fail on the
+   `for key in ("sales", "purchases"): if key not in raw` guard — neither
+   key exists in the flat schema.
+
+**Atomicity ✅**. Pre-lock raise meant: lock never acquired, archive loop
+never entered, no partial CSV writes. Post-state is byte-identical to
+pre-state (sales_data/ still has the fixture, archive/ still doesn't exist,
+ledger still 15 lines = 1 header + 14 rows). Gate 3 verified the
+atomicity contract under an unplanned failure mode — a real win for
+commit 1's architecture even though the run failed.
+
+**OTEL silence**. `JSONDecodeError` is a `ValueError` subclass, not an
+`IngestError`. The pre-lock `try/except IngestError` did NOT catch it; the
+orchestrator span closed without an `outcome` attribute (consistent with
+`TestBareExceptionInLock`). The Phase 2 bot route would surface this as an
+unhandled traceback rather than a structured halt — small wrap-into-
+SchemaShiftDetected follow-up regardless of which triage route is chosen.
+
+**Two-route triage (supervisor decision)**:
+
+- **Route A — spec correct, fixture wrong**. Design v1 §7's "single JSON
+  object with sales/purchases arrays" is the locked extraction-agent
+  contract; the operator-supplied fixture is from a different upstream
+  tool or older format. Action: source the right fixture, re-run Gate 3.
+  Estimated session size: small (read-only verification rerun).
+
+- **Route B — fixture correct, spec wrong**. Extraction agent really emits
+  line-delimited transaction records with `type` discriminator; design v1
+  §7 was drafted before the agent existed (or against an old prototype).
+  Action: corrective pass on `transform_jsonl` (JSONL reader + type-
+  bucketed transaction grouping + Sale↔Purchase join by stock_id under
+  the new flat schema), amend design v1 §7, then re-run Gate 3. Existing
+  test fixtures (`tey1104_clean.json` etc.) would also need either
+  conversion to the new format or a backwards-compat shim. Estimated
+  session size: large (architectural change to a primitive that all of
+  1.4–1.7 sit on top of).
+
+**Recommendation when re-opening**: route B is more likely correct (the
+production extraction agent's output is canonical; design v1 was likely
+drafted from a sketch). But route A is faster and worth a one-shot check
+first ("does Vardalux have a different export format that produces the
+nested-object form we built against?"). Operator confirms with a 60-second
+look at the extraction-agent source.
+
+**Reproduction note for retry session**:
+- `GRAILZEE_ROOT` is NOT set in fresh login shells; export it explicitly:
+  `export GRAILZEE_ROOT="/Users/ranbirchawla/Library/CloudStorage/GoogleDrive-ranbir.chawla@rnvillc.com/Shared drives/Vardalux Shared Drive/GrailzeeData"`
+- `LEDGER_LOCK_DEFAULT` resolves to `~/.grailzee/trade_ledger.lock` (local FS,
+  per ADR-0002); no override needed.
+- Gate 3 invocation (post-cd):
+  `cd skills/grailzee-eval && python3.12 -c "from scripts.ingest_sales import ingest_sales; m = ingest_sales(); print(m)"`
 
 ---
 
 ## Sub-step closeouts
+
+**Gate 3 attempt (2026-04-29)**: HALTED on JSONDecodeError; see Gate 3 block
+above for full triage. No state changes; no commits beyond this progress.md
+chore. Atomicity contract verified under unplanned failure.
 
 **1.7 closeout (2026-04-29)**:
 - Branch tip: commit 1 `42f4514`; commit 2 lands on top
