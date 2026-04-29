@@ -24,9 +24,10 @@ Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
 ### Track 2 — Ledger Redo Phase 1 (ACTIVE)
 
 **Branch**: `feature/grailzee-ledger-phase1-v2` (off `feature/grailzee-eval-v2`)
+**Tip**: `d7be685` (progress.md chore on top of `61f6f6a` — 1.6 commit)
 **Remote**: not pushed yet
 **Design spec**: `Downloads/GZ-4-28.v3/Grailzee_Ledger_Redo_Design_v1.md` — not present on disk at last check (2026-04-29). Content referenced from ADRs and session history.
-**Tests**: 1210 eval / 71 skipped / 235 cowork / 176 ledger
+**Tests**: 1234 eval / 71 skipped / 235 cowork / 201 ledger
 
 Skipped-delta note (2026-04-29): baseline 76 skipped recorded on MacStudio; laptop
 has 5 additional state-file-conditional tests passing (skipif on installed state files).
