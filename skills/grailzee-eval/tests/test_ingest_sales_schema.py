@@ -157,8 +157,9 @@ class TestIngestManifest:
         assert isinstance(m.error, IngestError)
         assert isinstance(m.error, ERPBatchInvalid)
 
-    def test_exactly_ten_fields(self):
-        assert len(dataclasses.fields(IngestManifest)) == 10
+    def test_exactly_eleven_fields(self):
+        # rows_skipped added in 1.2 corrective pass (ADR-0005)
+        assert len(dataclasses.fields(IngestManifest)) == 11
 
     def test_mutable_counter_update(self):
         m = IngestManifest(files_found=3, files_processed=0)

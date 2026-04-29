@@ -2,19 +2,24 @@
 
 Unit-level coverage of the four inheritances and the OTEL outcome variants.
 End-to-end integration scenarios (mid-batch failure, idempotency, atomicity)
-land in commit 2 per the explicit cut named in the build prompt.
+land in test_ingest_sales_integration.py; these tests exercise the full
+primitive composition with fixture content moving through the orchestrator.
 
 Inheritances tested here:
 1. sell_cycle_id blank validation: orchestrator raises SchemaShiftDetected
    when transform produces a row with blank sell_cycle_id (defensive guard
-   against future drift in transform_jsonl; ADR-0004 D2).
+   against future contract drift in transform_jsonl; ADR-0004 D2).
 2. Ledger CSV read path: covered separately in test_ingest_sales_read.py;
    this file checks round-trip via the orchestrator's own read+write cycle.
 3. MergeCounts -> IngestManifest wiring: each field independently verified.
 4. rows_unmatched accumulated at transform time across a multi-file batch.
 
 OTEL outcomes tested: "complete", "no_files", "halted_schema_shift",
-"halted_erp_invalid".
+"halted_erp_invalid" (from merge_rows), "halted_ledger_write",
+"halted_lock_timeout".
+
+All test fixtures are real-derived JSONL (post-1.2 rebuild, ADR-0005).
+Inline payloads use JSONL strings (one JSON object per line, no wrapper).
 """
 from __future__ import annotations
 
@@ -60,78 +65,104 @@ def _setup(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
 
 
 def _drop_fixture(sales: Path, fixture_name: str, dest_name: str | None = None) -> Path:
-    """Copy a named fixture from FIXTURES into sales_data/.
-
-    The fixtures are *.json on disk; the production extension is *.jsonl.
-    Rename on copy so the orchestrator's *.jsonl scan picks them up.
-    """
+    """Copy a named fixture from FIXTURES into sales_data/."""
     src = FIXTURES / fixture_name
-    target = sales / (dest_name or fixture_name.replace(".json", ".jsonl"))
+    target = sales / (dest_name or fixture_name)
     target.write_text(src.read_text())
     return target
 
 
-def _drop_inline(sales: Path, name: str, payload: dict) -> Path:
+def _drop_inline(sales: Path, name: str, jsonl_content: str) -> Path:
+    """Write a JSONL string directly to sales_data/."""
     target = sales / name
-    target.write_text(json.dumps(payload))
+    target.write_text(jsonl_content)
     return target
 
 
-def _two_grailzee_payload(stock_a: str, stock_b: str, *, b_unmatched: bool = False) -> dict:
-    """Two-Sale, two-Purchase batch where stock_a and stock_b are both
-    Grailzee. If b_unmatched, omit stock_b's Purchase to leave it without
-    buy_date.
+def _grailzee_jsonl(stock_id: str, *, matched: bool = True, account: str = "NR") -> str:
+    """Return a JSONL string with one Grailzee Sale and optional Purchase.
+
+    Format: one JSON object per line (ADR-0005). Intended for orchestrator
+    tests that exercise lock / merge / archive behavior; data shape matches
+    the real JSONL contract but stock IDs are synthetic test identifiers.
     """
-    sales = [
+    fee = 49 if account == "NR" else 99
+    sale = {
+        "type": "Sale",
+        "transaction_id": f"TEST-{stock_id}",
+        "status": "Fulfilled",
+        "created_at": "2026-04-25T10:00:00Z",
+        "platform": ["Grailzee"],
+        "services": [{"name": "Platform fee", "actual_cost": fee}],
+        "line_items": [{
+            "stock_id": stock_id,
+            "brand": "Tudor",
+            "reference_number": "79830RB",
+            "cost_of_item": 2750.0,
+            "unit_price": 3200.0,
+            "delivered_date": None,
+        }],
+    }
+    lines = [json.dumps(sale)]
+    if matched:
+        purchase = {
+            "type": "Purchase",
+            "transaction_id": f"TESTPA-{stock_id}",
+            "status": "Received",
+            "created_at": "2026-04-10T10:00:00Z",
+            "payments": [{"payment_date": "2026-04-11T10:00:00Z"}],
+            "line_items": [{"stock_id": stock_id, "delivered_date": "2026-04-12T10:00:00Z"}],
+        }
+        lines.append(json.dumps(purchase))
+    return "\n".join(lines)
+
+
+def _two_grailzee_jsonl(stock_a: str, stock_b: str, *, b_unmatched: bool = False) -> str:
+    """Two-Sale JSONL (one NR, one RES) with optional Purchases."""
+    records = [
         {
-            "platform": "Grailzee",
-            "created_at": "2026-04-25",
-            "line_item": {
-                "stock_id": stock_a,
-                "brand": "Tudor",
-                "reference_number": "79830RB",
-                "cost_of_item": 2750.0,
-                "unit_price": 3200.0,
-                "delivered_date": None,
-            },
+            "type": "Sale",
+            "transaction_id": f"TEST-{stock_a}",
+            "status": "Fulfilled",
+            "created_at": "2026-04-25T10:00:00Z",
+            "platform": ["Grailzee"],
             "services": [{"name": "Platform fee", "actual_cost": 49}],
+            "line_items": [{"stock_id": stock_a, "brand": "Tudor",
+                            "reference_number": "79830RB",
+                            "cost_of_item": 2750.0, "unit_price": 3200.0,
+                            "delivered_date": None}],
         },
         {
-            "platform": "Grailzee",
-            "created_at": "2026-04-26",
-            "line_item": {
-                "stock_id": stock_b,
-                "brand": "Rolex",
-                "reference_number": "126300",
-                "cost_of_item": 8200.0,
-                "unit_price": 9400.0,
-                "delivered_date": None,
-            },
+            "type": "Sale",
+            "transaction_id": f"TEST-{stock_b}",
+            "status": "Fulfilled",
+            "created_at": "2026-04-26T10:00:00Z",
+            "platform": ["Grailzee"],
             "services": [{"name": "Platform fee", "actual_cost": 99}],
+            "line_items": [{"stock_id": stock_b, "brand": "Rolex",
+                            "reference_number": "126300",
+                            "cost_of_item": 8200.0, "unit_price": 9400.0,
+                            "delivered_date": None}],
         },
-    ]
-    purchases = [
         {
-            "created_at": "2026-04-10",
-            "line_item": {
-                "stock_id": stock_a,
-                "cost_of_item": 2750.0,
-                "delivered_date": None,
-            },
+            "type": "Purchase",
+            "transaction_id": f"TESTPA-{stock_a}",
+            "status": "Received",
+            "created_at": "2026-04-10T10:00:00Z",
             "payments": [],
+            "line_items": [{"stock_id": stock_a, "delivered_date": None}],
         },
     ]
     if not b_unmatched:
-        purchases.append({
-            "created_at": "2026-04-11",
-            "line_item": {
-                "stock_id": stock_b,
-                "cost_of_item": 8200.0,
-                "delivered_date": None,
-            },
+        records.append({
+            "type": "Purchase",
+            "transaction_id": f"TESTPA-{stock_b}",
+            "status": "Received",
+            "created_at": "2026-04-11T10:00:00Z",
             "payments": [],
+            "line_items": [{"stock_id": stock_b, "delivered_date": None}],
         })
-    return {"sales": sales, "purchases": purchases}
+    return "\n".join(json.dumps(r) for r in records)
 
 
 def _call(sales, archive, ledger, lock, *, today: date = date(2026, 4, 29)) -> IngestManifest:
@@ -158,13 +189,16 @@ class TestNoFiles:
         assert manifest.rows_unchanged == 0
         assert manifest.rows_unmatched == 0
         assert manifest.rows_pruned == 0
+        assert manifest.rows_skipped == []
         assert manifest.error is None
 
     def test_archive_only_counts_as_zero_files(self, tmp_path):
         """sales_data/archive/ contents are not counted as found files."""
         sales, archive, ledger, lock = _setup(tmp_path)
         archive.mkdir()
-        (archive / "watchtrack_2026-04-25.jsonl").write_text("{}")
+        (archive / "watchtrack_2026-04-25.jsonl").write_text(
+            json.dumps({"type": "Sale", "transaction_id": "X"})
+        )
         manifest = _call(sales, archive, ledger, lock)
         assert manifest.files_found == 0
 
@@ -181,7 +215,7 @@ class TestNoFiles:
 class TestCleanRun:
     def test_clean_run_returns_complete_manifest(self, tmp_path):
         sales, archive, ledger, lock = _setup(tmp_path)
-        _drop_fixture(sales, "tey1104_clean.json", "watchtrack_2026-04-29.jsonl")
+        _drop_fixture(sales, "fixture_res_matched.jsonl", "watchtrack_2026-04-29.jsonl")
         manifest = _call(sales, archive, ledger, lock)
         assert manifest.files_found == 1
         assert manifest.files_processed == 1
@@ -193,13 +227,13 @@ class TestCleanRun:
 
     def test_clean_run_writes_ledger(self, tmp_path):
         sales, archive, ledger, lock = _setup(tmp_path)
-        _drop_fixture(sales, "tey1104_clean.json", "watchtrack_2026-04-29.jsonl")
+        _drop_fixture(sales, "fixture_res_matched.jsonl", "watchtrack_2026-04-29.jsonl")
         _call(sales, archive, ledger, lock)
         assert ledger.exists()
 
     def test_clean_run_archives_source_file(self, tmp_path):
         sales, archive, ledger, lock = _setup(tmp_path)
-        src = _drop_fixture(sales, "tey1104_clean.json", "watchtrack_2026-04-29.jsonl")
+        src = _drop_fixture(sales, "fixture_res_matched.jsonl", "watchtrack_2026-04-29.jsonl")
         _call(sales, archive, ledger, lock)
         assert not src.exists()
         assert (archive / "watchtrack_2026-04-29.jsonl").exists()
@@ -214,12 +248,15 @@ class TestSellCycleIdBlankValidation:
         transform_jsonl emits a row with blank sell_cycle_id. Defensive
         guard against future contract drift in transform_jsonl. ADR-0004 D2.
 
-        Mocks transform_jsonl to inject the invariant-violating row,
-        because production transform_jsonl never emits blank sell_cycle_id
-        (cycle_id_from_date always returns non-empty).
+        Mocks transform_jsonl to inject the invariant-violating row.
+        transform_jsonl now returns tuple (rows, skipped); monkeypatch returns
+        the correct tuple shape.
         """
         sales, archive, ledger, lock = _setup(tmp_path)
-        (sales / "watchtrack_2026-04-29.jsonl").write_text("{}")  # placeholder
+        (sales / "watchtrack_2026-04-29.jsonl").write_text(
+            json.dumps({"type": "Purchase", "transaction_id": "P1",
+                        "payments": [], "line_items": []})
+        )
 
         bad_row = LedgerRow(
             stock_id="TEY1104",
@@ -233,7 +270,7 @@ class TestSellCycleIdBlankValidation:
         )
         monkeypatch.setattr(
             "scripts.ingest_sales.transform_jsonl",
-            lambda path: [bad_row],
+            lambda path: ([bad_row], []),
         )
         with pytest.raises(SchemaShiftDetected, match="sell_cycle_id"):
             _call(sales, archive, ledger, lock)
@@ -243,7 +280,8 @@ class TestSellCycleIdBlankValidation:
         remain in sales_data/ (no archive move on hard-fail)."""
         sales, archive, ledger, lock = _setup(tmp_path)
         src = sales / "watchtrack_2026-04-29.jsonl"
-        src.write_text("{}")
+        src.write_text(json.dumps({"type": "Purchase", "transaction_id": "P1",
+                                    "payments": [], "line_items": []}))
 
         bad_row = LedgerRow(
             stock_id="TEY1104",
@@ -257,7 +295,7 @@ class TestSellCycleIdBlankValidation:
         )
         monkeypatch.setattr(
             "scripts.ingest_sales.transform_jsonl",
-            lambda path: [bad_row],
+            lambda path: ([bad_row], []),
         )
         with pytest.raises(SchemaShiftDetected):
             _call(sales, archive, ledger, lock)
@@ -268,7 +306,10 @@ class TestSellCycleIdBlankValidation:
         """If transform produces an invalid row, the ledger must not be
         written. Pre-merge raise is before the lock acquire / write."""
         sales, archive, ledger, lock = _setup(tmp_path)
-        (sales / "watchtrack_2026-04-29.jsonl").write_text("{}")
+        (sales / "watchtrack_2026-04-29.jsonl").write_text(
+            json.dumps({"type": "Purchase", "transaction_id": "P1",
+                        "payments": [], "line_items": []})
+        )
 
         bad_row = LedgerRow(
             stock_id="TEY1104",
@@ -282,7 +323,7 @@ class TestSellCycleIdBlankValidation:
         )
         monkeypatch.setattr(
             "scripts.ingest_sales.transform_jsonl",
-            lambda path: [bad_row],
+            lambda path: ([bad_row], []),
         )
         with pytest.raises(SchemaShiftDetected):
             _call(sales, archive, ledger, lock)
@@ -294,9 +335,8 @@ class TestSellCycleIdBlankValidation:
 
 class TestMergeCountsWiring:
     """Each of rows_added, rows_updated, rows_unchanged is verified
-    individually so a copy-paste error wiring (e.g. rows_added <- updated)
-    is caught at unit-test resolution. ADR-0001 §"Position 4" preserves
-    order; counts are independent of order."""
+    individually so a copy-paste error wiring is caught at unit-test
+    resolution. ADR-0001 §"Position 4" preserves order."""
 
     def _seed_ledger(self, ledger: Path) -> LedgerRow:
         existing = LedgerRow(
@@ -313,39 +353,34 @@ class TestMergeCountsWiring:
         return existing
 
     def test_added_field_wired(self, tmp_path):
-        """One brand-new row -> manifest.rows_added == 1."""
+        """Two brand-new stock_ids -> manifest.rows_added == 2."""
         sales, archive, ledger, lock = _setup(tmp_path)
         self._seed_ledger(ledger)
-        # File contains a different stock_id so it is a pure add.
-        _drop_inline(sales, "watchtrack_2026-04-29.jsonl", _two_grailzee_payload(
-            "TEY1048", "TEY1080",
-        ))
+        _drop_inline(sales, "watchtrack_2026-04-29.jsonl",
+                     _two_grailzee_jsonl("TEY1048", "TEY1080"))
         manifest = _call(sales, archive, ledger, lock)
         assert manifest.rows_added == 2
         assert manifest.rows_updated == 0
         assert manifest.rows_unchanged == 0
 
     def test_updated_field_wired(self, tmp_path):
-        """One row with same stock_id but changed price -> rows_updated == 1."""
+        """Same stock_id but changed price -> rows_updated == 1."""
         sales, archive, ledger, lock = _setup(tmp_path)
         self._seed_ledger(ledger)
         # New payload for same stock_id (TEY1104) but different sell_price.
-        payload = {
-            "sales": [{
-                "platform": "Grailzee",
-                "created_at": "2026-04-25",
-                "line_item": {
-                    "stock_id": "TEY1104",
-                    "brand": "Tudor",
-                    "reference_number": "79830RB",
-                    "cost_of_item": 2750.0,
-                    "unit_price": 3300.0,  # was 3200.0 in the seeded row
-                    "delivered_date": None,
-                },
-                "services": [{"name": "Platform fee", "actual_cost": 49}],
-            }],
-            "purchases": [],
-        }
+        payload = json.dumps({
+            "type": "Sale",
+            "transaction_id": "TEST-TEY1104",
+            "status": "Fulfilled",
+            "created_at": "2026-04-25T10:00:00Z",
+            "platform": ["Grailzee"],
+            "services": [{"name": "Platform fee", "actual_cost": 49}],
+            "line_items": [{"stock_id": "TEY1104", "brand": "Tudor",
+                            "reference_number": "79830RB",
+                            "cost_of_item": 2750.0,
+                            "unit_price": 3300.0,  # was 3200 → update
+                            "delivered_date": None}],
+        })
         _drop_inline(sales, "watchtrack_2026-04-29.jsonl", payload)
         manifest = _call(sales, archive, ledger, lock)
         assert manifest.rows_added == 0
@@ -356,23 +391,19 @@ class TestMergeCountsWiring:
         """Same stock_id and same fields -> rows_unchanged == 1."""
         sales, archive, ledger, lock = _setup(tmp_path)
         self._seed_ledger(ledger)
-        # Identical payload to the seeded row -- stock_id, sell_date, prices match.
-        payload = {
-            "sales": [{
-                "platform": "Grailzee",
-                "created_at": "2026-04-25",
-                "line_item": {
-                    "stock_id": "TEY1104",
-                    "brand": "Tudor",
-                    "reference_number": "79830RB",
-                    "cost_of_item": 2750.0,
-                    "unit_price": 3200.0,
-                    "delivered_date": None,
-                },
-                "services": [{"name": "Platform fee", "actual_cost": 49}],
-            }],
-            "purchases": [],
-        }
+        payload = json.dumps({
+            "type": "Sale",
+            "transaction_id": "TEST-TEY1104",
+            "status": "Fulfilled",
+            "created_at": "2026-04-25T10:00:00Z",
+            "platform": ["Grailzee"],
+            "services": [{"name": "Platform fee", "actual_cost": 49}],
+            "line_items": [{"stock_id": "TEY1104", "brand": "Tudor",
+                            "reference_number": "79830RB",
+                            "cost_of_item": 2750.0,
+                            "unit_price": 3200.0,  # same as seeded → unchanged
+                            "delivered_date": None}],
+        })
         _drop_inline(sales, "watchtrack_2026-04-29.jsonl", payload)
         manifest = _call(sales, archive, ledger, lock)
         assert manifest.rows_added == 0
@@ -380,10 +411,8 @@ class TestMergeCountsWiring:
         assert manifest.rows_unchanged == 1
 
     def test_all_three_fields_distinct_and_correct(self, tmp_path):
-        """Existing=[A]; new=[A unchanged, A_PRIME (update of A)+ B (new), C (new)].
-        Because dedup is by stock_id and the first sale is identical to A,
-        we use a different combination: existing=[A,B], file=[A unchanged,
-        B' update, C add]."""
+        """existing=[A,B]; file=[A unchanged, B' updated, C new].
+        Expects rows_added=1 (C), rows_updated=1 (B'), rows_unchanged=1 (A)."""
         sales, archive, ledger, lock = _setup(tmp_path)
         a = LedgerRow(
             stock_id="TEY1104",
@@ -407,54 +436,35 @@ class TestMergeCountsWiring:
         )
         atomic_write_csv(ledger, [a, b])
 
-        # File: A (unchanged), B' (updated price), C (new)
-        payload = {
-            "sales": [
-                {
-                    "platform": "Grailzee",
-                    "created_at": "2026-04-25",
-                    "line_item": {
-                        "stock_id": "TEY1104",
-                        "brand": "Tudor",
-                        "reference_number": "79830RB",
-                        "cost_of_item": 2750.0,
-                        "unit_price": 3200.0,
-                        "delivered_date": None,
-                    },
-                    "services": [{"name": "Platform fee", "actual_cost": 49}],
-                },
-                {
-                    "platform": "Grailzee",
-                    "created_at": "2026-04-26",
-                    "line_item": {
-                        "stock_id": "TEY1048",
-                        "brand": "Rolex",
-                        "reference_number": "126300",
-                        "cost_of_item": 8200.0,
-                        "unit_price": 9500.0,  # was 9400 -> update
-                        "delivered_date": None,
-                    },
-                    "services": [{"name": "Platform fee", "actual_cost": 99}],
-                },
-                {
-                    "platform": "Grailzee",
-                    "created_at": "2026-04-27",
-                    "line_item": {
-                        "stock_id": "TEY1080",
-                        "brand": "Omega",
-                        "reference_number": "311.30",
-                        "cost_of_item": 4500.0,
-                        "unit_price": 5200.0,
-                        "delivered_date": None,
-                    },
-                    "services": [{"name": "Platform fee", "actual_cost": 49}],
-                },
-            ],
-            "purchases": [],
-        }
-        _drop_inline(sales, "watchtrack_2026-04-29.jsonl", payload)
+        records = [
+            # A unchanged
+            {"type": "Sale", "transaction_id": "TEST-TEY1104", "status": "Fulfilled",
+             "created_at": "2026-04-25T10:00:00Z", "platform": ["Grailzee"],
+             "services": [{"name": "Platform fee", "actual_cost": 49}],
+             "line_items": [{"stock_id": "TEY1104", "brand": "Tudor",
+                             "reference_number": "79830RB",
+                             "cost_of_item": 2750.0, "unit_price": 3200.0,
+                             "delivered_date": None}]},
+            # B' updated price
+            {"type": "Sale", "transaction_id": "TEST-TEY1048", "status": "Fulfilled",
+             "created_at": "2026-04-26T10:00:00Z", "platform": ["Grailzee"],
+             "services": [{"name": "Platform fee", "actual_cost": 99}],
+             "line_items": [{"stock_id": "TEY1048", "brand": "Rolex",
+                             "reference_number": "126300",
+                             "cost_of_item": 8200.0, "unit_price": 9500.0,
+                             "delivered_date": None}]},
+            # C new
+            {"type": "Sale", "transaction_id": "TEST-TEY1080", "status": "Fulfilled",
+             "created_at": "2026-04-27T10:00:00Z", "platform": ["Grailzee"],
+             "services": [{"name": "Platform fee", "actual_cost": 49}],
+             "line_items": [{"stock_id": "TEY1080", "brand": "Omega",
+                             "reference_number": "311.30",
+                             "cost_of_item": 4500.0, "unit_price": 5200.0,
+                             "delivered_date": None}]},
+        ]
+        _drop_inline(sales, "watchtrack_2026-04-29.jsonl",
+                     "\n".join(json.dumps(r) for r in records))
         manifest = _call(sales, archive, ledger, lock)
-        # rows_added=1 (TEY1080), rows_updated=1 (TEY1048), rows_unchanged=1 (TEY1104)
         assert manifest.rows_added == 1
         assert manifest.rows_updated == 1
         assert manifest.rows_unchanged == 1
@@ -467,49 +477,39 @@ class TestRowsUnmatched:
     def test_single_file_unmatched_count(self, tmp_path):
         """One unmatched row in one file -> manifest.rows_unmatched == 1.
 
-        Inheritance 4: counted at transform time (buy_date is None on
-        the transformed row), NOT post-merge.
+        Uses fixture_nr_unmatched.jsonl (TEY1048, no matching Purchase).
         """
         sales, archive, ledger, lock = _setup(tmp_path)
-        _drop_fixture(sales, "tey1048_unmatched.json", "watchtrack_2026-04-29.jsonl")
+        _drop_fixture(sales, "fixture_nr_unmatched.jsonl", "watchtrack_2026-04-29.jsonl")
         manifest = _call(sales, archive, ledger, lock)
         assert manifest.rows_unmatched == 1
 
     def test_unmatched_counted_even_for_added_rows(self, tmp_path):
-        """Inheritance 4 nuance: an unmatched row still merges into the
-        ledger as an add. rows_unmatched and rows_added are not mutually
-        exclusive on the same row."""
+        """An unmatched row still merges into the ledger as an add.
+        rows_unmatched and rows_added are not mutually exclusive."""
         sales, archive, ledger, lock = _setup(tmp_path)
-        _drop_fixture(sales, "tey1048_unmatched.json", "watchtrack_2026-04-29.jsonl")
+        _drop_fixture(sales, "fixture_nr_unmatched.jsonl", "watchtrack_2026-04-29.jsonl")
         manifest = _call(sales, archive, ledger, lock)
         assert manifest.rows_added == 1
         assert manifest.rows_unmatched == 1
 
     def test_multi_file_accumulation(self, tmp_path):
-        """Two files, each with one unmatched row -> rows_unmatched == 2.
-
-        Inheritance 4: count is summed across the multi-file batch at
-        transform time, not derived post-merge.
-        """
+        """Two files, each with one unmatched row -> rows_unmatched == 2."""
         sales, archive, ledger, lock = _setup(tmp_path)
-        _drop_fixture(sales, "tey1048_unmatched.json", "watchtrack_2026-04-25.jsonl")
-        # Inline a second file with a different unmatched row.
-        payload = {
-            "sales": [{
-                "platform": "Grailzee",
-                "created_at": "2026-04-26",
-                "line_item": {
-                    "stock_id": "TEY9999",
-                    "brand": "Tudor",
-                    "reference_number": "79830RB",
-                    "cost_of_item": 2750.0,
-                    "unit_price": 3200.0,
-                    "delivered_date": None,
-                },
-                "services": [{"name": "Platform fee", "actual_cost": 49}],
-            }],
-            "purchases": [],   # no purchase -> unmatched
-        }
+        _drop_fixture(sales, "fixture_nr_unmatched.jsonl", "watchtrack_2026-04-25.jsonl")
+        # Second file: a different unmatched Grailzee Sale (no Purchase record)
+        payload = json.dumps({
+            "type": "Sale",
+            "transaction_id": "TEST-UNMATCHED2",
+            "status": "Fulfilled",
+            "created_at": "2026-04-26T10:00:00Z",
+            "platform": ["Grailzee"],
+            "services": [{"name": "Platform fee", "actual_cost": 49}],
+            "line_items": [{"stock_id": "TEY9999", "brand": "Tudor",
+                            "reference_number": "79830RB",
+                            "cost_of_item": 2750.0, "unit_price": 3200.0,
+                            "delivered_date": None}],
+        })
         _drop_inline(sales, "watchtrack_2026-04-26.jsonl", payload)
         manifest = _call(sales, archive, ledger, lock)
         assert manifest.rows_unmatched == 2
@@ -517,11 +517,9 @@ class TestRowsUnmatched:
         assert manifest.files_processed == 2
 
     def test_matched_row_does_not_increment_unmatched(self, tmp_path):
-        """A row with a matching Purchase has buy_date set; it must not
-        be counted as unmatched. Inheritance 4 tests the rule, not the
-        column happenstance."""
+        """A matched row (TEY1083 + TEYPA1061) has buy_date set; not counted."""
         sales, archive, ledger, lock = _setup(tmp_path)
-        _drop_fixture(sales, "tey1104_clean.json", "watchtrack_2026-04-29.jsonl")
+        _drop_fixture(sales, "fixture_res_matched.jsonl", "watchtrack_2026-04-29.jsonl")
         manifest = _call(sales, archive, ledger, lock)
         assert manifest.rows_unmatched == 0
         assert manifest.rows_added == 1
@@ -542,7 +540,7 @@ def _orchestrator_span(span_exporter):
 class TestOTELOutcomes:
     def test_outcome_complete_on_clean_run(self, tmp_path, span_exporter):
         sales, archive, ledger, lock = _setup(tmp_path)
-        _drop_fixture(sales, "tey1104_clean.json", "watchtrack_2026-04-29.jsonl")
+        _drop_fixture(sales, "fixture_res_matched.jsonl", "watchtrack_2026-04-29.jsonl")
         _call(sales, archive, ledger, lock)
         sp = _orchestrator_span(span_exporter)
         assert sp is not None, "ingest_sales.ingest_sales span not found"
@@ -555,18 +553,27 @@ class TestOTELOutcomes:
         assert sp is not None
         assert sp.attributes["outcome"] == "no_files"
 
-    def test_outcome_halted_schema_shift(self, tmp_path, span_exporter):
+    def test_outcome_halted_schema_shift_on_unknown_type(self, tmp_path, span_exporter):
+        """fixture_schema_shift.jsonl contains {"type":"Refund"} → SchemaShiftDetected."""
         sales, archive, ledger, lock = _setup(tmp_path)
-        _drop_fixture(sales, "missing_purchases_key.json", "watchtrack_2026-04-29.jsonl")
+        _drop_fixture(sales, "fixture_schema_shift.jsonl", "watchtrack_2026-04-29.jsonl")
         with pytest.raises(SchemaShiftDetected):
             _call(sales, archive, ledger, lock)
         sp = _orchestrator_span(span_exporter)
         assert sp is not None
         assert sp.attributes["outcome"] == "halted_schema_shift"
 
-    def test_outcome_halted_erp_invalid(self, tmp_path, span_exporter):
+    def test_outcome_halted_erp_invalid_from_merge_rows(
+        self, tmp_path, span_exporter, monkeypatch
+    ):
+        """ERPBatchInvalid from merge_rows (duplicate stock_id) → halted_erp_invalid."""
         sales, archive, ledger, lock = _setup(tmp_path)
-        _drop_fixture(sales, "tey1092_no_services.json", "watchtrack_2026-04-29.jsonl")
+        _drop_fixture(sales, "fixture_res_matched.jsonl", "watchtrack_2026-04-29.jsonl")
+
+        def _raise(existing, new):
+            raise ERPBatchInvalid("simulated duplicate stock_id")
+
+        monkeypatch.setattr("scripts.ingest_sales.merge_rows", _raise)
         with pytest.raises(ERPBatchInvalid):
             _call(sales, archive, ledger, lock)
         sp = _orchestrator_span(span_exporter)
@@ -574,10 +581,9 @@ class TestOTELOutcomes:
         assert sp.attributes["outcome"] == "halted_erp_invalid"
 
     def test_span_attributes_on_complete_run(self, tmp_path, span_exporter):
-        """All seven counter attributes plus outcome are present on the
-        complete-run span."""
+        """All counter attributes plus outcome are present on the complete span."""
         sales, archive, ledger, lock = _setup(tmp_path)
-        _drop_fixture(sales, "tey1104_clean.json", "watchtrack_2026-04-29.jsonl")
+        _drop_fixture(sales, "fixture_res_matched.jsonl", "watchtrack_2026-04-29.jsonl")
         _call(sales, archive, ledger, lock)
         sp = _orchestrator_span(span_exporter)
         assert sp is not None
@@ -588,10 +594,12 @@ class TestOTELOutcomes:
             "rows_unchanged",
             "rows_unmatched",
             "rows_pruned",
+            "rows_skipped_count",
         ):
             assert attr in sp.attributes, f"missing attribute {attr}"
         assert sp.attributes["files_found"] == 1
         assert sp.attributes["rows_added"] == 1
+        assert sp.attributes["rows_skipped_count"] == 0
 
 
 # ─── Files_found counts only top-level *.jsonl ───────────────────────
@@ -600,8 +608,7 @@ class TestOTELOutcomes:
 class TestFilesFoundScope:
     def test_only_jsonl_extension_counted(self, tmp_path):
         sales, archive, ledger, lock = _setup(tmp_path)
-        _drop_fixture(sales, "tey1104_clean.json", "watchtrack_2026-04-29.jsonl")
-        # Drop a non-jsonl file -- should be ignored.
+        _drop_fixture(sales, "fixture_res_matched.jsonl", "watchtrack_2026-04-29.jsonl")
         (sales / "README.md").write_text("not a batch")
         (sales / "logs.txt").write_text("noise")
         manifest = _call(sales, archive, ledger, lock)
@@ -613,32 +620,23 @@ class TestFilesFoundScope:
 
 @contextmanager
 def _raising_lock_cm(*args, **kwargs):
-    """Context manager that raises LockAcquisitionFailed on enter.
-
-    Mimics with_exclusive_lock's failure mode: the lock acquisition
-    itself fails, the with-block body never runs.
-    """
+    """Context manager that raises LockAcquisitionFailed on enter."""
     raise LockAcquisitionFailed("simulated lock timeout")
-    yield  # never reached -- required to make this a generator
+    yield  # never reached
 
 
 class TestOTELInLockOutcomes:
-    """Commit 2 outcome consolidation: every IngestError subclass that can
-    raise inside the lock gets its outcome attribution per
-    _OUTCOME_BY_CLASS, by class not by location. Mirrors the pre-lock
-    transform-time outcome pattern from commit 1."""
+    """Every IngestError subclass that can raise inside the lock gets its
+    outcome attribution per _OUTCOME_BY_CLASS, by class not by location."""
 
     def _seed_clean_run_inputs(self, tmp_path):
         sales, archive, ledger, lock = _setup(tmp_path)
-        _drop_fixture(sales, "tey1104_clean.json", "watchtrack_2026-04-29.jsonl")
+        _drop_fixture(sales, "fixture_res_matched.jsonl", "watchtrack_2026-04-29.jsonl")
         return sales, archive, ledger, lock
 
     def test_schema_shift_in_read_ledger_csv(
         self, tmp_path, span_exporter, monkeypatch
     ):
-        """SchemaShiftDetected raised by read_ledger_csv (e.g., corrupt
-        existing ledger with blank non-optional column) -> outcome
-        attribute "halted_schema_shift"."""
         sales, archive, ledger, lock = self._seed_clean_run_inputs(tmp_path)
 
         def _raise(path):
@@ -654,9 +652,6 @@ class TestOTELInLockOutcomes:
     def test_erp_batch_invalid_in_merge_rows(
         self, tmp_path, span_exporter, monkeypatch
     ):
-        """ERPBatchInvalid raised by merge_rows (duplicate stock_id within
-        a single file's transformed rows) -> outcome "halted_erp_invalid"
-        from the in-lock try/except (not the pre-lock one)."""
         sales, archive, ledger, lock = self._seed_clean_run_inputs(tmp_path)
 
         def _raise(existing, new):
@@ -672,8 +667,6 @@ class TestOTELInLockOutcomes:
     def test_ledger_write_failed_in_atomic_write_csv(
         self, tmp_path, span_exporter, monkeypatch
     ):
-        """LedgerWriteFailed raised by atomic_write_csv -> outcome
-        "halted_ledger_write" (a string introduced in commit 2)."""
         sales, archive, ledger, lock = self._seed_clean_run_inputs(tmp_path)
 
         def _raise(path, rows, header=None):
@@ -689,9 +682,6 @@ class TestOTELInLockOutcomes:
     def test_lock_acquisition_failed_in_with_exclusive_lock(
         self, tmp_path, span_exporter, monkeypatch
     ):
-        """LockAcquisitionFailed raised by with_exclusive_lock itself
-        (the with-block enter fails) -> outcome "halted_lock_timeout"
-        (a string introduced in commit 2)."""
         sales, archive, ledger, lock = self._seed_clean_run_inputs(tmp_path)
         monkeypatch.setattr(
             "scripts.ingest_sales.with_exclusive_lock", _raising_lock_cm
@@ -704,15 +694,11 @@ class TestOTELInLockOutcomes:
 
 
 class TestBareExceptionInLock:
-    """Commit 2 negative case: bare Exception (or any non-IngestError)
-    raised inside the lock does NOT get outcome attribution. The except
-    clause filters by IngestError, so an unrelated exception bypasses
-    the outcome assignment. The span closes without an outcome attribute
-    and the exception propagates as a real bug."""
+    """Bare Exception in the lock does NOT get outcome attribution."""
 
     def test_runtime_error_no_outcome(self, tmp_path, span_exporter, monkeypatch):
         sales, archive, ledger, lock = _setup(tmp_path)
-        _drop_fixture(sales, "tey1104_clean.json", "watchtrack_2026-04-29.jsonl")
+        _drop_fixture(sales, "fixture_res_matched.jsonl", "watchtrack_2026-04-29.jsonl")
 
         def _raise(path, rows, header=None):
             raise RuntimeError("simulated unrelated bug")
@@ -722,5 +708,4 @@ class TestBareExceptionInLock:
             _call(sales, archive, ledger, lock)
         sp = _orchestrator_span(span_exporter)
         assert sp is not None
-        # Span closed without outcome attribute -- this is the design.
         assert "outcome" not in sp.attributes
