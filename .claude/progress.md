@@ -45,13 +45,14 @@ has 5 additional state-file-conditional tests passing (skipif on installed state
 | Phase 1 Gate 3 smoke | NOT STARTED | — |
 
 **1.5 closeout (2026-04-29)**:
-- Branch tip: pending commit (changes staged against `5d5d47f`)
-- test-grailzee-ledger: 173 passed / 0 skipped
-- test-grailzee-eval: 1207 passed / 71 skipped
+- Branch tip: `30cfd7f` (corrective on top of `6e81e34`)
+- test-grailzee-ledger: 176 passed / 0 skipped
+- test-grailzee-eval: 1210 passed / 71 skipped
 - test-grailzee-cowork: 235 passed / 0 skipped
-- Gate 2: 0 blocker / 1 major / 3 minor (all addressed before commit)
-- M1 corrective: `_row_to_csv_dict` sell_date None guard (matched buy_date pattern)
-- Stop condition: `sell_date: date` annotation does not match None runtime posture; flagged for Phase 2 schema discussion; both prune and serializer now handle None defensively
+- Gate 2 round 1: 0 blocker / 1 major / 3 minor (all addressed before commit: M1 _row_to_csv_dict None guard, m1 typo, m2 window_days=0 test, m3 inner docstring)
+- Gate 2 round 2 (post-commit): 0 blocker / 0 major / 2 minor (both applied as corrective `30cfd7f`: is-not-None sweep across 5 date fields, LEDGER_CSV_COLUMNS module-level import)
+- ADR-0004 landed: sell_date annotation `date` → `date | None`; full 13-field nullability audit; sell_cycle_id non-optional with 1.7 obligation documented
+- Data verification note: live ledger (14 rows, 2026-04-29) shows all sell_dates populated, all accounts NR/RES; design v1 UNKNOWN-account row evidence not verifiable (design doc not on disk)
 
 **1.4 closeout (2026-04-29)**:
 - Branch tip: `5d5d47f`
