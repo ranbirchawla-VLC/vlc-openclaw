@@ -33,6 +33,12 @@ htmlcov/
 
 # Claude Code
 .claude/settings.local.json
+.claude/*.md
+
+# Runtime artifacts
+.fastembed_cache/
+nutrios-screenshot
+skills/nutrios/logs/
 
 # Environment
 .env
