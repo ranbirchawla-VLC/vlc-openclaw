@@ -1,0 +1,20 @@
+{
+  "sales": [
+    {
+      "platform": "Grailzee",
+      "created_at": "2026-04-25",
+      "line_item": {
+        "stock_id": "TEY1048",
+        "brand": "Rolex",
+        "reference_number": "126300",
+        "cost_of_item": 8200.0,
+        "unit_price": 9400.0,
+        "delivered_date": "2026-04-28"
+      },
+      "services": [
+        {"name": "Platform fee", "actual_cost": 99}
+      ]
+    }
+  ],
+  "purchases": []
+}

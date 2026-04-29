@@ -1,0 +1,18 @@
+{
+  "sales": [
+    {
+      "platform": "eBay",
+      "created_at": "2026-04-25",
+      "line_item": {
+        "stock_id": "TEY0001",
+        "brand": "Casio",
+        "reference_number": "GA-100",
+        "cost_of_item": 50.0,
+        "unit_price": 80.0,
+        "delivered_date": null
+      },
+      "services": []
+    }
+  ],
+  "purchases": []
+}

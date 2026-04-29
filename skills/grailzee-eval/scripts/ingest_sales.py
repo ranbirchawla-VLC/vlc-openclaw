@@ -11,10 +11,13 @@ design v1 §14 open item 1.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
+
+from scripts.grailzee_common import cycle_id_from_date
 
 
 LEDGER_SCHEMA_VERSION = 1
@@ -170,3 +173,168 @@ def _resolve_lock_path(override: Path | None = None) -> Path:
     if override is not None:
         return override
     return _get_data_root() / "state" / "trade_ledger.lock"
+
+
+# ─── Date helpers ────────────────────────────────────────────────────
+
+
+def _parse_date(s: str) -> date:
+    """Parse an ISO date string (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS...)."""
+    return date.fromisoformat(s.split("T")[0])
+
+
+def _parse_date_opt(s: str | None) -> date | None:
+    """Parse an optional ISO date string; None for None or empty string."""
+    if not s:
+        return None
+    return _parse_date(s)
+
+
+# ─── Transformation (design v1 §7) ───────────────────────────────────
+
+# Platform fee → account code mapping per §7 step 4.
+_PLATFORM_FEE_TO_ACCOUNT: dict[int, str] = {49: "NR", 99: "RES"}
+
+
+def transform_jsonl(path: Path) -> list[LedgerRow]:
+    """Read one watchtrack_*.jsonl batch file; return LedgerRow list.
+
+    The file contains a single JSON object with top-level "sales" and
+    "purchases" arrays (the extraction agent's atomic batch contract).
+    Only Sales where "Grailzee" in platform are emitted. Each emitted
+    row represents one line item; the Sale's stock_id is the dedup key.
+
+    Raises:
+        SchemaShiftDetected: missing top-level "sales" or "purchases"
+            key; missing line_item.stock_id on a Grailzee Sale; missing
+            line_item.cost_of_item on a Purchase that matches a Sale.
+        ERPBatchInvalid: empty services[], no "Platform fee" entry,
+            actual_cost is None, or actual_cost maps to neither NR nor
+            RES. These are extraction-agent contract violations per §11.
+    """
+    raw = json.loads(path.read_text())
+
+    for key in ("sales", "purchases"):
+        if key not in raw:
+            raise SchemaShiftDetected(
+                f"Missing required top-level key '{key}' in {path.name}."
+            )
+
+    # Index Purchases by line_item.stock_id for O(1) join.
+    purchase_by_sid: dict[str, dict] = {}
+    for purchase in raw["purchases"]:
+        sid = (purchase.get("line_item") or {}).get("stock_id")
+        if sid:
+            purchase_by_sid[sid] = purchase
+
+    rows: list[LedgerRow] = []
+
+    for sale in raw["sales"]:
+        if "Grailzee" not in sale.get("platform", ""):
+            continue
+
+        raw_li = sale.get("line_item")
+        if not raw_li:
+            raise SchemaShiftDetected(
+                f"Missing or empty line_item on a Grailzee Sale in {path.name}."
+            )
+        li = raw_li
+        stock_id = li.get("stock_id")
+        if not stock_id:
+            raise SchemaShiftDetected(
+                f"Missing line_item.stock_id on Grailzee Sale in {path.name}."
+            )
+
+        # §11 validity: services block must be non-empty and contain
+        # a "Platform fee" entry with a non-null actual_cost.
+        services = sale.get("services") or []
+        if not services:
+            raise ERPBatchInvalid(
+                f"Sale {stock_id}: empty services[] — "
+                "extraction agent must halt batches with missing services."
+            )
+
+        platform_fee = next(
+            (s for s in services if s.get("name") == "Platform fee"), None
+        )
+        if platform_fee is None:
+            names = [s.get("name", "") for s in services]
+            raise ERPBatchInvalid(
+                f"Sale {stock_id}: no 'Platform fee' service entry "
+                f"(found: {names}) — extraction-agent contract violation."
+            )
+
+        actual_cost = platform_fee.get("actual_cost")
+        if actual_cost is None:
+            raise ERPBatchInvalid(
+                f"Sale {stock_id}: Platform fee actual_cost is null."
+            )
+
+        cost_key = round(float(actual_cost))
+        account = _PLATFORM_FEE_TO_ACCOUNT.get(cost_key)
+        if account is None:
+            raise ERPBatchInvalid(
+                f"Sale {stock_id}: Platform fee actual_cost={actual_cost} "
+                "does not map to NR ($49) or RES ($99)."
+            )
+
+        if "created_at" not in sale:
+            raise SchemaShiftDetected(
+                f"Missing created_at on Grailzee Sale {stock_id} in {path.name}."
+            )
+        if "cost_of_item" not in li:
+            raise SchemaShiftDetected(
+                f"Missing line_item.cost_of_item on Grailzee Sale {stock_id}."
+            )
+        if "unit_price" not in li:
+            raise SchemaShiftDetected(
+                f"Missing line_item.unit_price on Grailzee Sale {stock_id}."
+            )
+        sell_date = _parse_date(sale["created_at"])
+        sell_cycle_id = cycle_id_from_date(sell_date)
+        sell_delivered_date = _parse_date_opt(li.get("delivered_date"))
+
+        purchase = purchase_by_sid.get(stock_id)
+        if purchase is not None:
+            p_li = purchase.get("line_item") or {}
+            if "cost_of_item" not in p_li:
+                raise SchemaShiftDetected(
+                    f"Missing line_item.cost_of_item on Purchase "
+                    f"matching {stock_id}."
+                )
+            buy_date = _parse_date_opt(purchase.get("created_at"))
+            buy_cycle_id = cycle_id_from_date(buy_date) if buy_date else None
+            buy_received_date = _parse_date_opt(p_li.get("delivered_date"))
+            payments = purchase.get("payments") or []
+            if payments:
+                pdates = [
+                    _parse_date(p["payment_date"])
+                    for p in payments
+                    if p.get("payment_date")
+                ]
+                buy_paid_date = min(pdates) if pdates else None
+            else:
+                buy_paid_date = None
+        else:
+            buy_date = None
+            buy_cycle_id = None
+            buy_received_date = None
+            buy_paid_date = None
+
+        rows.append(LedgerRow(
+            stock_id=stock_id,
+            sell_date=sell_date,
+            sell_cycle_id=sell_cycle_id,
+            brand=li.get("brand", ""),
+            reference=li.get("reference_number", ""),
+            account=account,
+            buy_price=float(li["cost_of_item"]),
+            sell_price=float(li["unit_price"]),
+            buy_date=buy_date,
+            buy_cycle_id=buy_cycle_id,
+            buy_received_date=buy_received_date,
+            sell_delivered_date=sell_delivered_date,
+            buy_paid_date=buy_paid_date,
+        ))
+
+    return rows

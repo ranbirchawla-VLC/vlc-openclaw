@@ -1,0 +1,32 @@
+{
+  "sales": [
+    {
+      "platform": "Grailzee",
+      "created_at": "2026-04-25",
+      "line_item": {
+        "stock_id": "TEY1104",
+        "brand": "Tudor",
+        "reference_number": "79830RB",
+        "cost_of_item": 2750.0,
+        "unit_price": 3200.0,
+        "delivered_date": "2026-04-27"
+      },
+      "services": [
+        {"name": "Platform fee", "actual_cost": 49}
+      ]
+    }
+  ],
+  "purchases": [
+    {
+      "created_at": "2026-04-10",
+      "line_item": {
+        "stock_id": "TEY1104",
+        "cost_of_item": 2750.0,
+        "delivered_date": "2026-04-12"
+      },
+      "payments": [
+        {"payment_date": "2026-04-11"}
+      ]
+    }
+  ]
+}

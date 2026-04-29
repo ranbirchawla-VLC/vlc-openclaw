@@ -1,0 +1,20 @@
+{
+  "sales": [
+    {
+      "platform": "Grailzee",
+      "created_at": "2026-04-18",
+      "line_item": {
+        "stock_id": "TEY1091",
+        "brand": "Tudor",
+        "reference_number": "79230R",
+        "cost_of_item": 2800.0,
+        "unit_price": 3150.0,
+        "delivered_date": null
+      },
+      "services": [
+        {"name": "CC FEE", "actual_cost": 232.59}
+      ]
+    }
+  ],
+  "purchases": []
+}
