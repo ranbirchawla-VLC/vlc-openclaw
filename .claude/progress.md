@@ -39,13 +39,26 @@ has 5 additional state-file-conditional tests passing (skipif on installed state
 | 1.3 lockfile + atomic write | DONE | `43c47d0` (commit A + commit B) |
 | 1.4 Rule Y dedup-and-update | DONE | `5d5d47f` |
 | 1.5 pruning + ADR-0004 nullability | DONE | `30cfd7f` |
-| 1.6 archive move | NEXT UP | — |
+| 1.6 archive move | DONE | pending commit |
 | 1.7 top-level orchestrator | NOT STARTED | — |
 | Phase 1 Gate 3 smoke | NOT STARTED | — |
 
 ---
 
 ## Sub-step closeouts
+
+**1.6 closeout (2026-04-29)**:
+- Branch tip: pending commit
+- test-grailzee-ledger-archive: 25 passed / 0 skipped (new)
+- test-grailzee-ledger: 201 passed / 0 skipped (+25 from 1.5)
+- test-grailzee-eval: 1234 passed / 71 skipped (unchanged skips)
+- test-grailzee-cowork: 235 passed / 0 skipped (not re-run; no changes)
+- Gate 2 round 1: 0 blocker / 0 major / 1 minor (coverage gap on size-mismatch collision else-branch; fixed before commit with `test_creates_suffixed_path_when_size_differs`)
+- Gate 2 round 2: post-fix rerun: 25/25 archive, 201/201 ledger aggregate — clean
+- Three drifts corrected: (1) `shutil.move` → `os.rename` / EXDEV not absorbed; (2) idempotency via size+sha256 / `"idempotent_skip"`; (3) `_N`-suffix collision / `"collision_suffixed"`
+- Skip-count anomaly resolved: 71 unconditional marker-based skips at both 8eecfe2 and HEAD; +24 archive tests; delta timing artifact (aggregate ran before final test added)
+- Carry-forward for spec v1.1 §14 item 7: compact-date filenames (`YYYYMMDD`) would trigger `_TRAILING_N` falsely; ISO-dash format is safe; documented in `_next_archive_path` docstring
+- New files: `test_ingest_sales_archive.py` (25 tests)
 
 **1.5 closeout (2026-04-29)**:
 - Branch tip: `30cfd7f` (corrective) / `6e81e34` (main commit)

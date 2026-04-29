@@ -13,8 +13,11 @@ from __future__ import annotations
 
 import csv
 import fcntl
+import hashlib
 import json
+import logging
 import os
+import re
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -25,6 +28,7 @@ from typing import IO, Any, Generator
 from scripts.grailzee_common import cycle_id_from_date, get_tracer
 
 tracer = get_tracer(__name__)
+_logger = logging.getLogger(__name__)
 
 
 LEDGER_SCHEMA_VERSION = 1
@@ -68,6 +72,16 @@ class SchemaShiftDetected(IngestError):
     Raised when a top-level key expected by the transformation logic is
     absent, or when a field's type has changed. Ingest halts before any
     write. Operator sees the failure and the design chat reopens.
+    """
+
+
+class ArchiveMoveFailed(IngestError):
+    """JSONL source file could not be moved to the archive directory.
+
+    Raised only on OS-level rename failure, including EXDEV when source
+    and archive_dir are on different filesystems. The destination-exists
+    case is handled internally by archive_jsonl (idempotent skip or
+    collision-suffix) and does not raise this error.
     """
 
 
@@ -753,3 +767,117 @@ def _transform_jsonl_inner(path: Path, span: object) -> list[LedgerRow]:
         span.set_attribute("rows_emitted", len(rows))
 
     return rows
+
+
+# ─── Archive move (design v1 §12, sub-step 1.6) ──────────────────────
+
+# Matches a stem that ends in an underscore-prefixed integer, e.g.
+# "watchtrack_2026-04-29_2". Does NOT match ISO date tails like
+# "watchtrack_2026-04-29" (the suffix after the last underscore must
+# be all digits). Used to prevent double-suffixing on already-suffixed
+# sources: _watchtrack_batch_2 → increments to _3, not _2_2.
+_TRAILING_N = re.compile(r"^(.*?)_(\d+)$")
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _next_archive_path(stem: str, suffix: str, archive_dir: Path) -> Path:
+    """First available _N-suffixed path in archive_dir (N >= 2).
+
+    If stem already ends in _<N> (per _TRAILING_N), start searching from
+    N+1 to prevent double-suffixing. Otherwise start from 2.
+
+    Open question for spec v1.1 §14 item 7: if the source stem contains
+    a date-like trailing integer that triggers _TRAILING_N (e.g. stem ends
+    in _20260429 when using compact date format), the base/increment split
+    will mangle the name. ISO-dash dates (YYYY-MM-DD) are safe because the
+    suffix after the last underscore contains hyphens, not pure digits.
+    """
+    m = _TRAILING_N.match(stem)
+    base, start = (m.group(1), int(m.group(2)) + 1) if m else (stem, 2)
+    n = start
+    while True:
+        candidate = archive_dir / f"{base}_{n}{suffix}"
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+
+def _rename_or_raise(source: Path, dest: Path) -> None:
+    try:
+        os.rename(source, dest)
+    except OSError as exc:
+        raise ArchiveMoveFailed(
+            f"Failed to move {source} to {dest}: {exc}"
+        ) from exc
+
+
+def archive_jsonl(source: Path, archive_dir: Path) -> Path:
+    """Move a processed JSONL file to the archive directory.
+
+    Creates archive_dir on first use. Three branches on destination state:
+
+    - dest absent: os.rename source → dest. OTEL outcome "archived".
+    - dest exists, content matches (size + sha256): idempotent no-op.
+      source.unlink(), return existing dest. OTEL outcome "idempotent_skip".
+    - dest exists, content differs: os.rename source to first available
+      _N-suffixed path (N >= 2). OTEL outcome "collision_suffixed".
+      Warning logged with src name, colliding path, final path, both hashes.
+
+    Cross-mount renames (EXDEV) raise ArchiveMoveFailed immediately — no
+    copy+unlink fallback. archive_dir must be on the same filesystem as
+    sales_data/.
+
+    Raises:
+        ArchiveMoveFailed: OS-level rename failure.
+
+    Returns the path where the file was archived.
+    """
+    with tracer.start_as_current_span("ingest_sales.archive_jsonl") as span:
+        span.set_attribute("source_file", source.name)
+        span.set_attribute("archive_dir", str(archive_dir))
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        dest = archive_dir / source.name
+        if dest.exists():
+            src_size = source.stat().st_size
+            dest_size = dest.stat().st_size
+            if src_size == dest_size:
+                src_hash = _sha256(source)
+                dest_hash = _sha256(dest)
+                if src_hash == dest_hash:
+                    _logger.info(
+                        "Idempotent archive: %s already at %s", source.name, dest
+                    )
+                    source.unlink()
+                    span.set_attribute("archived_path", str(dest))
+                    span.set_attribute("outcome", "idempotent_skip")
+                    return dest
+            else:
+                src_hash = _sha256(source)
+                dest_hash = _sha256(dest)
+            # Content differs. Find first available _N slot.
+            collision_path = dest
+            dest = _next_archive_path(source.stem, source.suffix, archive_dir)
+            _logger.warning(
+                "Archive collision: %s has different content from %s; "
+                "archiving as %s (src_sha256=%s, existing_sha256=%s)",
+                source.name,
+                collision_path,
+                dest,
+                src_hash,
+                dest_hash,
+            )
+            _rename_or_raise(source, dest)
+            span.set_attribute("archived_path", str(dest))
+            span.set_attribute("outcome", "collision_suffixed")
+            return dest
+        _rename_or_raise(source, dest)
+        span.set_attribute("archived_path", str(dest))
+        span.set_attribute("outcome", "archived")
+        return dest

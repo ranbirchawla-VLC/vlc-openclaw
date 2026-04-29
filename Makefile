@@ -20,7 +20,7 @@
 PYTHON = .venv/bin/python
 PYTEST = python3.12 -m pytest
 
-.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-cowork test-grailzee-ledger test-grailzee-ledger-schema test-grailzee-ledger-transform test-grailzee-ledger-lock test-grailzee-ledger-merge test-grailzee-ledger-prune
+.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-cowork test-grailzee-ledger test-grailzee-ledger-schema test-grailzee-ledger-transform test-grailzee-ledger-lock test-grailzee-ledger-merge test-grailzee-ledger-prune test-grailzee-ledger-archive
 
 help:
 	@echo "Available targets:"
@@ -40,6 +40,7 @@ help:
 	@echo "  make test-grailzee-ledger-lock      - run sub-step 1.3 lock/atomic write tests only"
 	@echo "  make test-grailzee-ledger-merge     - run sub-step 1.4 merge/Rule Y tests only"
 	@echo "  make test-grailzee-ledger-prune     - run sub-step 1.5 prune tests only"
+	@echo "  make test-grailzee-ledger-archive   - run sub-step 1.6 archive move tests only"
 	@echo "  make test-nutrios                - run all NutriOS v1 tests"
 	@echo "  make test-nutrios-time           - run nutrios_time tests"
 	@echo "  make test-nutrios-store          - run nutrios_store tests"
@@ -88,7 +89,7 @@ test-grailzee-cowork:
 	$(PYTEST) grailzee-cowork/tests
 
 test-grailzee-ledger:
-	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_schema.py skills/grailzee-eval/tests/test_ingest_sales_transform.py skills/grailzee-eval/tests/test_ingest_sales_lock.py skills/grailzee-eval/tests/test_ingest_sales_merge.py skills/grailzee-eval/tests/test_ingest_sales_prune.py
+	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_schema.py skills/grailzee-eval/tests/test_ingest_sales_transform.py skills/grailzee-eval/tests/test_ingest_sales_lock.py skills/grailzee-eval/tests/test_ingest_sales_merge.py skills/grailzee-eval/tests/test_ingest_sales_prune.py skills/grailzee-eval/tests/test_ingest_sales_archive.py
 
 test-grailzee-ledger-schema:
 	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_schema.py
@@ -104,6 +105,9 @@ test-grailzee-ledger-merge:
 
 test-grailzee-ledger-prune:
 	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_prune.py
+
+test-grailzee-ledger-archive:
+	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_archive.py
 
 test-nutrios:
 	$(PYTEST) skills/nutrios/tests
