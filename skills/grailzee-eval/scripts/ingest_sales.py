@@ -20,7 +20,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Generator
+from typing import IO, Any, Generator
 
 from scripts.grailzee_common import cycle_id_from_date, get_tracer
 
@@ -175,11 +175,27 @@ def _resolve_archive_dir(override: Path | None = None) -> Path:
     return _get_data_root() / "sales_data" / "archive"
 
 
+# Local-filesystem default for the advisory lockfile. Must not resolve to
+# Google Drive or any other FUSE mount — flock() is unreliable on FUSE.
+# Override via GRAILZEE_LOCK_PATH env var. ~/.grailzee/ is unambiguously
+# local on macOS. Env var naming follows the GRAILZEE_ prefix convention
+# from grailzee_common.GRAILZEE_ROOT.
+LEDGER_LOCK_DEFAULT: Path = Path.home() / ".grailzee" / "trade_ledger.lock"
+
+
 def _resolve_lock_path(override: Path | None = None) -> Path:
-    """Resolve trade_ledger.lock. Precedence: explicit arg > env > error."""
+    """Resolve trade_ledger.lock. Precedence: explicit arg > GRAILZEE_LOCK_PATH > local default.
+
+    Unlike the data-path resolvers, this function never raises on a missing env
+    var: the lockfile does not need to colocate with the ledger data and has a
+    sensible local default. The default is always on a real local filesystem.
+    """
     if override is not None:
         return override
-    return _get_data_root() / "state" / "trade_ledger.lock"
+    env_val = os.environ.get("GRAILZEE_LOCK_PATH", "").strip()
+    if env_val:
+        return Path(env_val)
+    return LEDGER_LOCK_DEFAULT
 
 
 # ─── CSV column order (design v1 §6) ─────────────────────────────────
@@ -210,8 +226,8 @@ def _row_to_csv_dict(row: LedgerRow) -> dict:
         "brand": row.brand,
         "reference": row.reference,
         "account": row.account,
-        "buy_price": row.buy_price,
-        "sell_price": row.sell_price,
+        "buy_price": f"{row.buy_price:.2f}",
+        "sell_price": f"{row.sell_price:.2f}",
         "buy_received_date": (
             row.buy_received_date.isoformat() if row.buy_received_date else ""
         ),
@@ -227,12 +243,8 @@ def _row_to_csv_dict(row: LedgerRow) -> dict:
 _POLL_INTERVAL = 0.05  # seconds between flock() retries
 
 
-def _acquire_flock(fd: object, mode: int, timeout: int, path: Path) -> None:
-    """Poll flock with LOCK_NB until timeout elapses.
-
-    Raises LockAcquisitionFailed if the lock cannot be acquired within
-    timeout seconds. Uses LOCK_NB so the call never blocks the process.
-    """
+def _acquire_flock(fd: IO[Any], mode: int, timeout: float, path: Path) -> None:
+    """Poll flock(LOCK_NB) until success or timeout. Raises LockAcquisitionFailed."""
     deadline = time.monotonic() + timeout
     while True:
         try:
@@ -242,21 +254,72 @@ def _acquire_flock(fd: object, mode: int, timeout: int, path: Path) -> None:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise LockAcquisitionFailed(
-                    f"Could not acquire lock on {path} within {timeout}s."
+                    f"Could not acquire lock on {path} within {timeout:.1f}s."
                 )
             time.sleep(min(_POLL_INTERVAL, remaining))
 
 
+def _open_and_lock(path: Path, mode: int, deadline: float) -> IO[Any]:
+    """Open the lockfile and acquire flock, retrying on inode change (B2).
+
+    Guards against the split-brain race where another process deletes and
+    recreates the lockfile between this process's open() and flock(): after
+    flock() succeeds, compare the fd's inode (os.fstat) to the current inode
+    at path (os.stat). If they differ, the lock was acquired on a stale inode;
+    release and retry from open() with the remaining budget.
+
+    Returns the locked fd. Caller is responsible for LOCK_UN and close() on
+    all exit paths.
+
+    Raises:
+        LockAcquisitionFailed: if the deadline elapses across all attempts.
+    """
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise LockAcquisitionFailed(
+                f"Could not acquire lock on {path}: deadline elapsed."
+            )
+        fd = open(path, "a")
+        try:
+            _acquire_flock(fd, mode, remaining, path)
+        except LockAcquisitionFailed:
+            fd.close()
+            raise
+        # Inode re-check: confirm fd still points to the file currently at path.
+        try:
+            fd_ino = os.fstat(fd.fileno()).st_ino
+            try:
+                path_ino = os.stat(path).st_ino
+            except FileNotFoundError:
+                path_ino = None
+            if path_ino is not None and fd_ino == path_ino:
+                return fd
+            # Stale inode: release lock, fall through to retry.
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        except OSError as exc:
+            fd.close()
+            raise LockAcquisitionFailed(
+                f"OSError during inode re-check on {path}: {exc}"
+            ) from exc
+        try:
+            fd.close()
+        except OSError as exc:
+            raise LockAcquisitionFailed(
+                f"OSError closing stale lockfile {path}: {exc}"
+            ) from exc
+
+
 @contextmanager
 def with_exclusive_lock(
-    path: Path, timeout: int = 30
+    path: Path, timeout: float = 30
 ) -> Generator[None, None, None]:
     """Acquire a POSIX advisory exclusive lock (LOCK_EX) on path.
 
-    Creates the lockfile if it does not exist. Two concurrent processes
-    opening a non-existent lockfile via open(..., 'a') is safe on POSIX;
-    the OS handles creation atomically. The lock is released when the
-    context exits, whether by normal return or exception.
+    Creates the lockfile parent directory and the lockfile itself on first
+    use. Applies the inode re-check after flock() acquisition (see
+    _open_and_lock). The lock is released when the context exits, whether
+    by normal return or exception.
 
     Raises:
         LockAcquisitionFailed: if the exclusive lock cannot be acquired
@@ -266,29 +329,27 @@ def with_exclusive_lock(
         span.set_attribute("lock_path", str(path))
         span.set_attribute("timeout", timeout)
         path.parent.mkdir(parents=True, exist_ok=True)
-        lock_fd = open(path, "a")
+        deadline = time.monotonic() + timeout
+        fd = _open_and_lock(path, fcntl.LOCK_EX, deadline)
         try:
-            _acquire_flock(lock_fd, fcntl.LOCK_EX, timeout, path)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            yield
         finally:
-            lock_fd.close()
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            fd.close()
 
 
 @contextmanager
 def with_shared_lock(
-    path: Path, timeout: int = 30
+    path: Path, timeout: float = 30
 ) -> Generator[None, None, None]:
     """Acquire a POSIX advisory shared lock (LOCK_SH) on path.
 
-    Multiple processes may hold a shared lock simultaneously. A shared
-    lock is incompatible with an exclusive lock: a LOCK_EX holder blocks
-    LOCK_SH acquisition, and a LOCK_SH holder blocks LOCK_EX acquisition.
+    Multiple processes may hold LOCK_SH simultaneously. LOCK_SH is
+    incompatible with LOCK_EX: each blocks the other's acquisition.
+    Applies the inode re-check after flock() acquisition.
 
     Used by cowork bundle assembly (Phase 2) to read trade_ledger.csv
-    safely while the generator may be writing.
+    safely while the ingest generator may be writing.
 
     Raises:
         LockAcquisitionFailed: if the shared lock cannot be acquired
@@ -298,15 +359,13 @@ def with_shared_lock(
         span.set_attribute("lock_path", str(path))
         span.set_attribute("timeout", timeout)
         path.parent.mkdir(parents=True, exist_ok=True)
-        lock_fd = open(path, "a")
+        deadline = time.monotonic() + timeout
+        fd = _open_and_lock(path, fcntl.LOCK_SH, deadline)
         try:
-            _acquire_flock(lock_fd, fcntl.LOCK_SH, timeout, path)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            yield
         finally:
-            lock_fd.close()
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            fd.close()
 
 
 # ─── Atomic CSV write (design v1 §9) ─────────────────────────────────
@@ -338,7 +397,14 @@ def atomic_write_csv(
     with tracer.start_as_current_span("ingest_sales.atomic_write_csv") as span:
         span.set_attribute("target_path", str(path))
         span.set_attribute("row_count", len(rows))
-        effective_header = header if header is not None else LEDGER_CSV_COLUMNS
+        custom_header = header is not None
+        effective_header = header if custom_header else LEDGER_CSV_COLUMNS
+        # extrasaction="raise" enforces the schema contract when using the
+        # default header — a key in _row_to_csv_dict that isn't in
+        # LEDGER_CSV_COLUMNS indicates a programmer error. Callers that
+        # pass an explicit header are electing a subset write and opt into
+        # "ignore" (their responsibility).
+        extrasaction = "ignore" if custom_header else "raise"
         tmp = Path(str(path) + ".tmp")
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -346,7 +412,7 @@ def atomic_write_csv(
                 writer = csv.DictWriter(
                     f,
                     fieldnames=effective_header,
-                    extrasaction="ignore",
+                    extrasaction=extrasaction,
                 )
                 writer.writeheader()
                 for row in rows:
@@ -354,7 +420,7 @@ def atomic_write_csv(
                 f.flush()
                 os.fsync(f.fileno())
             os.rename(tmp, path)
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             raise LedgerWriteFailed(str(exc)) from exc
 
 

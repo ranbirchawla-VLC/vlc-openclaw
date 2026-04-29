@@ -15,6 +15,7 @@ from scripts.ingest_sales import (
     ERPBatchInvalid,
     IngestError,
     IngestManifest,
+    LEDGER_LOCK_DEFAULT,
     LedgerRow,
     LedgerWriteFailed,
     LockAcquisitionFailed,
@@ -221,10 +222,13 @@ class TestPathResolution:
         with pytest.raises(EnvironmentError, match="GRAILZEE_ROOT"):
             _resolve_archive_dir()
 
-    def test_lock_path_missing_env_raises(self, monkeypatch):
+    def test_lock_path_has_local_default_when_no_env(self, monkeypatch):
+        """Lock path never raises on missing env: it has a local-filesystem default."""
         monkeypatch.delenv("GRAILZEE_ROOT", raising=False)
-        with pytest.raises(EnvironmentError, match="GRAILZEE_ROOT"):
-            _resolve_lock_path()
+        monkeypatch.delenv("GRAILZEE_LOCK_PATH", raising=False)
+        result = _resolve_lock_path()
+        assert result == LEDGER_LOCK_DEFAULT
+        assert isinstance(result, Path)
 
     def test_empty_string_env_raises(self, monkeypatch):
         monkeypatch.setenv("GRAILZEE_ROOT", "")
@@ -258,9 +262,19 @@ class TestPathResolution:
         monkeypatch.setenv("GRAILZEE_ROOT", str(tmp_path))
         assert _resolve_archive_dir() == tmp_path / "sales_data" / "archive"
 
-    def test_env_resolves_lock_path(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("GRAILZEE_ROOT", str(tmp_path))
-        assert _resolve_lock_path() == tmp_path / "state" / "trade_ledger.lock"
+    def test_lock_path_env_var_resolves(self, monkeypatch, tmp_path):
+        """GRAILZEE_LOCK_PATH env var overrides the local default."""
+        monkeypatch.setenv("GRAILZEE_LOCK_PATH", str(tmp_path / "my.lock"))
+        monkeypatch.delenv("GRAILZEE_ROOT", raising=False)
+        assert _resolve_lock_path() == tmp_path / "my.lock"
+
+    def test_lock_path_default_not_on_fuse(self, monkeypatch):
+        """Default lock path must not be on Google Drive or other FUSE mount."""
+        monkeypatch.delenv("GRAILZEE_LOCK_PATH", raising=False)
+        path_str = str(_resolve_lock_path())
+        assert "Library/CloudStorage" not in path_str
+        assert "GoogleDrive" not in path_str
+        assert not path_str.startswith("/Volumes/")
 
     def test_sales_data_override_beats_env(self, monkeypatch, tmp_path):
         monkeypatch.setenv("GRAILZEE_ROOT", "/ignored")
@@ -272,14 +286,16 @@ class TestPathResolution:
         override = tmp_path / "my_archive"
         assert _resolve_archive_dir(override) == override
 
-    def test_lock_override_beats_env(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("GRAILZEE_ROOT", "/ignored")
-        override = tmp_path / "my.lock"
+    def test_lock_explicit_override_beats_all(self, monkeypatch, tmp_path):
+        """Explicit arg wins over GRAILZEE_LOCK_PATH and over the local default."""
+        monkeypatch.setenv("GRAILZEE_LOCK_PATH", str(tmp_path / "env.lock"))
+        override = tmp_path / "explicit.lock"
         assert _resolve_lock_path(override) == override
 
     def test_all_resolvers_return_path_type(self, monkeypatch, tmp_path):
         monkeypatch.setenv("GRAILZEE_ROOT", str(tmp_path))
+        monkeypatch.delenv("GRAILZEE_LOCK_PATH", raising=False)
         assert isinstance(_resolve_ledger_path(), Path)
         assert isinstance(_resolve_sales_data_dir(), Path)
         assert isinstance(_resolve_archive_dir(), Path)
-        assert isinstance(_resolve_lock_path(), Path)
+        assert isinstance(_resolve_lock_path(), Path)  # returns local default

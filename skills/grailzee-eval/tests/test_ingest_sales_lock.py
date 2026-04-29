@@ -17,7 +17,7 @@ import sys
 import time
 from datetime import date
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -78,9 +78,10 @@ def _spawn_lock_holder(
     )
 
 
-def _wait_for_acquired(proc: subprocess.Popen, timeout: float = 5.0) -> None:
+def _wait_for_acquired(proc: subprocess.Popen) -> None:
     """Block until the subprocess signals it holds the lock."""
-    proc.stdout.readline()  # blocks until "acquired\n"
+    line = proc.stdout.readline()
+    assert line == "acquired\n", f"subprocess did not acquire lock: {line!r}"
 
 
 # ─── Exclusive lock — single process ─────────────────────────────────
@@ -361,3 +362,119 @@ class TestAtomicWriteFailures:
         finally:
             tmp_path.chmod(0o755)
         assert not target.exists()
+
+
+# ─── B2: Inode re-check ───────────────────────────────────────────────
+
+
+class TestInodeRecheck:
+    def test_retries_when_inode_mismatches_on_first_attempt(self, tmp_path):
+        """Simulates stale lockfile inode: first os.fstat returns wrong inode;
+        retry from open() acquires correctly."""
+        lock = tmp_path / "test.lock"
+        real_fstat = os.fstat
+        call_count = [0]
+
+        def fake_fstat(fd_no: int):
+            call_count[0] += 1
+            real = real_fstat(fd_no)
+            if call_count[0] == 1:
+                # Return a mock with a different inode to trigger retry.
+                m = MagicMock()
+                m.st_ino = real.st_ino + 9999
+                return m
+            return real
+
+        with patch("os.fstat", side_effect=fake_fstat):
+            with with_exclusive_lock(lock, timeout=5):
+                pass
+
+        assert call_count[0] >= 2, "Inode re-check was not invoked twice"
+
+    def test_shared_lock_also_rechecks_inode(self, tmp_path):
+        """Inode re-check fires for LOCK_SH as well as LOCK_EX."""
+        lock = tmp_path / "test.lock"
+        real_fstat = os.fstat
+        call_count = [0]
+
+        def fake_fstat(fd_no: int):
+            call_count[0] += 1
+            real = real_fstat(fd_no)
+            if call_count[0] == 1:
+                m = MagicMock()
+                m.st_ino = real.st_ino + 1
+                return m
+            return real
+
+        with patch("os.fstat", side_effect=fake_fstat):
+            with with_shared_lock(lock, timeout=5):
+                pass
+
+        assert call_count[0] >= 2
+
+
+# ─── m1: extrasaction="raise" ────────────────────────────────────────
+
+
+class TestExtrasaction:
+    def test_extra_key_in_row_raises_ledger_write_failed(self, tmp_path):
+        """extrasaction='raise': extra key wraps in LedgerWriteFailed, not raw ValueError."""
+        target = tmp_path / "ledger.csv"
+        bad_dict = {col: "" for col in LEDGER_CSV_COLUMNS}
+        bad_dict["extra_column"] = "unexpected"
+        with patch("scripts.ingest_sales._row_to_csv_dict", return_value=bad_dict):
+            with pytest.raises(LedgerWriteFailed):
+                atomic_write_csv(target, [_SAMPLE_ROW])
+
+    def test_extra_key_leaves_no_target(self, tmp_path):
+        """Target must not exist after schema violation during write."""
+        target = tmp_path / "ledger.csv"
+        bad_dict = {col: "" for col in LEDGER_CSV_COLUMNS}
+        bad_dict["extra_column"] = "unexpected"
+        with patch("scripts.ingest_sales._row_to_csv_dict", return_value=bad_dict):
+            with pytest.raises(LedgerWriteFailed):
+                atomic_write_csv(target, [_SAMPLE_ROW])
+        assert not target.exists()
+
+
+# ─── m2: float formatting ─────────────────────────────────────────────
+
+
+class TestFloatFormatting:
+    def test_buy_price_has_two_decimal_places(self, tmp_path):
+        """buy_price=1234.5 writes as '1234.50', not '1234.5'."""
+        target = tmp_path / "ledger.csv"
+        row = LedgerRow(
+            stock_id="TEST",
+            sell_date=date(2026, 4, 25),
+            sell_cycle_id="cycle_2026-08",
+            brand="Rolex",
+            reference="126300",
+            account="NR",
+            buy_price=1234.5,
+            sell_price=1500.0,
+        )
+        atomic_write_csv(target, [row])
+        with open(target, newline="", encoding="utf-8") as f:
+            content = f.read()
+        assert "1234.50" in content
+        assert "1500.00" in content
+
+    def test_round_trip_price_with_one_decimal(self, tmp_path):
+        """Confirm DictReader reads back the formatted value."""
+        target = tmp_path / "ledger.csv"
+        row = LedgerRow(
+            stock_id="TEST",
+            sell_date=date(2026, 4, 25),
+            sell_cycle_id="cycle_2026-08",
+            brand="Tudor",
+            reference="79830RB",
+            account="NR",
+            buy_price=2750.5,
+            sell_price=3200.9,
+        )
+        atomic_write_csv(target, [row])
+        with open(target, newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        assert rows[0]["buy_price"] == "2750.50"
+        assert rows[0]["sell_price"] == "3200.90"
