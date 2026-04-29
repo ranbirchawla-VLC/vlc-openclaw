@@ -352,6 +352,112 @@
       }
     },
     {
+      "name": "write_recipe",
+      "description": "Save a new named recipe for a user. Returns {recipe_id, name} on success. Returns {ok: false, error: 'name_collision', existing_recipe_id, message} when a recipe with the same name already exists (case-insensitive). Exit code 0 on collision so the LLM receives the structured error.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "description": "Telegram user ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Recipe name; must be unique per user (case-insensitive)"
+          },
+          "macros": {
+            "type": "object",
+            "description": "Macro values per serving",
+            "properties": {
+              "calories": {
+                "type": "integer"
+              },
+              "protein_g": {
+                "type": "integer"
+              },
+              "fat_g": {
+                "type": "integer"
+              },
+              "carbs_g": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "calories",
+              "protein_g",
+              "fat_g",
+              "carbs_g"
+            ]
+          },
+          "ingredients": {
+            "type": "array",
+            "description": "Optional list of ingredient descriptions",
+            "items": {
+              "type": "object",
+              "properties": {
+                "description": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "description"
+              ]
+            }
+          }
+        },
+        "required": [
+          "user_id",
+          "name",
+          "macros"
+        ]
+      }
+    },
+    {
+      "name": "calculate_macros",
+      "description": "Scale a base macro set by portion fraction and/or serving count. Returns {calories, protein_g, fat_g, carbs_g} as integers. Use when the user describes a partial portion (portion=0.5 for half a serving) or multiple servings (servings=2).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "base_macros": {
+            "type": "object",
+            "description": "Macro values for one full serving",
+            "properties": {
+              "calories": {
+                "type": "integer"
+              },
+              "protein_g": {
+                "type": "integer"
+              },
+              "fat_g": {
+                "type": "integer"
+              },
+              "carbs_g": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "calories",
+              "protein_g",
+              "fat_g",
+              "carbs_g"
+            ]
+          },
+          "portion": {
+            "type": "number",
+            "description": "Fraction of one serving (1.0 = full, 0.5 = half, 0.33 = one-third)"
+          },
+          "servings": {
+            "type": "number",
+            "description": "Number of servings (default 1.0)"
+          }
+        },
+        "required": [
+          "base_macros",
+          "portion"
+        ]
+      }
+    },
+    {
       "name": "turn_state",
       "description": "Call first on every user turn. Classifies intent, detects intent-transition boundary, and returns the routed capability prompt read fresh from disk. Returns {intent, ambiguous, boundary, capability_prompt, today_date}.",
       "inputSchema": {

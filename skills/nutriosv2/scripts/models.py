@@ -68,6 +68,21 @@ class Macros(BaseModel):
     carbs_g: int
 
 
+class Ingredient(BaseModel):
+    model_config = ConfigDict(strict=True)
+    description: str
+
+
+class Recipe(BaseModel):
+    model_config = ConfigDict(strict=True)
+    recipe_id: int
+    user_id: int
+    name: str
+    macros: Macros
+    ingredients: list[Ingredient] = []
+    created_at: str
+
+
 class MealLog(BaseModel):
     model_config = ConfigDict(strict=True)
     log_id: int
