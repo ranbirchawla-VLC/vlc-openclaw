@@ -68,6 +68,15 @@ problem.
 (operator-supplied; original prompt name `watchtrack_full_final__1_.jsonl`
 without the download-dedup tail).
 
+**Fixture archived in repo for reuse**:
+`skills/grailzee-eval/state_seeds/gate3_fixtures/watchtrack_full_final.jsonl`
+(372337 bytes, 184 lines, sha256
+`108dd5575edf173b328b7e09ab453f274a051f5a82b6112b2a582b92b216fece`).
+Byte-identical to the production fixture as of 2026-04-29. To re-run
+Gate 3, copy this file into `$GRAILZEE_ROOT/sales_data/` rather than
+re-downloading from the extraction agent — guarantees the same fixture
+content the failure was characterized against.
+
 **Failure**: `json.decoder.JSONDecodeError: Extra data: line 2 column 1
 (char 4388)` from `_transform_jsonl_inner` line 709 on the first file.
 
@@ -297,3 +306,4 @@ Argparse-only. report.md Steps 2 and 5 reference dead `exec` paths.
 - Step 1 mock fixture: `grailzee-cowork/tests/fixtures/mock_strategy_output.json`
 - INBOUND apply bundle path: `GrailzeeData/bundles/` (NOT `output/`)
 - Full prior build log: `.claude/progress-v0.md`
+- Gate 3 production fixture (archived for reuse): `skills/grailzee-eval/state_seeds/gate3_fixtures/watchtrack_full_final.jsonl`
