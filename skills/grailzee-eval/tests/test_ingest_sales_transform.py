@@ -505,3 +505,32 @@ class TestCycleIdDerivation:
     def test_buy_cycle_id_none_when_unmatched(self):
         row = transform_jsonl(FIXTURES / "tey1048_unmatched.json")[0]
         assert row.buy_cycle_id is None
+
+
+# ─── OTEL span ───────────────────────────────────────────────────────
+
+
+class TestOTELSpan:
+    def test_transform_jsonl_works_under_no_op_tracer(self, monkeypatch):
+        """Span wrapper does not interfere with function results.
+
+        The no-op tracer (active when OTEL_EXPORTER_OTLP_ENDPOINT is unset)
+        must be transparent to callers. Matches the pattern from
+        test_grailzee_common.py::TestGetTracer.
+        """
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+        rows = transform_jsonl(FIXTURES / "tey1104_clean.json")
+        assert len(rows) == 1
+        assert rows[0].stock_id == "TEY1104"
+
+    def test_transform_jsonl_span_does_not_suppress_erp_invalid(self, monkeypatch):
+        """Span wrapper must not catch or swallow ERPBatchInvalid."""
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+        with pytest.raises(ERPBatchInvalid):
+            transform_jsonl(FIXTURES / "tey1092_no_services.json")
+
+    def test_transform_jsonl_span_does_not_suppress_schema_shift(self, monkeypatch):
+        """Span wrapper must not catch or swallow SchemaShiftDetected."""
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+        with pytest.raises(SchemaShiftDetected):
+            transform_jsonl(FIXTURES / "missing_purchases_key.json")
