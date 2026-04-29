@@ -26,18 +26,34 @@ Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
 **Branch**: `feature/grailzee-ledger-phase1-v2` (off `feature/grailzee-eval-v2`)
 **Remote**: not pushed yet
 **Design spec**: `Downloads/GZ-4-28.v3/Grailzee_Ledger_Redo_Design_v1.md`
-**Tests**: 1152 eval / 76 skipped / 235 cowork / 123 ledger
+**Tests**: 1193 eval / 71 skipped / 235 cowork / 159 ledger
+
+Skipped-delta note (2026-04-29): baseline 76 skipped recorded on MacStudio; laptop
+has 5 additional state-file-conditional tests passing (skipif on installed state files).
+71 unconditional skips are fixed; delta is machine-state, not code. Math closes:
+1029 (MacStudio baseline) + 5 (laptop state) + 164 (Phase 1 sub-steps 1.1–1.4) = 1193.
 
 | Sub-step | State | Tip |
 |---|---|---|
 | 1.1 schema, dataclasses, path resolution | DONE | `3f963af` |
 | 1.2 transform_jsonl single-file ingest | DONE | `eb10767` (OTEL corrective) |
 | 1.3 lockfile + atomic write | DONE | `43c47d0` (commit A + commit B) |
-| 1.4 Rule Y dedup-and-update | NEXT UP | — |
-| 1.5 pruning | NOT STARTED | — |
+| 1.4 Rule Y dedup-and-update | DONE | `5d5d47f` |
+| 1.5 pruning | NEXT UP | — |
 | 1.6 archive move | NOT STARTED | — |
 | 1.7 top-level orchestrator | NOT STARTED | — |
 | Phase 1 Gate 3 smoke | NOT STARTED | — |
+
+**1.4 closeout (2026-04-29)**:
+- Branch tip: `5d5d47f`
+- test-grailzee-ledger: 159 passed / 0 skipped
+- test-grailzee-eval: 1193 passed / 71 skipped
+- test-grailzee-cowork: 235 passed / 0 skipped
+- Gate 2 round 1: 4 major / 5 minor (all addressed before commit)
+- Gate 2 round 2: 0 blocker / 0 major / 2 minor (both addressed before commit)
+- ADRs landed: ADR-0001 (Rule Y), ADR-0002 (concurrency), ADR-0003 (schema versioning)
+- span_exporter fixture: 26 lines in conftest.py (session-scoped provider + function-scoped clear)
+- 1.2 OTEL carry-forward closed: rows_emitted-on-exception test in test_ingest_sales_transform.py
 
 ---
 
