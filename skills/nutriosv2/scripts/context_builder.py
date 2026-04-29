@@ -93,8 +93,12 @@ def run_context_builder(
     if cycle_data is not None:
         start = date_type.fromisoformat(cycle_data["start_date"])
         end = date_type.fromisoformat(cycle_data["end_date"])
+        raw_week = (today - start).days // 7 + 1
+        if raw_week < 1:
+            print(json.dumps({"tool": "context_builder", "warn": "future_dated_cycle",
+                              "today": today_iso, "start_date": str(start)}), file=sys.stderr)
         # clamp to 1: a future-dated active cycle would otherwise produce week=0
-        week = max(1, (today - start).days // 7 + 1)
+        week = max(1, raw_week)
         is_expired = today >= end
         dose_offset = (today.weekday() - cycle_data["dose_weekday"]) % 7
         row = cycle_data["macro_table"][dose_offset]

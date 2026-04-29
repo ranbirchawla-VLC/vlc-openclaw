@@ -96,7 +96,9 @@ def test_whole_number_float_macros_accepted():
 
 
 def test_fractional_float_macros_rejected():
-    # Pydantic v2 (non-strict) accepts whole-number floats but rejects fractional ones
+    from pydantic import ValidationError
+    # Pydantic v2 (non-strict) rejects fractional floats with type 'int_from_float'
     float_base = {"calories": 400.9, "protein_g": 30.0, "fat_g": 15.0, "carbs_g": 40.0}
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError) as exc_info:
         run_calculate_macros(float_base, portion=1.0)
+    assert exc_info.value.errors()[0]["type"] == "int_from_float"
