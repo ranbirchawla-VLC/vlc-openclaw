@@ -25,13 +25,12 @@ Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
 
 **Branch**: `feature/grailzee-ledger-phase1-v2` (off `feature/grailzee-eval-v2`)
 **Remote**: not pushed yet
-**Design spec**: `Downloads/GZ-4-28.v3/Grailzee_Ledger_Redo_Design_v1.md`
-**Tests**: 1193 eval / 71 skipped / 235 cowork / 159 ledger
+**Design spec**: `Downloads/GZ-4-28.v3/Grailzee_Ledger_Redo_Design_v1.md` — not present on disk at last check (2026-04-29). Content referenced from ADRs and session history.
+**Tests**: 1210 eval / 71 skipped / 235 cowork / 176 ledger
 
 Skipped-delta note (2026-04-29): baseline 76 skipped recorded on MacStudio; laptop
 has 5 additional state-file-conditional tests passing (skipif on installed state files).
-71 unconditional skips are fixed; delta is machine-state, not code. Math closes:
-1029 (MacStudio baseline) + 5 (laptop state) + 164 (Phase 1 sub-steps 1.1–1.4) = 1193.
+71 unconditional skips are fixed; delta is machine-state, not code.
 
 | Sub-step | State | Tip |
 |---|---|---|
@@ -39,20 +38,25 @@ has 5 additional state-file-conditional tests passing (skipif on installed state
 | 1.2 transform_jsonl single-file ingest | DONE | `eb10767` (OTEL corrective) |
 | 1.3 lockfile + atomic write | DONE | `43c47d0` (commit A + commit B) |
 | 1.4 Rule Y dedup-and-update | DONE | `5d5d47f` |
-| 1.5 pruning | DONE | pending commit |
+| 1.5 pruning + ADR-0004 nullability | DONE | `30cfd7f` |
 | 1.6 archive move | NEXT UP | — |
 | 1.7 top-level orchestrator | NOT STARTED | — |
 | Phase 1 Gate 3 smoke | NOT STARTED | — |
 
+---
+
+## Sub-step closeouts
+
 **1.5 closeout (2026-04-29)**:
-- Branch tip: `30cfd7f` (corrective on top of `6e81e34`)
-- test-grailzee-ledger: 176 passed / 0 skipped
-- test-grailzee-eval: 1210 passed / 71 skipped
+- Branch tip: `30cfd7f` (corrective) / `6e81e34` (main commit)
+- test-grailzee-ledger: 176 passed / 0 skipped (+17 from 1.4)
+- test-grailzee-eval: 1210 passed / 71 skipped (+17 from 1.4)
 - test-grailzee-cowork: 235 passed / 0 skipped
-- Gate 2 round 1: 0 blocker / 1 major / 3 minor (all addressed before commit: M1 _row_to_csv_dict None guard, m1 typo, m2 window_days=0 test, m3 inner docstring)
-- Gate 2 round 2 (post-commit): 0 blocker / 0 major / 2 minor (both applied as corrective `30cfd7f`: is-not-None sweep across 5 date fields, LEDGER_CSV_COLUMNS module-level import)
-- ADR-0004 landed: sell_date annotation `date` → `date | None`; full 13-field nullability audit; sell_cycle_id non-optional with 1.7 obligation documented
-- Data verification note: live ledger (14 rows, 2026-04-29) shows all sell_dates populated, all accounts NR/RES; design v1 UNKNOWN-account row evidence not verifiable (design doc not on disk)
+- Gate 2 round 1: 0 blocker / 1 major / 3 minor (all addressed: M1 `_row_to_csv_dict` None guard, m1 docstring typo, m2 `window_days=0` test, m3 inner docstring)
+- Gate 2 round 2 (post-commit): 0 blocker / 0 major / 2 minor (corrective `30cfd7f`: `is not None` sweep across 5 date fields, `LEDGER_CSV_COLUMNS` module-level import)
+- ADR-0004 landed: `sell_date: date` → `date | None`; 13-field nullability audit; `sell_cycle_id` non-optional with 1.7 raise-on-blank obligation
+- Data verification: live ledger (14 rows, 2026-04-29) — all `sell_date` populated, all `account` ∈ {NR, RES}; design v1 UNKNOWN-account row evidence not verifiable (design doc not on disk)
+- New files: `test_ingest_sales_prune.py` (14 tests), `docs/decisions/ADR-0004-ledger-row-nullability.md`
 
 **1.4 closeout (2026-04-29)**:
 - Branch tip: `5d5d47f`
@@ -69,6 +73,13 @@ has 5 additional state-file-conditional tests passing (skipif on installed state
 
 ## Ledger redo key decisions (2026-04-28/29)
 
+**`LedgerRow.sell_date` nullability (ADR-0004)**: `date | None`. Legacy rows that
+predate sell_date tracking are represented with `sell_date=None`; they serialize to
+empty string in CSV (`_row_to_csv_dict`) and are never pruned. `sell_cycle_id` stays
+non-optional — the 1.7 read path must raise on a blank `sell_cycle_id` rather than
+silently accept it. All five nullable date fields in `_row_to_csv_dict` use
+`if x is not None` guards (not truthiness checks).
+
 **LEDGER_LOCK_DEFAULT**: `~/.grailzee/trade_ledger.lock`
 Override via `GRAILZEE_LOCK_PATH` env var. Lock file must be on local filesystem — flock() unreliable on Google Drive FUSE mount. Default is unambiguously local.
 
@@ -82,7 +93,7 @@ Override via `GRAILZEE_LOCK_PATH` env var. Lock file must be on local filesystem
 
 **Inode re-check (B2)**: `_open_and_lock()` compares `os.fstat(fd.fileno()).st_ino` to `os.stat(path).st_ino` after acquiring flock. Mismatch triggers retry from `open()` with remaining deadline budget. `OSError` from the check block is wrapped in `LockAcquisitionFailed`.
 
-**`§14 surface**: `grailzee_common.append_ledger_row` is an existing append-write path that `atomic_write_csv` supersedes. The two coexist during Phase 1 (different branches, different call sites).
+**`§14 surface`**: `grailzee_common.append_ledger_row` is an existing append-write path that `atomic_write_csv` supersedes. The two coexist during Phase 1 (different branches, different call sites).
 
 **m3 carry-forward**: `_wait_for_acquired()` in tests blocks indefinitely if subprocess crashes before writing `"acquired\n"`. Timeout on `readline()` requires `select`; deferred.
 
@@ -154,7 +165,7 @@ Argparse-only. report.md Steps 2 and 5 reference dead `exec` paths.
 - State truth: `GRAILZEE_SYSTEM_STATE.md` (repo root)
 - Decision locks: `docs/decisions/`
 - Architecture lock: `docs/decisions/Grailzee_Architecture_Lock_2026-04-26.md`
-- Ledger redo design: `Downloads/GZ-4-28.v3/Grailzee_Ledger_Redo_Design_v1.md`
+- Ledger redo design: `Downloads/GZ-4-28.v3/Grailzee_Ledger_Redo_Design_v1.md` (not on disk)
 - Ledger audit: `skills/grailzee-eval/docs/Ledger_Audit_2026-04-28.md` (untracked)
 - Plugin API spec: `Grailzee_Plugin_API_Spec_v1.md` — absent from working tree (see §15 of design v1)
 - Root OpenClaw config: `~/.openclaw/openclaw.json` (outside repo; env object removed 2026-04-28)
