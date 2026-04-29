@@ -21,17 +21,112 @@ Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
 
 ---
 
-### Track 2 — Ledger Redo Phase 1 (BLOCKED on Gate 3 triage)
+### Track 2 — Ledger Redo Phase 1 (BLOCKED — extraction contract is hallucinated)
 
-**Next-session entry point**: Phase 1 sub-steps 1.1–1.7 are all DONE and
-committed. Gate 3 attempted against the operator-supplied production
-fixture and HALTED on a fixture-format gap (transform_jsonl expects single
-JSON object with nested sales/purchases arrays; production fixture is
-line-delimited flat transaction records with a `type` discriminator). See
-"Gate 3 — first-attempt outcome" block below for full triage. Atomicity
-contract held; the architecture is fine. Two routes (A: refresh fixture;
-B: corrective pass on `transform_jsonl` + design v1 §7 amendment) need
-supervisor decision before any code lands. Working tree clean.
+**Next-session entry point — read this first**: Phase 1's transform layer
+was built against fabricated data. Operator confirmation 2026-04-29:
+previous AI sessions hallucinated the WatchTrack JSONL extraction format
+and authored `tey1104_clean.json`, `tey1048_unmatched.json`, etc. as
+fictional test fixtures. The implementation, the eight test fixtures
+under `skills/grailzee-eval/tests/fixtures/ingest_sales/`, and design v1
+§7's "single JSON object with sales/purchases arrays" claim are all
+artifacts of that hallucination. Cost: one full day of rework before
+the divergence was caught at Gate 3.
+
+**Real production fixture is canonical**:
+`skills/grailzee-eval/state_seeds/gate3_fixtures/watchtrack_full_final.jsonl`
+(committed at 1f2c140). Use this as the source of truth for the real
+WatchTrack extraction shape; don't trust the existing test fixtures or
+design v1 §7 wording.
+
+**Salvageable from Phase 1**:
+- 1.1 schema scaffolding (LedgerRow, error hierarchy, path resolution) —
+  the dataclass shape may need fields revisited but the wrapping is fine
+- 1.3 lockfile + atomic_write_csv — operates on LedgerRow, fixture-agnostic
+- 1.4 merge_rows (Rule Y) — operates on LedgerRow, fixture-agnostic
+- 1.5 prune_by_sell_date — operates on LedgerRow, fixture-agnostic
+- 1.6 archive_jsonl — file move, fixture-agnostic
+- 1.7 orchestrator composition — calls primitives by interface; transform
+  layer is the only piece that needs replacement
+- read_ledger_csv (1.7 commit 1) — operates on CSV serialization layer,
+  fixture-agnostic
+
+**Not salvageable**:
+- 1.2 transform_jsonl + ~60 test cases in test_ingest_sales_transform.py
+  built on the hallucinated fixtures
+- The eight fixtures themselves under tests/fixtures/ingest_sales/
+- Account-derivation logic (NR/RES from Platform fee actual_cost ∈ {49, 99}):
+  only 10/95 real Sales carry a Platform fee; values include 352.5, 377.4
+  not just 49/99; rule is incomplete or wrong
+- Sale↔Purchase 1-to-1 join via stock_id: real Purchases have up to 4
+  line_items each, so one Purchase may satisfy buy-side for 4 different
+  Sales — hallucinated 1-to-1 model can't represent this
+- design v1 §7 wording (single JSON document, sales/purchases arrays,
+  one line_item per record, platform as string)
+
+**Tests using hallucinated fixtures**:
+- test_ingest_sales_transform.py — entirely (60+ tests on fictional data)
+- test_ingest_sales_orchestrator.py — Scenario 2 mid-batch failure
+  (tey1092_no_services.json), OTEL halted_schema_shift /
+  halted_erp_invalid tests using missing_purchases_key.json /
+  tey1092_no_services.json; need re-built against real fixture once the
+  new transform layer exists
+- test_ingest_sales_integration.py — TestScenario2MidBatchFailureAtomicity
+  uses tey1092_no_services.json; Scenario 1 / 4 use inline-constructed
+  payloads matching the hallucinated single-doc shape
+
+**The path forward (only viable route)**:
+This is now a corrective pass scoped as "Phase 1.2 redo + design v1 §7
+amendment + downstream test rebuild." Not a tweak to transform_jsonl.
+Concretely:
+
+1. **Read the canonical fixture carefully** before writing any code.
+   See "Real format characterization" block below for the audit done
+   2026-04-29; verify the audit by re-reading the fixture rather than
+   trusting it.
+2. **Amend design v1 §7** to specify the JSONL line-delimited format,
+   the three record types (Sale / Purchase / Trade), the multi-line_items
+   structure, and the real account-derivation rule (whatever it is —
+   needs operator input on what NR/RES vs other-platform vs no-Platform-fee
+   should map to in the ledger).
+3. **Rewrite transform_jsonl** against the new spec. Likely shape:
+   parse line by line; bucket by `type`; for each Sale, emit one
+   LedgerRow per line_item; join buy-side from any Purchase whose
+   line_items contain the matching stock_id; handle Trade records as
+   synthetic-Purchase equivalents (or skip them; needs operator decision).
+4. **Replace test fixtures** with sliced subsets of the real production
+   fixture (one-Sale-one-Purchase clean case, multi-line-item Purchase,
+   Trade record, missing-Platform-fee Sale, non-Grailzee Sale, etc.).
+   Anonymization may be needed if test fixtures are committed; the
+   gate3_fixtures/ copy is the operator-confirmed full file.
+5. **Re-run Gate 3** with the canonical fixture against the new transform.
+
+**Open questions for the operator before any code work**:
+- Trade records (4 of 184): are these in scope for the ledger? They're
+  synthetic Purchase-equivalents derived from prior Sales. Trade-in
+  stock_id flows into the buy-side of a future Sale, but the wholesale
+  credit is owed not paid in cash. How does this book to NR/RES/UNKNOWN
+  account derivation?
+- Non-Grailzee platforms (Ebay, Direct, WTA, Chrono24, MODA, empty): the
+  hallucinated impl filtered to Grailzee-only via `if "Grailzee" in
+  sale.get("platform", "")`. With `platform: list[str]` the membership
+  check works for `["Grailzee"]` but the spec needs to confirm: are
+  non-Grailzee Sales excluded from the ledger, or do they appear with
+  account="UNKNOWN" or some other rule?
+- Account derivation when no Platform fee: 85/95 Sales have no Platform
+  fee entry at all. Those are mostly non-Grailzee, but there's overlap
+  to verify. The hallucinated impl raised ERPBatchInvalid; this won't
+  work. Default to UNKNOWN? Skip?
+- Platform fee values 352.5 and 377.4: not in {49, 99}. Likely percent-
+  of-transaction fees. Needs operator: NR/RES tier rules, or a different
+  classification entirely.
+- Multi-line_item Purchases: how does merge_rows handle the case where
+  a single Purchase row in real data corresponds to N independent
+  ledger rows (one per stock_id)? Either transform emits N rows per
+  Purchase (likely correct) and merge handles them as siblings, or
+  the LedgerRow model needs revisiting.
+
+Working tree clean.
 
 **Branch**: `feature/grailzee-ledger-phase1-v2` (off `feature/grailzee-eval-v2`)
 **Tip**: `8d73c35` ([ledger 1.7 commit 2 of 2] integration tests, OTEL outcome
@@ -116,31 +211,54 @@ orchestrator span closed without an `outcome` attribute (consistent with
 unhandled traceback rather than a structured halt — small wrap-into-
 SchemaShiftDetected follow-up regardless of which triage route is chosen.
 
-**Two-route triage (supervisor decision)**:
+**Triage outcome (2026-04-29 supervisor confirmation)**: there is no
+"Route A — spec correct, fixture wrong" — that framing in this file's
+earlier draft was wrong. Design v1 §7 and the existing test fixtures
+were both authored by previous AI sessions against hallucinated data,
+not real WatchTrack output. The corrective-pass scope (full Phase 1.2
+redo + spec amendment + test rebuild) is documented in the
+"Next-session entry point" block at the top of Track 2. Estimated
+session size: large.
 
-- **Route A — spec correct, fixture wrong**. Design v1 §7's "single JSON
-  object with sales/purchases arrays" is the locked extraction-agent
-  contract; the operator-supplied fixture is from a different upstream
-  tool or older format. Action: source the right fixture, re-run Gate 3.
-  Estimated session size: small (read-only verification rerun).
+**Real format characterization (2026-04-29 audit of canonical fixture)**:
 
-- **Route B — fixture correct, spec wrong**. Extraction agent really emits
-  line-delimited transaction records with `type` discriminator; design v1
-  §7 was drafted before the agent existed (or against an old prototype).
-  Action: corrective pass on `transform_jsonl` (JSONL reader + type-
-  bucketed transaction grouping + Sale↔Purchase join by stock_id under
-  the new flat schema), amend design v1 §7, then re-run Gate 3. Existing
-  test fixtures (`tey1104_clean.json` etc.) would also need either
-  conversion to the new format or a backwards-compat shim. Estimated
-  session size: large (architectural change to a primitive that all of
-  1.4–1.7 sit on top of).
+Audit method: parsed `state_seeds/gate3_fixtures/watchtrack_full_final.jsonl`
+line by line; counted record types, status values, top-level keys,
+platform values, line_items multiplicity, service-name distribution,
+Platform-fee actual_cost distribution. 184 records total.
 
-**Recommendation when re-opening**: route B is more likely correct (the
-production extraction agent's output is canonical; design v1 was likely
-drafted from a sketch). But route A is faster and worth a one-shot check
-first ("does Vardalux have a different export format that produces the
-nested-object form we built against?"). Operator confirms with a 60-second
-look at the extraction-agent source.
+- **Document shape**: JSONL (one JSON object per line). Not a single
+  document with nested arrays.
+- **Record type distribution**: Sale (95), Purchase (85), Trade (4).
+  Trade is a synthetic Purchase-equivalent: `type: "Trade"`,
+  `source: "synthetic_trade_in"`, `derived_from_transaction: <sale_id>`.
+- **Status distribution**: Received (88), Fulfilled (88), Pending (8).
+- **Top-level keys (union across all records)**: additional_purchase_fees,
+  agreement_state, balance_due, client (dict), completed_at, created_at,
+  credit_owed_on_trade_in, data_quality (Sales only), derived_from_transaction
+  (Trades only), extracted_at, line_items, merchant_fee, payments,
+  payments_made_count, payments_made_total, platform, sales_associate,
+  services, shipping_charge, source (Trades only), source_url, status,
+  transaction_id, transaction_notes, transaction_sales_tax,
+  transaction_sales_tax_rate, transaction_total, type.
+- **`platform`**: list[str], not string. 7 distinct values across Sales:
+  Grailzee (21), Direct (22), WTA (19), Ebay (8), Chrono24 (4), MODA (2),
+  empty list (19).
+- **`line_items`**: plural list, not singular `line_item`. Counts:
+  Purchases — 1×80, 2×1, 3×3, 4×1; Sales — 1×89, 2×6; Trades — 1×4.
+  Each line_item has 28 keys including: brand, condition, cost_of_item,
+  delivered_date, delivery_status, fulfillment_date, in_transit_date,
+  included_items, is_consignment, is_trade_in, item_uuid, line_state,
+  model, production_month, production_year, reference_number,
+  retail_price, sales_tax, serial_number, shipping_method, sold_date,
+  stock_id, tracking_added_date, tracking_link, tracking_number,
+  unit_price, watch_name, wholesale_price.
+- **Services on Sales** (top names): Platform fee (10), Shipping (4),
+  CC FEE (2), Auction Fee (2), and one-offs: Credit Card Fee, shipping
+  (lower-case), Shipping Overnight, CC Fee, Chrono Fee, Commission.
+- **Platform fee actual_cost distribution**: 49 (×6), 99 (×2), 352.5 (×1),
+  377.4 (×1). Only 10/95 Sales carry a Platform fee at all; the
+  hallucinated NR/RES dichotomy on {49, 99} covers 8/95 Sales.
 
 **Reproduction note for retry session**:
 - `GRAILZEE_ROOT` is NOT set in fresh login shells; export it explicitly:
