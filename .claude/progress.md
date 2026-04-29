@@ -27,10 +27,7 @@ Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
 **Tip**: `d7be685` (progress.md chore on top of `61f6f6a` — 1.6 commit)
 **Remote**: not pushed yet
 **Design spec**: `Downloads/GZ-4-28.v3/Grailzee_Ledger_Redo_Design_v1.md` — not present on disk at last check (2026-04-29). Content referenced from ADRs and session history.
-**Tests**: 1235 eval / 71 skipped / 235 cowork / 201 ledger
-(baseline correction 2026-04-29: handoff v2 §3 said 1234; verified by
-stash + new-test-files-aside re-run against d7be685 bare tree; was
-off by one.)
+**Tests**: 1342 eval / 71 skipped / 235 cowork / 308 ledger
 
 Skipped-delta note (2026-04-29): baseline 76 skipped recorded on MacStudio; laptop
 has 5 additional state-file-conditional tests passing (skipif on installed state files).
@@ -44,12 +41,22 @@ has 5 additional state-file-conditional tests passing (skipif on installed state
 | 1.4 Rule Y dedup-and-update | DONE | `5d5d47f` |
 | 1.5 pruning + ADR-0004 nullability | DONE | `30cfd7f` |
 | 1.6 archive move | DONE | `61f6f6a` |
-| 1.7 top-level orchestrator | IN PROGRESS (commit 1 of 2) | — |
+| 1.7 top-level orchestrator | DONE | (commit 2 tip after this commit) |
 | Phase 1 Gate 3 smoke | NOT STARTED | — |
 
 ---
 
 ## Sub-step closeouts
+
+**1.7 closeout (2026-04-29)**:
+- Branch tip: commit 1 `42f4514`; commit 2 lands on top
+- test-grailzee-ledger: 276 → 308 (+32 = 5 in-lock OTEL tests + 27 integration tests)
+- test-grailzee-eval: 1310 → 1342 / 71 skipped (unchanged skips)
+- test-grailzee-cowork: 235 unchanged
+- Commit 1 (substantive): read_ledger_csv + ingest_sales orchestrator + four-inheritance unit tests; lock posture single-acquisition spanning read+merge+prune+write; baseline correction landed (1234 → 1235)
+- Commit 2 (substantive): OTEL outcome consolidation (`_OUTCOME_BY_CLASS` mapping + try/except IngestError around with-block); CLI `__main__` (zero arguments, exit 0/1, manifest summary on stdout, error class on stderr); 6 integration scenarios; Gate 2 round 1: 0 blocker / 0 major / 4 minor (sys/contextmanager imports hoisted, sleep bumped to 1.05s for coarse-resolution filesystems, in-lock atomicity assertion added to TestScenario6); standing pattern triage applied, no supervisor in loop
+- Carry-forwards to spec v1.1: ArchiveMoveFailed → outcome string for partial-success path (ledger written, archive failed); file-order ISO-dash chronology rule documented but not enforced; defensive-guard test coupling for sell_cycle_id blank validation
+- Phase 1 sub-steps complete; Phase 1 Gate 3 REPL smoke is the next gate (operator-supplied fixture)
 
 **1.6 closeout (2026-04-29)**:
 - Branch tip: `61f6f6a`

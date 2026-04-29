@@ -19,6 +19,7 @@ OTEL outcomes tested: "complete", "no_files", "halted_schema_shift",
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 
@@ -28,6 +29,8 @@ from scripts.ingest_sales import (
     ERPBatchInvalid,
     IngestManifest,
     LedgerRow,
+    LedgerWriteFailed,
+    LockAcquisitionFailed,
     SchemaShiftDetected,
     atomic_write_csv,
     ingest_sales,
@@ -603,3 +606,121 @@ class TestFilesFoundScope:
         (sales / "logs.txt").write_text("noise")
         manifest = _call(sales, archive, ledger, lock)
         assert manifest.files_found == 1
+
+
+# ─── In-lock OTEL outcome attribution (sub-step 1.7 commit 2) ────────
+
+
+@contextmanager
+def _raising_lock_cm(*args, **kwargs):
+    """Context manager that raises LockAcquisitionFailed on enter.
+
+    Mimics with_exclusive_lock's failure mode: the lock acquisition
+    itself fails, the with-block body never runs.
+    """
+    raise LockAcquisitionFailed("simulated lock timeout")
+    yield  # never reached -- required to make this a generator
+
+
+class TestOTELInLockOutcomes:
+    """Commit 2 outcome consolidation: every IngestError subclass that can
+    raise inside the lock gets its outcome attribution per
+    _OUTCOME_BY_CLASS, by class not by location. Mirrors the pre-lock
+    transform-time outcome pattern from commit 1."""
+
+    def _seed_clean_run_inputs(self, tmp_path):
+        sales, archive, ledger, lock = _setup(tmp_path)
+        _drop_fixture(sales, "tey1104_clean.json", "watchtrack_2026-04-29.jsonl")
+        return sales, archive, ledger, lock
+
+    def test_schema_shift_in_read_ledger_csv(
+        self, tmp_path, span_exporter, monkeypatch
+    ):
+        """SchemaShiftDetected raised by read_ledger_csv (e.g., corrupt
+        existing ledger with blank non-optional column) -> outcome
+        attribute "halted_schema_shift"."""
+        sales, archive, ledger, lock = self._seed_clean_run_inputs(tmp_path)
+
+        def _raise(path):
+            raise SchemaShiftDetected("simulated corrupt ledger")
+
+        monkeypatch.setattr("scripts.ingest_sales.read_ledger_csv", _raise)
+        with pytest.raises(SchemaShiftDetected):
+            _call(sales, archive, ledger, lock)
+        sp = _orchestrator_span(span_exporter)
+        assert sp is not None
+        assert sp.attributes["outcome"] == "halted_schema_shift"
+
+    def test_erp_batch_invalid_in_merge_rows(
+        self, tmp_path, span_exporter, monkeypatch
+    ):
+        """ERPBatchInvalid raised by merge_rows (duplicate stock_id within
+        a single file's transformed rows) -> outcome "halted_erp_invalid"
+        from the in-lock try/except (not the pre-lock one)."""
+        sales, archive, ledger, lock = self._seed_clean_run_inputs(tmp_path)
+
+        def _raise(existing, new):
+            raise ERPBatchInvalid("simulated duplicate stock_id in batch")
+
+        monkeypatch.setattr("scripts.ingest_sales.merge_rows", _raise)
+        with pytest.raises(ERPBatchInvalid):
+            _call(sales, archive, ledger, lock)
+        sp = _orchestrator_span(span_exporter)
+        assert sp is not None
+        assert sp.attributes["outcome"] == "halted_erp_invalid"
+
+    def test_ledger_write_failed_in_atomic_write_csv(
+        self, tmp_path, span_exporter, monkeypatch
+    ):
+        """LedgerWriteFailed raised by atomic_write_csv -> outcome
+        "halted_ledger_write" (a string introduced in commit 2)."""
+        sales, archive, ledger, lock = self._seed_clean_run_inputs(tmp_path)
+
+        def _raise(path, rows, header=None):
+            raise LedgerWriteFailed("simulated rename failure")
+
+        monkeypatch.setattr("scripts.ingest_sales.atomic_write_csv", _raise)
+        with pytest.raises(LedgerWriteFailed):
+            _call(sales, archive, ledger, lock)
+        sp = _orchestrator_span(span_exporter)
+        assert sp is not None
+        assert sp.attributes["outcome"] == "halted_ledger_write"
+
+    def test_lock_acquisition_failed_in_with_exclusive_lock(
+        self, tmp_path, span_exporter, monkeypatch
+    ):
+        """LockAcquisitionFailed raised by with_exclusive_lock itself
+        (the with-block enter fails) -> outcome "halted_lock_timeout"
+        (a string introduced in commit 2)."""
+        sales, archive, ledger, lock = self._seed_clean_run_inputs(tmp_path)
+        monkeypatch.setattr(
+            "scripts.ingest_sales.with_exclusive_lock", _raising_lock_cm
+        )
+        with pytest.raises(LockAcquisitionFailed):
+            _call(sales, archive, ledger, lock)
+        sp = _orchestrator_span(span_exporter)
+        assert sp is not None
+        assert sp.attributes["outcome"] == "halted_lock_timeout"
+
+
+class TestBareExceptionInLock:
+    """Commit 2 negative case: bare Exception (or any non-IngestError)
+    raised inside the lock does NOT get outcome attribution. The except
+    clause filters by IngestError, so an unrelated exception bypasses
+    the outcome assignment. The span closes without an outcome attribute
+    and the exception propagates as a real bug."""
+
+    def test_runtime_error_no_outcome(self, tmp_path, span_exporter, monkeypatch):
+        sales, archive, ledger, lock = _setup(tmp_path)
+        _drop_fixture(sales, "tey1104_clean.json", "watchtrack_2026-04-29.jsonl")
+
+        def _raise(path, rows, header=None):
+            raise RuntimeError("simulated unrelated bug")
+
+        monkeypatch.setattr("scripts.ingest_sales.atomic_write_csv", _raise)
+        with pytest.raises(RuntimeError):
+            _call(sales, archive, ledger, lock)
+        sp = _orchestrator_span(span_exporter)
+        assert sp is not None
+        # Span closed without outcome attribute -- this is the design.
+        assert "outcome" not in sp.attributes

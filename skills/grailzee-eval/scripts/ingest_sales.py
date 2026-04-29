@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import re
+import sys
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -958,6 +959,25 @@ def archive_jsonl(source: Path, archive_dir: Path) -> Path:
 # ─── Top-level orchestrator (design v1 §12, sub-step 1.7) ────────────
 
 
+# OTEL outcome string per IngestError subclass (sub-step 1.7 commit 2).
+# The orchestrator span's outcome attribute reflects "what went wrong"
+# semantically, not "where in the code it went wrong" -- a
+# SchemaShiftDetected has the same operational meaning whether it raises
+# pre-lock during transform or in-lock during read_ledger_csv.
+#
+# ArchiveMoveFailed is intentionally absent: the supervisor's mapping
+# table for sub-step 1.7 commit 2 names the four entries below. Archive
+# raises after the ledger has been successfully written, so the failure
+# semantically is "ledger complete; archive partial" -- a partial-success
+# state that does not fit a "halted_*" string. Carry-forward for spec v1.1.
+_OUTCOME_BY_CLASS: dict[type, str] = {
+    SchemaShiftDetected: "halted_schema_shift",
+    ERPBatchInvalid: "halted_erp_invalid",
+    LedgerWriteFailed: "halted_ledger_write",
+    LockAcquisitionFailed: "halted_lock_timeout",
+}
+
+
 def ingest_sales(
     *,
     sales_data_dir: Path | None = None,
@@ -983,9 +1003,15 @@ def ingest_sales(
     4. Archive each successfully-processed source file outside the lock.
 
     Errors during transform halt the batch BEFORE any lock acquire or
-    write -- ledger and archive stay untouched. SchemaShiftDetected and
-    ERPBatchInvalid are re-raised; the OTEL span outcome attribute is set
-    to "halted_schema_shift" or "halted_erp_invalid" first.
+    write -- ledger and archive stay untouched. Errors during the
+    in-lock critical section (read_ledger_csv, merge_rows, atomic_write_csv,
+    or LockAcquisitionFailed from with_exclusive_lock itself) propagate
+    cleanly: the with-block guarantees the lock is released on exception,
+    no archive moves happen because the archive loop is post-lock. The
+    OTEL span outcome attribute is set per _OUTCOME_BY_CLASS by exception
+    class -- semantic ("what went wrong") not positional ("where").
+    Bare Exception inside the lock propagates without outcome attribution
+    by design; only IngestError subclasses earn an outcome string.
 
     Args:
         sales_data_dir: source directory; defaults to GRAILZEE_ROOT/sales_data.
@@ -1054,29 +1080,40 @@ def ingest_sales(
                     1 for row in rows if row.buy_date is None
                 )
                 transformed.append((file, rows))
-        except SchemaShiftDetected:
-            span.set_attribute("outcome", "halted_schema_shift")
-            raise
-        except ERPBatchInvalid:
-            span.set_attribute("outcome", "halted_erp_invalid")
+        except IngestError as exc:
+            outcome = _OUTCOME_BY_CLASS.get(type(exc))
+            if outcome is not None:
+                span.set_attribute("outcome", outcome)
             raise
 
         # 3. Lock-protected critical section: read existing ledger,
         #    accumulate merge across files, prune, atomic write.
+        #    Wrapped in try/except IngestError so any in-lock raise gets
+        #    the same outcome attribution as pre-lock raises -- by
+        #    exception class, not by location. LockAcquisitionFailed
+        #    raised from with_exclusive_lock itself (before the with-block
+        #    body runs) is also caught here; the lock is never acquired
+        #    in that case so there is nothing to release.
         total_added = 0
         total_updated = 0
         total_unchanged = 0
-        with with_exclusive_lock(lock_path, timeout=lock_timeout):
-            merged = read_ledger_csv(ledger_path)
-            for _, rows in transformed:
-                merged, counts = merge_rows(merged, rows)
-                total_added += counts.added
-                total_updated += counts.updated
-                total_unchanged += counts.unchanged
-            pruned, pruned_count = prune_by_sell_date(
-                merged, today, window_days
-            )
-            atomic_write_csv(ledger_path, pruned)
+        try:
+            with with_exclusive_lock(lock_path, timeout=lock_timeout):
+                merged = read_ledger_csv(ledger_path)
+                for _, rows in transformed:
+                    merged, counts = merge_rows(merged, rows)
+                    total_added += counts.added
+                    total_updated += counts.updated
+                    total_unchanged += counts.unchanged
+                pruned, pruned_count = prune_by_sell_date(
+                    merged, today, window_days
+                )
+                atomic_write_csv(ledger_path, pruned)
+        except IngestError as exc:
+            outcome = _OUTCOME_BY_CLASS.get(type(exc))
+            if outcome is not None:
+                span.set_attribute("outcome", outcome)
+            raise
 
         # 4. Archive each processed file outside the lock.
         for file, _ in transformed:
@@ -1100,3 +1137,41 @@ def ingest_sales(
         span.set_attribute("rows_pruned", pruned_count)
         span.set_attribute("outcome", "complete")
         return manifest
+
+
+# ─── CLI surface (sub-step 1.7 commit 2) ─────────────────────────────
+#
+# Minimal operator escape hatch -- zero arguments. Production invocation
+# is the Telegram bot route (Phase 2); this exists for Phase 1 Gate 3
+# REPL smoke and for hand debugging. Configurable paths, dry-run, and
+# verbose flags are deliberately not added; if a flag is needed later,
+# it gets added with a use case behind it.
+
+
+def _main() -> int:
+    """Run ingest_sales() with all defaults; return process exit code.
+
+    Success: print one-line manifest summary to stdout, return 0.
+    IngestError: print "<ClassName>: <message>" to stderr, return 1.
+    Other exceptions propagate (Python default traceback).
+    """
+    try:
+        manifest = ingest_sales()
+    except IngestError as exc:
+        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    print(
+        f"ingest_sales: files_found={manifest.files_found} "
+        f"files_processed={manifest.files_processed} "
+        f"last_processed={manifest.last_processed} "
+        f"rows_added={manifest.rows_added} "
+        f"rows_updated={manifest.rows_updated} "
+        f"rows_unchanged={manifest.rows_unchanged} "
+        f"rows_unmatched={manifest.rows_unmatched} "
+        f"rows_pruned={manifest.rows_pruned}"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(_main())
