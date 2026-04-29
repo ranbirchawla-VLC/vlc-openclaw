@@ -230,8 +230,8 @@ def _row_to_csv_dict(row: LedgerRow) -> dict:
     """
     return {
         "stock_id": row.stock_id,
-        "buy_date": row.buy_date.isoformat() if row.buy_date else "",
-        "sell_date": row.sell_date.isoformat() if row.sell_date else "",
+        "buy_date": row.buy_date.isoformat() if row.buy_date is not None else "",
+        "sell_date": row.sell_date.isoformat() if row.sell_date is not None else "",
         "buy_cycle_id": row.buy_cycle_id or "",
         "sell_cycle_id": row.sell_cycle_id,
         "brand": row.brand,
@@ -240,12 +240,12 @@ def _row_to_csv_dict(row: LedgerRow) -> dict:
         "buy_price": f"{row.buy_price:.2f}",
         "sell_price": f"{row.sell_price:.2f}",
         "buy_received_date": (
-            row.buy_received_date.isoformat() if row.buy_received_date else ""
+            row.buy_received_date.isoformat() if row.buy_received_date is not None else ""
         ),
         "sell_delivered_date": (
-            row.sell_delivered_date.isoformat() if row.sell_delivered_date else ""
+            row.sell_delivered_date.isoformat() if row.sell_delivered_date is not None else ""
         ),
-        "buy_paid_date": row.buy_paid_date.isoformat() if row.buy_paid_date else "",
+        "buy_paid_date": row.buy_paid_date.isoformat() if row.buy_paid_date is not None else "",
     }
 
 
@@ -539,7 +539,8 @@ def prune_by_sell_date(
     Args:
         rows: current ledger contents.
         today: reference date for the window calculation.
-        window_days: rolling window length in days (default 180).
+        window_days: rolling window length in days (default 180). Assumed >= 0;
+            negative values produce a future boundary and prune all dated rows.
 
     Returns:
         Tuple of (kept_rows, pruned_count).

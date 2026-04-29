@@ -15,6 +15,7 @@ from scripts.ingest_sales import (
     ERPBatchInvalid,
     IngestError,
     IngestManifest,
+    LEDGER_CSV_COLUMNS,
     LEDGER_LOCK_DEFAULT,
     LedgerRow,
     LedgerWriteFailed,
@@ -334,5 +335,4 @@ class TestSellDateNullability:
         LedgerRow) is deferred to sub-step 1.7 when the read path is implemented.
         """
         d = _row_to_csv_dict(_NULL_SELL)
-        from scripts.ingest_sales import LEDGER_CSV_COLUMNS
         assert set(d.keys()) == set(LEDGER_CSV_COLUMNS)
