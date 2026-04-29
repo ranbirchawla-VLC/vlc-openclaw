@@ -27,7 +27,10 @@ Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
 **Tip**: `d7be685` (progress.md chore on top of `61f6f6a` — 1.6 commit)
 **Remote**: not pushed yet
 **Design spec**: `Downloads/GZ-4-28.v3/Grailzee_Ledger_Redo_Design_v1.md` — not present on disk at last check (2026-04-29). Content referenced from ADRs and session history.
-**Tests**: 1234 eval / 71 skipped / 235 cowork / 201 ledger
+**Tests**: 1235 eval / 71 skipped / 235 cowork / 201 ledger
+(baseline correction 2026-04-29: handoff v2 §3 said 1234; verified by
+stash + new-test-files-aside re-run against d7be685 bare tree; was
+off by one.)
 
 Skipped-delta note (2026-04-29): baseline 76 skipped recorded on MacStudio; laptop
 has 5 additional state-file-conditional tests passing (skipif on installed state files).
@@ -41,7 +44,7 @@ has 5 additional state-file-conditional tests passing (skipif on installed state
 | 1.4 Rule Y dedup-and-update | DONE | `5d5d47f` |
 | 1.5 pruning + ADR-0004 nullability | DONE | `30cfd7f` |
 | 1.6 archive move | DONE | `61f6f6a` |
-| 1.7 top-level orchestrator | NOT STARTED | — |
+| 1.7 top-level orchestrator | IN PROGRESS (commit 1 of 2) | — |
 | Phase 1 Gate 3 smoke | NOT STARTED | — |
 
 ---

@@ -449,6 +449,78 @@ def atomic_write_csv(
             raise LedgerWriteFailed(str(exc)) from exc
 
 
+# ─── CSV read path — inverse of _row_to_csv_dict (sub-step 1.7) ──────
+
+
+# Non-optional columns per ADR-0004 D2/D3. Empty in any of these is a
+# data-integrity signal and must raise rather than silently coerce.
+_NON_OPTIONAL_STR_COLUMNS: tuple[str, ...] = (
+    "stock_id", "sell_cycle_id", "brand", "reference", "account",
+)
+_NON_OPTIONAL_NUM_COLUMNS: tuple[str, ...] = ("buy_price", "sell_price")
+
+
+def _row_from_csv_dict(raw: dict[str, str]) -> LedgerRow:
+    """Inverse of _row_to_csv_dict for one csv.DictReader row.
+
+    Empty strings parse to None for nullable fields; empty strings in
+    non-optional fields raise SchemaShiftDetected with the field name in
+    the message. Empty in a non-optional field is a data-integrity
+    signal, not a normal None state (ADR-0004 D2).
+    """
+    for col in _NON_OPTIONAL_STR_COLUMNS + _NON_OPTIONAL_NUM_COLUMNS:
+        if not (raw.get(col) or "").strip():
+            raise SchemaShiftDetected(
+                f"Empty {col} in trade_ledger row; non-optional field cannot be blank."
+            )
+    return LedgerRow(
+        stock_id=raw["stock_id"],
+        sell_date=_parse_date_opt(raw.get("sell_date")),
+        sell_cycle_id=raw["sell_cycle_id"],
+        brand=raw["brand"],
+        reference=raw["reference"],
+        account=raw["account"],
+        buy_price=float(raw["buy_price"]),
+        sell_price=float(raw["sell_price"]),
+        buy_date=_parse_date_opt(raw.get("buy_date")),
+        buy_cycle_id=(raw.get("buy_cycle_id") or None),
+        buy_received_date=_parse_date_opt(raw.get("buy_received_date")),
+        sell_delivered_date=_parse_date_opt(raw.get("sell_delivered_date")),
+        buy_paid_date=_parse_date_opt(raw.get("buy_paid_date")),
+    )
+
+
+def read_ledger_csv(path: Path) -> list[LedgerRow]:
+    """Parse trade_ledger.csv into LedgerRow objects.
+
+    Inverse of atomic_write_csv. The first-run case (file does not yet
+    exist) returns an empty list rather than raising; this lets the
+    orchestrator treat the absent ledger as a clean slate without a
+    pre-flight existence check at every call site.
+
+    Empty strings in nullable date and cycle_id fields parse to None.
+    Empty strings in non-optional fields raise SchemaShiftDetected.
+
+    Pure read; the caller is responsible for any locking. The orchestrator
+    holds with_exclusive_lock around its read+write critical section.
+
+    Raises:
+        SchemaShiftDetected: empty value in a non-optional column.
+    """
+    with tracer.start_as_current_span("ingest_sales.read_ledger_csv") as span:
+        span.set_attribute("source_path", str(path))
+        if not path.exists():
+            span.set_attribute("row_count", 0)
+            return []
+        rows: list[LedgerRow] = []
+        with open(path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for raw in reader:
+                rows.append(_row_from_csv_dict(raw))
+        span.set_attribute("row_count", len(rows))
+        return rows
+
+
 # ─── Merge — Rule Y (design v1 §8) ───────────────────────────────────
 
 
@@ -881,3 +953,150 @@ def archive_jsonl(source: Path, archive_dir: Path) -> Path:
         span.set_attribute("archived_path", str(dest))
         span.set_attribute("outcome", "archived")
         return dest
+
+
+# ─── Top-level orchestrator (design v1 §12, sub-step 1.7) ────────────
+
+
+def ingest_sales(
+    *,
+    sales_data_dir: Path | None = None,
+    archive_dir: Path | None = None,
+    ledger_path: Path | None = None,
+    lock_path: Path | None = None,
+    today: date | None = None,
+    window_days: int = 180,
+    lock_timeout: float = 30,
+) -> IngestManifest:
+    """Run one ingest cycle: scan, transform, merge, prune, write, archive.
+
+    Composition per design v1 §12:
+
+    1. Scan sales_data/ for top-level *.jsonl files (archive/ subdirectory
+       is skipped because the glob is non-recursive).
+    2. Transform each file via transform_jsonl; validate each emitted row
+       has a non-blank sell_cycle_id (ADR-0004 D2); count rows whose
+       buy_date is None toward rows_unmatched at this transform step.
+    3. Acquire one exclusive lock spanning read+merge+prune+write. The
+       lock is released before any archive move; archive operations do
+       not contend on the ledger lock per ADR-0002.
+    4. Archive each successfully-processed source file outside the lock.
+
+    Errors during transform halt the batch BEFORE any lock acquire or
+    write -- ledger and archive stay untouched. SchemaShiftDetected and
+    ERPBatchInvalid are re-raised; the OTEL span outcome attribute is set
+    to "halted_schema_shift" or "halted_erp_invalid" first.
+
+    Args:
+        sales_data_dir: source directory; defaults to GRAILZEE_ROOT/sales_data.
+        archive_dir: archive directory; defaults to sales_data/archive.
+        ledger_path: target CSV; defaults to GRAILZEE_ROOT/state/trade_ledger.csv.
+        lock_path: lock file; defaults to LEDGER_LOCK_DEFAULT (local FS).
+        today: reference date for prune; defaults to date.today().
+        window_days: prune rolling-window days (default 180 per §10).
+        lock_timeout: seconds to wait for the exclusive lock (default 30).
+
+    Returns:
+        IngestManifest with files_found, files_processed, last_processed,
+        rows_added, rows_updated, rows_unchanged, rows_unmatched,
+        rows_pruned, error fields populated per the run's outcome.
+
+    Raises:
+        SchemaShiftDetected: extraction-contract violation in any file,
+            including a transform-emitted row with blank sell_cycle_id.
+        ERPBatchInvalid: extraction-agent contract violation (services
+            block, duplicate stock_id within a single file's batch).
+        LockAcquisitionFailed: exclusive lock not acquired within timeout.
+        LedgerWriteFailed: atomic CSV rewrite failed.
+        ArchiveMoveFailed: post-write archive move failed (ledger written).
+    """
+    sales_data_dir = _resolve_sales_data_dir(sales_data_dir)
+    archive_dir = _resolve_archive_dir(archive_dir)
+    ledger_path = _resolve_ledger_path(ledger_path)
+    lock_path = _resolve_lock_path(lock_path)
+    if today is None:
+        today = date.today()
+
+    with tracer.start_as_current_span("ingest_sales.ingest_sales") as span:
+        span.set_attribute("sales_data_dir", str(sales_data_dir))
+        span.set_attribute("ledger_path", str(ledger_path))
+
+        # 1. Scan: top-level *.jsonl only. Sorted for deterministic order.
+        files = sorted(
+            p for p in sales_data_dir.glob("*.jsonl") if p.is_file()
+        )
+        span.set_attribute("files_found", len(files))
+
+        if not files:
+            span.set_attribute("rows_added", 0)
+            span.set_attribute("rows_updated", 0)
+            span.set_attribute("rows_unchanged", 0)
+            span.set_attribute("rows_unmatched", 0)
+            span.set_attribute("rows_pruned", 0)
+            span.set_attribute("outcome", "no_files")
+            return IngestManifest(files_found=0, files_processed=0)
+
+        # 2. Transform each file (no lock yet). Inheritances 1 and 4
+        #    are applied here: blank sell_cycle_id raises; rows_unmatched
+        #    is counted at this step, accumulated across files.
+        transformed: list[tuple[Path, list[LedgerRow]]] = []
+        rows_unmatched_total = 0
+        try:
+            for file in files:
+                rows = transform_jsonl(file)
+                for row in rows:
+                    if not row.sell_cycle_id:
+                        raise SchemaShiftDetected(
+                            f"Blank sell_cycle_id on row stock_id={row.stock_id} "
+                            f"from {file.name}; non-optional field cannot be blank."
+                        )
+                rows_unmatched_total += sum(
+                    1 for row in rows if row.buy_date is None
+                )
+                transformed.append((file, rows))
+        except SchemaShiftDetected:
+            span.set_attribute("outcome", "halted_schema_shift")
+            raise
+        except ERPBatchInvalid:
+            span.set_attribute("outcome", "halted_erp_invalid")
+            raise
+
+        # 3. Lock-protected critical section: read existing ledger,
+        #    accumulate merge across files, prune, atomic write.
+        total_added = 0
+        total_updated = 0
+        total_unchanged = 0
+        with with_exclusive_lock(lock_path, timeout=lock_timeout):
+            merged = read_ledger_csv(ledger_path)
+            for _, rows in transformed:
+                merged, counts = merge_rows(merged, rows)
+                total_added += counts.added
+                total_updated += counts.updated
+                total_unchanged += counts.unchanged
+            pruned, pruned_count = prune_by_sell_date(
+                merged, today, window_days
+            )
+            atomic_write_csv(ledger_path, pruned)
+
+        # 4. Archive each processed file outside the lock.
+        for file, _ in transformed:
+            archive_jsonl(file, archive_dir)
+
+        # Inheritance 3: explicit MergeCounts -> manifest field wiring.
+        manifest = IngestManifest(
+            files_found=len(files),
+            files_processed=len(transformed),
+            last_processed=transformed[-1][0].name,
+            rows_added=total_added,
+            rows_updated=total_updated,
+            rows_unchanged=total_unchanged,
+            rows_unmatched=rows_unmatched_total,
+            rows_pruned=pruned_count,
+        )
+        span.set_attribute("rows_added", total_added)
+        span.set_attribute("rows_updated", total_updated)
+        span.set_attribute("rows_unchanged", total_unchanged)
+        span.set_attribute("rows_unmatched", rows_unmatched_total)
+        span.set_attribute("rows_pruned", pruned_count)
+        span.set_attribute("outcome", "complete")
+        return manifest
