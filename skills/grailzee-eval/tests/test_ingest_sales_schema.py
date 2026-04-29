@@ -24,6 +24,7 @@ from scripts.ingest_sales import (
     _resolve_ledger_path,
     _resolve_lock_path,
     _resolve_sales_data_dir,
+    _row_to_csv_dict,
 )
 
 _REQUIRED = dict(
@@ -299,3 +300,39 @@ class TestPathResolution:
         assert isinstance(_resolve_sales_data_dir(), Path)
         assert isinstance(_resolve_archive_dir(), Path)
         assert isinstance(_resolve_lock_path(), Path)  # returns local default
+
+
+# ─── sell_date nullability (ADR-0004) ─────────────────────────────────
+
+
+_NULL_SELL = LedgerRow(
+    stock_id="LEGACY-001",
+    sell_date=None,
+    sell_cycle_id="cycle_2026-08",
+    brand="Tudor",
+    reference="79830RB",
+    account="NR",
+    buy_price=2750.0,
+    sell_price=3200.0,
+)
+
+
+class TestSellDateNullability:
+    def test_sell_date_none_constructs(self) -> None:
+        """sell_date=None is valid per the Phase 1 nullability contract (ADR-0004)."""
+        assert _NULL_SELL.sell_date is None
+
+    def test_sell_date_none_serializes_to_empty_string(self) -> None:
+        """_row_to_csv_dict renders sell_date=None as '' (matches buy_date pattern)."""
+        d = _row_to_csv_dict(_NULL_SELL)
+        assert d["sell_date"] == ""
+
+    def test_sell_date_none_round_trip_serialization_shape(self) -> None:
+        """CSV dict produced from a None-sell_date row has all 13 expected keys.
+
+        The round-trip-back assertion (reading '' sell_date from CSV back into a
+        LedgerRow) is deferred to sub-step 1.7 when the read path is implemented.
+        """
+        d = _row_to_csv_dict(_NULL_SELL)
+        from scripts.ingest_sales import LEDGER_CSV_COLUMNS
+        assert set(d.keys()) == set(LEDGER_CSV_COLUMNS)

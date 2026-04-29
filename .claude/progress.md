@@ -39,10 +39,19 @@ has 5 additional state-file-conditional tests passing (skipif on installed state
 | 1.2 transform_jsonl single-file ingest | DONE | `eb10767` (OTEL corrective) |
 | 1.3 lockfile + atomic write | DONE | `43c47d0` (commit A + commit B) |
 | 1.4 Rule Y dedup-and-update | DONE | `5d5d47f` |
-| 1.5 pruning | NEXT UP | — |
-| 1.6 archive move | NOT STARTED | — |
+| 1.5 pruning | DONE | pending commit |
+| 1.6 archive move | NEXT UP | — |
 | 1.7 top-level orchestrator | NOT STARTED | — |
 | Phase 1 Gate 3 smoke | NOT STARTED | — |
+
+**1.5 closeout (2026-04-29)**:
+- Branch tip: pending commit (changes staged against `5d5d47f`)
+- test-grailzee-ledger: 173 passed / 0 skipped
+- test-grailzee-eval: 1207 passed / 71 skipped
+- test-grailzee-cowork: 235 passed / 0 skipped
+- Gate 2: 0 blocker / 1 major / 3 minor (all addressed before commit)
+- M1 corrective: `_row_to_csv_dict` sell_date None guard (matched buy_date pattern)
+- Stop condition: `sell_date: date` annotation does not match None runtime posture; flagged for Phase 2 schema discussion; both prune and serializer now handle None defensively
 
 **1.4 closeout (2026-04-29)**:
 - Branch tip: `5d5d47f`

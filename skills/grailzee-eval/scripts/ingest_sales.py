@@ -18,7 +18,7 @@ import os
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import IO, Any, Generator
 
@@ -89,9 +89,11 @@ class LedgerRow:
     access fields by name; column order is a CSV-serialization concern.
     """
 
-    # Required fields -- always populated on a valid Grailzee Sale
+    # Required positional fields. sell_date is nullable: legacy rows that
+    # predate sell_date tracking are represented with sell_date=None and
+    # must not be pruned (design v1 §10, ADR-0004).
     stock_id: str
-    sell_date: date
+    sell_date: date | None
     sell_cycle_id: str
     brand: str
     reference: str
@@ -229,7 +231,7 @@ def _row_to_csv_dict(row: LedgerRow) -> dict:
     return {
         "stock_id": row.stock_id,
         "buy_date": row.buy_date.isoformat() if row.buy_date else "",
-        "sell_date": row.sell_date.isoformat(),
+        "sell_date": row.sell_date.isoformat() if row.sell_date else "",
         "buy_cycle_id": row.buy_cycle_id or "",
         "sell_cycle_id": row.sell_cycle_id,
         "brand": row.brand,
@@ -517,6 +519,59 @@ def _merge_rows_inner(
                 updated += 1
 
     return result, MergeCounts(added=added, updated=updated, unchanged=unchanged)
+
+
+# ─── Prune — rolling window (design v1 §10) ──────────────────────────
+
+
+def prune_by_sell_date(
+    rows: list[LedgerRow],
+    today: date,
+    window_days: int = 180,
+) -> tuple[list[LedgerRow], int]:
+    """Return (kept_rows, pruned_count) applying the rolling-window rule (§10).
+
+    A row is kept if its sell_date is >= (today - window_days). The boundary
+    is inclusive. Rows where sell_date is None are always kept: they represent
+    pre-A.6 legacy rows without a sell date and must not be silently discarded.
+    Input order is preserved in the returned list.
+
+    Args:
+        rows: current ledger contents.
+        today: reference date for the window calculation.
+        window_days: rolling window length in days (default 180).
+
+    Returns:
+        Tuple of (kept_rows, pruned_count).
+    """
+    with tracer.start_as_current_span("ingest_sales.prune_by_sell_date") as span:
+        span.set_attribute("input_count", len(rows))
+        span.set_attribute("today", today.isoformat())
+        span.set_attribute("window_days", window_days)
+        kept, pruned_count = _prune_by_sell_date_inner(rows, today, window_days)
+        span.set_attribute("kept_count", len(kept))
+        span.set_attribute("pruned_count", pruned_count)
+        return kept, pruned_count
+
+
+def _prune_by_sell_date_inner(
+    rows: list[LedgerRow],
+    today: date,
+    window_days: int,
+) -> tuple[list[LedgerRow], int]:
+    """Private implementation of prune_by_sell_date. OTEL span lives on the
+    public wrapper; this function contains only business logic. Iterates rows
+    once, classifying each as kept (sell_date >= boundary or None) or pruned
+    (sell_date < boundary). Boundary = today - timedelta(days=window_days)."""
+    boundary = today - timedelta(days=window_days)
+    kept: list[LedgerRow] = []
+    pruned = 0
+    for row in rows:
+        if row.sell_date is None or row.sell_date >= boundary:
+            kept.append(row)
+        else:
+            pruned += 1
+    return kept, pruned
 
 
 # ─── Date helpers ────────────────────────────────────────────────────
