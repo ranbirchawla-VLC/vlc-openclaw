@@ -148,6 +148,7 @@ class IngestManifest:
     rows_unchanged: int = 0
     rows_unmatched: int = 0        # rows with empty buy-side dates (no Purchase match)
     rows_pruned: int = 0
+    rows_skipped: list[dict] = field(default_factory=list)  # {transaction_id, reason} per skipped row
     error: IngestError | None = None  # None on success
 
 
@@ -677,169 +678,229 @@ def _parse_date_opt(s: str | None) -> date | None:
     return _parse_date(s)
 
 
-# ─── Transformation (design v1 §7) ───────────────────────────────────
+# ─── Transformation (design v1 §7, ADR-0005) ─────────────────────────
 
 # Platform fee → account code mapping per §7 step 4.
+# actual_cost values are integers after round(); 49 → NR, 99 → RES.
+# Any other value raises SchemaShiftDetected (defensive guard; the
+# extraction agent should prevent this from reaching transform).
 _PLATFORM_FEE_TO_ACCOUNT: dict[int, str] = {49: "NR", 99: "RES"}
 
 
-def transform_jsonl(path: Path) -> list[LedgerRow]:
-    """Read one watchtrack_*.jsonl batch file; return LedgerRow list.
+def transform_jsonl(path: Path) -> tuple[list[LedgerRow], list[dict]]:
+    """Read one watchtrack_*.jsonl batch file; return (rows, skipped).
 
-    The file contains a single JSON object with top-level "sales" and
-    "purchases" arrays (the extraction agent's atomic batch contract).
-    Only Sales where "Grailzee" in platform are emitted. Each emitted
-    row represents one line item; the Sale's stock_id is the dedup key.
+    The file is JSONL (ADR-0005): one JSON object per line, line-delimited.
+    Records are bucketed by a top-level `type` discriminator:
+      - "Sale"     → sales bucket (Grailzee Sales are transformed to LedgerRows)
+      - "Purchase" → purchases bucket (indexed for Sale join)
+      - "Trade"    → silently skipped (no row, no skipped entry, no raise)
+      - other      → SchemaShiftDetected
+
+    Only Sales where "Grailzee" in platform are transformed. For each
+    Grailzee Sale, each line_item emits one LedgerRow. Pending Sales are
+    skipped (no row written); they may reappear as Fulfilled in a future batch.
+
+    Args:
+        path: JSONL file path to parse.
+
+    Returns:
+        (rows, skipped) where rows is the list of LedgerRow instances
+        and skipped is a list of {transaction_id, reason} dicts for
+        Grailzee Sales that were not transformed (currently: Pending).
 
     Raises:
-        SchemaShiftDetected: missing top-level "sales" or "purchases"
-            key; missing line_item.stock_id on a Grailzee Sale; missing
-            line_item.cost_of_item on a Purchase that matches a Sale.
-        ERPBatchInvalid: empty services[], no "Platform fee" entry,
-            actual_cost is None, or actual_cost maps to neither NR nor
-            RES. These are extraction-agent contract violations per §11.
+        SchemaShiftDetected: JSON parse error on any line; missing top-level
+            `type` field; unknown type value; unknown Platform fee actual_cost;
+            missing required transform fields (created_at, stock_id,
+            cost_of_item, unit_price, line_items).
     """
     with tracer.start_as_current_span("ingest_sales.transform_jsonl") as span:
         span.set_attribute("source_file", path.name)
         return _transform_jsonl_inner(path, span)
 
 
-def _transform_jsonl_inner(path: Path, span: object) -> list[LedgerRow]:
+def _transform_jsonl_inner(
+    path: Path, span: object
+) -> tuple[list[LedgerRow], list[dict]]:
     """Inner implementation; span is the ambient OTel span from the caller."""
-    raw = json.loads(path.read_text())
+    sales: list[dict] = []
+    purchases: list[dict] = []
 
-    # Set sales_total before any raise so the attribute is present even on
-    # SchemaShiftDetected (missing-key path). Uses .get() because the key
-    # being absent is exactly the error we're about to check.
-    span.set_attribute("sales_total", len(raw.get("sales", [])))
+    # Parse JSONL: one JSON object per line (ADR-0005). JSONDecodeError and
+    # missing `type` both become SchemaShiftDetected with line context.
+    with path.open(encoding="utf-8") as fh:
+        for lineno, raw_line in enumerate(fh, 1):
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise SchemaShiftDetected(
+                    f"{path.name}:{lineno}: JSON parse error — "
+                    f"{exc.msg} (near {line[:80]!r})"
+                ) from exc
 
-    for key in ("sales", "purchases"):
-        if key not in raw:
-            raise SchemaShiftDetected(
-                f"Missing required top-level key '{key}' in {path.name}."
-            )
+            rec_type = rec.get("type")
+            if rec_type is None:
+                raise SchemaShiftDetected(
+                    f"{path.name}:{lineno}: missing top-level 'type' field."
+                )
+            match rec_type:
+                case "Sale":
+                    sales.append(rec)
+                case "Purchase":
+                    purchases.append(rec)
+                case "Trade":
+                    pass  # silent skip — no row, no skipped entry
+                case _:
+                    raise SchemaShiftDetected(
+                        f"{path.name}:{lineno}: unknown type {rec_type!r}; "
+                        "expected 'Sale', 'Purchase', or 'Trade'."
+                    )
 
-    # Index Purchases by line_item.stock_id for O(1) join.
+    span.set_attribute("sales_total", len(sales))
+
+    # Index Purchases by every stock_id in their line_items for O(1) join.
+    # A single Purchase may have multiple line_items; each is independently
+    # joinable to a different Sale line_item.
     purchase_by_sid: dict[str, dict] = {}
-    for purchase in raw["purchases"]:
-        sid = (purchase.get("line_item") or {}).get("stock_id")
-        if sid:
-            purchase_by_sid[sid] = purchase
+    for purchase in purchases:
+        for p_li in purchase.get("line_items", []):
+            sid = p_li.get("stock_id")
+            if sid:
+                purchase_by_sid[sid] = purchase
 
     rows: list[LedgerRow] = []
+    skipped: list[dict] = []
 
     try:
-        for sale in raw["sales"]:
-            if "Grailzee" not in sale.get("platform", ""):
+        for sale in sales:
+            if "Grailzee" not in sale.get("platform", []):
                 continue
 
-            raw_li = sale.get("line_item")
-            if not raw_li:
-                raise SchemaShiftDetected(
-                    f"Missing or empty line_item on a Grailzee Sale in {path.name}."
-                )
-            li = raw_li
-            stock_id = li.get("stock_id")
-            if not stock_id:
-                raise SchemaShiftDetected(
-                    f"Missing line_item.stock_id on Grailzee Sale in {path.name}."
-                )
+            # Pending Sales are skipped; recorded in skipped for the manifest.
+            # If status flips to Fulfilled on the next extraction, the Sale
+            # lands on the next ingest run.
+            if sale.get("status") == "Pending":
+                skipped.append({
+                    "transaction_id": sale.get("transaction_id", ""),
+                    "reason": "pending",
+                })
+                continue
 
-            # §11 validity: services block must be non-empty and contain
-            # a "Platform fee" entry with a non-null actual_cost.
+            tid = sale.get("transaction_id", "?")
+
+            if "created_at" not in sale:
+                raise SchemaShiftDetected(
+                    f"Grailzee Sale {tid}: missing 'created_at' in {path.name}."
+                )
+            sell_date = _parse_date(sale["created_at"])
+            sell_cycle_id = cycle_id_from_date(sell_date)
+
+            # Account derivation: locate Platform fee in services (§7 step 4).
+            # Validity (empty services, anomalous fee structures) is extraction-
+            # agent territory per §11 and ADR-0005. transform_jsonl trusts the
+            # input; only raises SchemaShiftDetected on structural failures.
             services = sale.get("services") or []
-            if not services:
-                raise ERPBatchInvalid(
-                    f"Sale {stock_id}: empty services[] — "
-                    "extraction agent must halt batches with missing services."
-                )
-
             platform_fee = next(
                 (s for s in services if s.get("name") == "Platform fee"), None
             )
             if platform_fee is None:
-                names = [s.get("name", "") for s in services]
-                raise ERPBatchInvalid(
-                    f"Sale {stock_id}: no 'Platform fee' service entry "
-                    f"(found: {names}) — extraction-agent contract violation."
+                raise SchemaShiftDetected(
+                    f"Grailzee Sale {tid}: no 'Platform fee' service entry; "
+                    "extraction-agent contract violation."
                 )
-
             actual_cost = platform_fee.get("actual_cost")
             if actual_cost is None:
-                raise ERPBatchInvalid(
-                    f"Sale {stock_id}: Platform fee actual_cost is null."
+                raise SchemaShiftDetected(
+                    f"Grailzee Sale {tid}: Platform fee actual_cost is null."
                 )
-
+            # The extraction agent emits integer actual_cost values (49 or 99);
+            # round() handles the json.loads float representation defensively.
             cost_key = round(float(actual_cost))
             account = _PLATFORM_FEE_TO_ACCOUNT.get(cost_key)
             if account is None:
-                raise ERPBatchInvalid(
-                    f"Sale {stock_id}: Platform fee actual_cost={actual_cost} "
-                    "does not map to NR ($49) or RES ($99)."
+                raise SchemaShiftDetected(
+                    f"Grailzee Sale {tid}: Platform fee actual_cost={actual_cost} "
+                    "does not map to NR (49) or RES (99)."
                 )
 
-            if "created_at" not in sale:
+            # Each line_item in the Sale emits one LedgerRow.
+            line_items = sale.get("line_items") or []
+            if not line_items:
                 raise SchemaShiftDetected(
-                    f"Missing created_at on Grailzee Sale {stock_id} in {path.name}."
+                    f"Grailzee Sale {tid}: missing or empty 'line_items' in {path.name}."
                 )
-            if "cost_of_item" not in li:
-                raise SchemaShiftDetected(
-                    f"Missing line_item.cost_of_item on Grailzee Sale {stock_id}."
-                )
-            if "unit_price" not in li:
-                raise SchemaShiftDetected(
-                    f"Missing line_item.unit_price on Grailzee Sale {stock_id}."
-                )
-            sell_date = _parse_date(sale["created_at"])
-            sell_cycle_id = cycle_id_from_date(sell_date)
-            sell_delivered_date = _parse_date_opt(li.get("delivered_date"))
 
-            purchase = purchase_by_sid.get(stock_id)
-            if purchase is not None:
-                p_li = purchase.get("line_item") or {}
-                if "cost_of_item" not in p_li:
+            for li in line_items:
+                stock_id = li.get("stock_id")
+                if not stock_id:
                     raise SchemaShiftDetected(
-                        f"Missing line_item.cost_of_item on Purchase "
-                        f"matching {stock_id}."
+                        f"Grailzee Sale {tid}: missing line_item.stock_id in {path.name}."
                     )
-                buy_date = _parse_date_opt(purchase.get("created_at"))
-                buy_cycle_id = cycle_id_from_date(buy_date) if buy_date else None
-                buy_received_date = _parse_date_opt(p_li.get("delivered_date"))
-                payments = purchase.get("payments") or []
-                if payments:
-                    pdates = [
-                        _parse_date(p["payment_date"])
-                        for p in payments
-                        if p.get("payment_date")
-                    ]
-                    buy_paid_date = min(pdates) if pdates else None
-                else:
-                    buy_paid_date = None
-            else:
-                buy_date = None
-                buy_cycle_id = None
-                buy_received_date = None
-                buy_paid_date = None
+                if "cost_of_item" not in li:
+                    raise SchemaShiftDetected(
+                        f"Grailzee Sale {tid}: missing line_item.cost_of_item "
+                        f"for stock_id {stock_id}."
+                    )
+                if "unit_price" not in li:
+                    raise SchemaShiftDetected(
+                        f"Grailzee Sale {tid}: missing line_item.unit_price "
+                        f"for stock_id {stock_id}."
+                    )
 
-            rows.append(LedgerRow(
-                stock_id=stock_id,
-                sell_date=sell_date,
-                sell_cycle_id=sell_cycle_id,
-                brand=li.get("brand", ""),
-                reference=li.get("reference_number", ""),
-                account=account,
-                buy_price=float(li["cost_of_item"]),
-                sell_price=float(li["unit_price"]),
-                buy_date=buy_date,
-                buy_cycle_id=buy_cycle_id,
-                buy_received_date=buy_received_date,
-                sell_delivered_date=sell_delivered_date,
-                buy_paid_date=buy_paid_date,
-            ))
+                sell_delivered_date = _parse_date_opt(li.get("delivered_date"))
+
+                # Join by stock_id. buy_received_date uses Purchase.line_items[0]
+                # per design v1 §7 (spec anchors to first line_item regardless of
+                # which line_item holds the matching stock_id).
+                purchase = purchase_by_sid.get(stock_id)
+                if purchase is not None:
+                    buy_date = _parse_date_opt(purchase.get("created_at"))
+                    buy_cycle_id = cycle_id_from_date(buy_date) if buy_date else None
+                    p_line_items = purchase.get("line_items") or []
+                    buy_received_date = (
+                        _parse_date_opt(p_line_items[0].get("delivered_date"))
+                        if p_line_items
+                        else None
+                    )
+                    payments = purchase.get("payments") or []
+                    if payments:
+                        pdates = [
+                            _parse_date(p["payment_date"])
+                            for p in payments
+                            if p.get("payment_date")
+                        ]
+                        buy_paid_date = min(pdates) if pdates else None
+                    else:
+                        buy_paid_date = None
+                else:
+                    buy_date = None
+                    buy_cycle_id = None
+                    buy_received_date = None
+                    buy_paid_date = None
+
+                rows.append(LedgerRow(
+                    stock_id=stock_id,
+                    sell_date=sell_date,
+                    sell_cycle_id=sell_cycle_id,
+                    brand=li.get("brand", ""),
+                    reference=li.get("reference_number", ""),
+                    account=account,
+                    buy_price=float(li["cost_of_item"]),
+                    sell_price=float(li["unit_price"]),
+                    buy_date=buy_date,
+                    buy_cycle_id=buy_cycle_id,
+                    buy_received_date=buy_received_date,
+                    sell_delivered_date=sell_delivered_date,
+                    buy_paid_date=buy_paid_date,
+                ))
     finally:
         span.set_attribute("rows_emitted", len(rows))
 
-    return rows
+    return rows, skipped
 
 
 # ─── Archive move (design v1 §12, sub-step 1.6) ──────────────────────
@@ -1066,10 +1127,12 @@ def ingest_sales(
         #    are applied here: blank sell_cycle_id raises; rows_unmatched
         #    is counted at this step, accumulated across files.
         transformed: list[tuple[Path, list[LedgerRow]]] = []
+        all_skipped: list[dict] = []
         rows_unmatched_total = 0
         try:
             for file in files:
-                rows = transform_jsonl(file)
+                rows, skipped = transform_jsonl(file)
+                all_skipped.extend(skipped)
                 for row in rows:
                     if not row.sell_cycle_id:
                         raise SchemaShiftDetected(
@@ -1129,12 +1192,14 @@ def ingest_sales(
             rows_unchanged=total_unchanged,
             rows_unmatched=rows_unmatched_total,
             rows_pruned=pruned_count,
+            rows_skipped=all_skipped,
         )
         span.set_attribute("rows_added", total_added)
         span.set_attribute("rows_updated", total_updated)
         span.set_attribute("rows_unchanged", total_unchanged)
         span.set_attribute("rows_unmatched", rows_unmatched_total)
         span.set_attribute("rows_pruned", pruned_count)
+        span.set_attribute("rows_skipped_count", len(all_skipped))
         span.set_attribute("outcome", "complete")
         return manifest
 
@@ -1160,6 +1225,7 @@ def _main() -> int:
     except IngestError as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
+    skipped_json = json.dumps(manifest.rows_skipped, separators=(",", ":"))
     print(
         f"ingest_sales: files_found={manifest.files_found} "
         f"files_processed={manifest.files_processed} "
@@ -1168,7 +1234,8 @@ def _main() -> int:
         f"rows_updated={manifest.rows_updated} "
         f"rows_unchanged={manifest.rows_unchanged} "
         f"rows_unmatched={manifest.rows_unmatched} "
-        f"rows_pruned={manifest.rows_pruned}"
+        f"rows_pruned={manifest.rows_pruned} "
+        f"rows_skipped={skipped_json}"
     )
     return 0
 
