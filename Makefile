@@ -20,7 +20,7 @@
 PYTHON = .venv/bin/python
 PYTEST = $(PYTHON) -m pytest
 
-.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-cowork test-grailzee-ledger test-grailzee-ledger-schema test-grailzee-ledger-transform
+.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-cowork test-grailzee-ledger test-grailzee-ledger-schema test-grailzee-ledger-transform test-grailzee-ledger-lock
 
 help:
 	@echo "Available targets:"
@@ -37,6 +37,7 @@ help:
 	@echo "  make test-grailzee-ledger          - run all grailzee ledger redo tests"
 	@echo "  make test-grailzee-ledger-schema   - run sub-step 1.1 schema tests only"
 	@echo "  make test-grailzee-ledger-transform - run sub-step 1.2 transform tests only"
+	@echo "  make test-grailzee-ledger-lock      - run sub-step 1.3 lock/atomic write tests only"
 	@echo "  make test-nutrios                - run all NutriOS v1 tests"
 	@echo "  make test-nutrios-time           - run nutrios_time tests"
 	@echo "  make test-nutrios-store          - run nutrios_store tests"
@@ -85,13 +86,16 @@ test-grailzee-cowork:
 	$(PYTEST) grailzee-cowork/tests
 
 test-grailzee-ledger:
-	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_schema.py skills/grailzee-eval/tests/test_ingest_sales_transform.py
+	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_schema.py skills/grailzee-eval/tests/test_ingest_sales_transform.py skills/grailzee-eval/tests/test_ingest_sales_lock.py
 
 test-grailzee-ledger-schema:
 	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_schema.py
 
 test-grailzee-ledger-transform:
 	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_transform.py
+
+test-grailzee-ledger-lock:
+	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_lock.py
 
 test-nutrios:
 	$(PYTEST) skills/nutrios/tests

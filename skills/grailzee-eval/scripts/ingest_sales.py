@@ -11,11 +11,16 @@ design v1 §14 open item 1.
 
 from __future__ import annotations
 
+import csv
+import fcntl
 import json
 import os
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
+from typing import Generator
 
 from scripts.grailzee_common import cycle_id_from_date, get_tracer
 
@@ -175,6 +180,182 @@ def _resolve_lock_path(override: Path | None = None) -> Path:
     if override is not None:
         return override
     return _get_data_root() / "state" / "trade_ledger.lock"
+
+
+# ─── CSV column order (design v1 §6) ─────────────────────────────────
+
+# Canonical CSV column order for trade_ledger.csv. Matches
+# grailzee_common.LEDGER_COLUMNS for the first 9 fields (backward
+# compatibility with consumers that read by column index), then appends
+# the four new columns introduced in Phase 1. Downstream Python
+# consumers access by name and ignore unknown columns.
+LEDGER_CSV_COLUMNS: list[str] = [
+    "buy_date", "sell_date", "buy_cycle_id", "sell_cycle_id",
+    "brand", "reference", "account", "buy_price", "sell_price",
+    "stock_id", "buy_received_date", "sell_delivered_date", "buy_paid_date",
+]
+
+
+def _row_to_csv_dict(row: LedgerRow) -> dict:
+    """Serialize a LedgerRow to a flat dict suitable for csv.DictWriter.
+
+    date fields → ISO string; None → empty string; floats pass through.
+    """
+    return {
+        "stock_id": row.stock_id,
+        "buy_date": row.buy_date.isoformat() if row.buy_date else "",
+        "sell_date": row.sell_date.isoformat(),
+        "buy_cycle_id": row.buy_cycle_id or "",
+        "sell_cycle_id": row.sell_cycle_id,
+        "brand": row.brand,
+        "reference": row.reference,
+        "account": row.account,
+        "buy_price": row.buy_price,
+        "sell_price": row.sell_price,
+        "buy_received_date": (
+            row.buy_received_date.isoformat() if row.buy_received_date else ""
+        ),
+        "sell_delivered_date": (
+            row.sell_delivered_date.isoformat() if row.sell_delivered_date else ""
+        ),
+        "buy_paid_date": row.buy_paid_date.isoformat() if row.buy_paid_date else "",
+    }
+
+
+# ─── Lock primitives (design v1 §9) ──────────────────────────────────
+
+_POLL_INTERVAL = 0.05  # seconds between flock() retries
+
+
+def _acquire_flock(fd: object, mode: int, timeout: int, path: Path) -> None:
+    """Poll flock with LOCK_NB until timeout elapses.
+
+    Raises LockAcquisitionFailed if the lock cannot be acquired within
+    timeout seconds. Uses LOCK_NB so the call never blocks the process.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            fcntl.flock(fd, mode | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise LockAcquisitionFailed(
+                    f"Could not acquire lock on {path} within {timeout}s."
+                )
+            time.sleep(min(_POLL_INTERVAL, remaining))
+
+
+@contextmanager
+def with_exclusive_lock(
+    path: Path, timeout: int = 30
+) -> Generator[None, None, None]:
+    """Acquire a POSIX advisory exclusive lock (LOCK_EX) on path.
+
+    Creates the lockfile if it does not exist. Two concurrent processes
+    opening a non-existent lockfile via open(..., 'a') is safe on POSIX;
+    the OS handles creation atomically. The lock is released when the
+    context exits, whether by normal return or exception.
+
+    Raises:
+        LockAcquisitionFailed: if the exclusive lock cannot be acquired
+            within timeout seconds.
+    """
+    with tracer.start_as_current_span("ingest_sales.with_exclusive_lock") as span:
+        span.set_attribute("lock_path", str(path))
+        span.set_attribute("timeout", timeout)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lock_fd = open(path, "a")
+        try:
+            _acquire_flock(lock_fd, fcntl.LOCK_EX, timeout, path)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        finally:
+            lock_fd.close()
+
+
+@contextmanager
+def with_shared_lock(
+    path: Path, timeout: int = 30
+) -> Generator[None, None, None]:
+    """Acquire a POSIX advisory shared lock (LOCK_SH) on path.
+
+    Multiple processes may hold a shared lock simultaneously. A shared
+    lock is incompatible with an exclusive lock: a LOCK_EX holder blocks
+    LOCK_SH acquisition, and a LOCK_SH holder blocks LOCK_EX acquisition.
+
+    Used by cowork bundle assembly (Phase 2) to read trade_ledger.csv
+    safely while the generator may be writing.
+
+    Raises:
+        LockAcquisitionFailed: if the shared lock cannot be acquired
+            within timeout seconds.
+    """
+    with tracer.start_as_current_span("ingest_sales.with_shared_lock") as span:
+        span.set_attribute("lock_path", str(path))
+        span.set_attribute("timeout", timeout)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lock_fd = open(path, "a")
+        try:
+            _acquire_flock(lock_fd, fcntl.LOCK_SH, timeout, path)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        finally:
+            lock_fd.close()
+
+
+# ─── Atomic CSV write (design v1 §9) ─────────────────────────────────
+
+
+def atomic_write_csv(
+    path: Path,
+    rows: list[LedgerRow],
+    header: list[str] | None = None,
+) -> None:
+    """Write rows to path atomically via tmp-file-and-rename.
+
+    Always writes the full file: header + all rows. There is no append
+    path; the ledger is read-modify-write under exclusive lock per §8.
+    Calls fsync before rename so a crash or power loss after rename cannot
+    surface an empty or truncated ledger.
+
+    The tmp file is path + ".tmp" (e.g., trade_ledger.csv.tmp). On rename
+    failure the tmp file may remain; cleanup is a separate concern.
+
+    Args:
+        path: target CSV path.
+        rows: LedgerRow instances to write, in the order supplied.
+        header: column names in write order. Defaults to LEDGER_CSV_COLUMNS.
+
+    Raises:
+        LedgerWriteFailed: on any OSError during write, fsync, or rename.
+    """
+    with tracer.start_as_current_span("ingest_sales.atomic_write_csv") as span:
+        span.set_attribute("target_path", str(path))
+        span.set_attribute("row_count", len(rows))
+        effective_header = header if header is not None else LEDGER_CSV_COLUMNS
+        tmp = Path(str(path) + ".tmp")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(tmp, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(
+                    f,
+                    fieldnames=effective_header,
+                    extrasaction="ignore",
+                )
+                writer.writeheader()
+                for row in rows:
+                    writer.writerow(_row_to_csv_dict(row))
+                f.flush()
+                os.fsync(f.fileno())
+            os.rename(tmp, path)
+        except OSError as exc:
+            raise LedgerWriteFailed(str(exc)) from exc
 
 
 # ─── Date helpers ────────────────────────────────────────────────────
