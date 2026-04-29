@@ -4,6 +4,34 @@ import json
 import pytest
 
 
+@pytest.fixture(scope="session")
+def _otel_session_exporter():
+    """Install InMemorySpanExporter as the global OTel TracerProvider once per
+    session. The SDK only allows set_tracer_provider to be called once; a
+    session-scoped fixture satisfies that constraint.
+    """
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry import trace
+
+    exp = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exp))
+    trace.set_tracer_provider(provider)
+    return exp
+
+
+@pytest.fixture
+def span_exporter(_otel_session_exporter):
+    """Function-scoped exporter view: clears accumulated spans before each
+    test and after, so each test sees only the spans it produced.
+    """
+    _otel_session_exporter.clear()
+    yield _otel_session_exporter
+    _otel_session_exporter.clear()
+
+
 @pytest.fixture
 def tmp_state_dir(tmp_path):
     """Temporary state directory with standard subfolders."""

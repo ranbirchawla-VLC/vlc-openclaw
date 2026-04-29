@@ -134,6 +134,15 @@ class IngestManifest:
     error: IngestError | None = None  # None on success
 
 
+@dataclass(frozen=True)
+class MergeCounts:
+    """Outcome counts from a single merge_rows call (design v1 §8)."""
+
+    added: int = 0
+    updated: int = 0
+    unchanged: int = 0
+
+
 # ─── Path resolution (design v1 §5, §12.1) ───────────────────────────
 
 
@@ -422,6 +431,92 @@ def atomic_write_csv(
             os.rename(tmp, path)
         except (OSError, ValueError) as exc:
             raise LedgerWriteFailed(str(exc)) from exc
+
+
+# ─── Merge — Rule Y (design v1 §8) ───────────────────────────────────
+
+
+def merge_rows(
+    existing: list[LedgerRow],
+    new: list[LedgerRow],
+) -> tuple[list[LedgerRow], MergeCounts]:
+    """Merge new rows into existing per Rule Y (design v1 §8).
+
+    Three-way classification per stock_id:
+    - stock_id absent from existing → append new row. counts.added += 1.
+    - stock_id present, LedgerRow.__eq__ matches → skip. counts.unchanged += 1.
+    - stock_id present, any field differs → replace in place at existing
+      position. counts.updated += 1.
+
+    Position 1 (equality semantics): dataclass __eq__ compares field-by-field
+    with ==. Float fields (buy_price, sell_price) serialized via f"{v:.2f}"
+    through the CSV round-trip produce stable IEEE 754 values for valid price
+    inputs. Direct LedgerRow construction uses the same float literals; callers
+    must not introduce precision drift between the existing and new rows.
+
+    If `new` contains two rows with the same stock_id, raises ERPBatchInvalid
+    identifying the colliding stock_id before any work is done. This is an
+    extraction-agent contract violation; the agent must emit at most one row
+    per stock_id per batch.
+
+    Corrupt-existing posture: if `existing` itself contains duplicate stock_id
+    values (pre-existing ledger corruption), the index is built last-occurrence-
+    wins (Python dict iteration order). The merge updates the last-occurrence
+    slot and leaves the first-occurrence row untouched, producing a result that
+    still has two rows for the same stock_id. This is deterministic but
+    unspecified by the design. Corrupt ledger repair is a separate concern;
+    see ADR-0001.
+
+    Returns a new list; existing and new inputs are not mutated.
+    """
+    with tracer.start_as_current_span("ingest_sales.merge_rows") as span:
+        span.set_attribute("existing_count", len(existing))
+        span.set_attribute("new_count", len(new))
+        result, counts = _merge_rows_inner(existing, new)
+        span.set_attribute("added", counts.added)
+        span.set_attribute("updated", counts.updated)
+        span.set_attribute("unchanged", counts.unchanged)
+        return result, counts
+
+
+def _merge_rows_inner(
+    existing: list[LedgerRow],
+    new: list[LedgerRow],
+) -> tuple[list[LedgerRow], MergeCounts]:
+    """Private implementation of merge_rows. The OTEL span lives on the
+    public wrapper; this function contains only business logic. Implements
+    Rule Y three-way classification (add / update-in-place / skip-unchanged)
+    and the duplicate-in-new-batch pre-check per design v1 §8."""
+    seen_new: set[str] = set()
+    for row in new:
+        if row.stock_id in seen_new:
+            raise ERPBatchInvalid(
+                f"Duplicate stock_id '{row.stock_id}' in new batch: "
+                "extraction-agent contract violation."
+            )
+        seen_new.add(row.stock_id)
+
+    result: list[LedgerRow] = list(existing)
+    existing_index: dict[str, int] = {
+        row.stock_id: i for i, row in enumerate(existing)
+    }
+    added = 0
+    updated = 0
+    unchanged = 0
+
+    for row in new:
+        if row.stock_id not in existing_index:
+            result.append(row)
+            added += 1
+        else:
+            idx = existing_index[row.stock_id]
+            if result[idx] == row:
+                unchanged += 1
+            else:
+                result[idx] = row
+                updated += 1
+
+    return result, MergeCounts(added=added, updated=updated, unchanged=unchanged)
 
 
 # ─── Date helpers ────────────────────────────────────────────────────

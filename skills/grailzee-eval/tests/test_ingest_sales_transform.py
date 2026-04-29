@@ -510,6 +510,41 @@ class TestCycleIdDerivation:
 # ─── OTEL span ───────────────────────────────────────────────────────
 
 
+class TestOTELSpanAttributes:
+    def test_rows_emitted_set_on_span_when_exception_fires(self, span_exporter, tmp_path):
+        """rows_emitted is set in a finally block inside _transform_jsonl_inner.
+        Confirms the attribute lands on the span even when ERPBatchInvalid fires
+        mid-loop. Closes Phase 1 carry-forward from 1.2 OTEL corrective gate.
+        """
+        batch = {
+            "sales": [{
+                "platform": "Grailzee",
+                "created_at": "2026-04-25",
+                "line_item": {
+                    "stock_id": "TEY9001",
+                    "brand": "Tudor",
+                    "reference_number": "79830RB",
+                    "cost_of_item": 2750.0,
+                    "unit_price": 3200.0,
+                    "delivered_date": None,
+                },
+                "services": [],  # triggers ERPBatchInvalid before any row appended
+            }],
+            "purchases": [],
+        }
+        p = tmp_path / "batch.json"
+        p.write_text(json.dumps(batch))
+        with pytest.raises(ERPBatchInvalid):
+            transform_jsonl(p)
+        spans = span_exporter.get_finished_spans()
+        tx_span = next(
+            (s for s in spans if s.name == "ingest_sales.transform_jsonl"), None
+        )
+        assert tx_span is not None, "ingest_sales.transform_jsonl span not captured"
+        assert "rows_emitted" in tx_span.attributes
+        assert tx_span.attributes["rows_emitted"] == 0
+
+
 class TestOTELSpan:
     def test_transform_jsonl_works_under_no_op_tracer(self, monkeypatch):
         """Span wrapper does not interfere with function results.
