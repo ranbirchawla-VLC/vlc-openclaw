@@ -1235,3 +1235,48 @@ Branch: `feature/nutriosv2-v2`
   - Two-commit pattern collapsed in-pass: 0 blockers; all NB fixes trivial; single commit
   - Next: restart gateway (plugin changed), then Wispr breakfast spike
   - Claude operates as Principal Engineer in this workspace: own build quality, push back when wrong, hold gate standards without being asked.
+
+---
+
+## Wispr spike — BLOCKED (2026-04-30)
+
+Branch: `feature/nutriosv2-v2`
+
+### What happened
+
+Gateway restarted. Spike scenario 1 attempted: "log strawberries and yogurt for breakfast." Bot responded with inline macro estimate and confirmation buttons — v1 flow, no call to `log_meal_items`.
+
+### Root cause
+
+`meal_log.md` capability still describes the v1 path (estimate_macros_from_description → confirm_macros → write_meal_log). The outer LLM has no instruction to call `log_meal_items`. The tool is registered and in tools.allow but nothing in the prompt surface routes to it.
+
+### Ordering error in arch §11
+
+Arch doc §11 deferred SKILL.md to step 7 (after the spike). But all four spike scenarios require the outer LLM to call `log_meal_items`. The spike was never runnable without the capability prompt updated first. §11 step 7 is a prerequisite to the spike, not a follow-on.
+
+### Next action (first thing next session)
+
+Patch `meal_log.md` — replace the v1 estimate-and-confirm flow body with a single instruction to call `log_meal_items`, pass the parsed items list, then call `write_meal_log` on success. Narrow scope; not a full SKILL.md rewrite. Full SKILL.md v2 draft is a separate subsequent step.
+
+After patch: restart gateway, run all four spike scenarios.
+
+### Spike scenario reference (from arch §10 and Unregistration handoff)
+
+1. All exact match: every item matches a defined recipe after normalization. Zero inner LLM calls.
+2. Mixed (canonical Wispr breakfast): "my morning shake, two eggs, half an avocado, and a coffee with oat milk." Shake from recipe; rest estimated. Portion math: 2 eggs = portion 2.0, half avocado = 0.5.
+3. All estimation: no recipes defined; everything routes to batch_estimate.
+4. Semantic match: user says "my tikka lunch"; recipe is "Chicken Tikka Lunch Bowl"; exact match misses; semantic match resolves.
+
+Pass criteria (all four): items logged, numbers from Python not LLM, reply conversational, date correct.
+
+### Current branch state (commits in order)
+
+- 2922805: log_meal_items.py + inner-skill skeletons
+- 851ec1c: semantic_match.py implementation + 15 tests
+- 0c21eae: batch_estimate.py implementation + 15 tests
+- de28cde: log_meal_items plugin registration + 8 tests
+- Total Python tests: 363 passing
+
+### Notes
+
+- Claude operates as Principal Engineer in this workspace: own build quality, push back when wrong, hold gate standards without being asked.
