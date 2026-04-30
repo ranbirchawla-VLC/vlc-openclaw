@@ -1106,3 +1106,23 @@ Timeline: `turn_state` (x3), `estimate_macros_from_description`, `write_meal_log
 2. Gate-3 re-run on sub-step 1 (mesocycle setup scratch path) against new architecture.
 3. Squash sub-step 2 prep + estimate work.
 4. Branch reads as four clean squashed commits per AA §4.11.
+
+---
+
+## Session 2026-04-30 — NutriOS v2 architecture lock + log_meal_items spec
+
+calculate_macros allowlist precursor (S1 carryforward):
+- Added calculate_macros to ~/.openclaw/openclaw.json tools.allow.
+- Gate 1 (regression-only): 299 tests passing pre and post.
+- Gate 2 (code-reviewer subagent, fresh context): zero blockers.
+- Gate 3 rolled into Wispr spike (scenario 2 verifies registration).
+
+Meal-log architecture lock:
+- skills/nutriosv2/docs/architecture-decision-v2-meal-log-path.md committed at b8132e8 (relocated from skills/nutriosv2/ to docs/ subfolder this session).
+- log_meal_items as single entry point; four-step flow (exact match → semantic match → batch estimation → portion math) with two inner-LLM skills.
+
+log_meal_items spec locked:
+- Five arch-doc open sub-questions resolved (normalization strict; semantic null on ambiguity; sonnet-4-6 model pin; dual-read recipe surfacing; import from calculate_macros).
+- Subprocess vs in-process resolved as in-process.
+- Three-build sequence next: log_meal_items.py → semantic_match.py → batch_estimate.py.
+- Gate 3 for entire sequence rolls into Wispr spike.
