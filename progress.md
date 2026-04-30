@@ -1186,3 +1186,28 @@ Branch: `feature/nutriosv2-v2`
   - Two-commit pattern collapsed in-pass: 0 blockers; all NB fixes trivial; single commit
   - `batch_estimate.py` skeleton still raises `NotImplementedError`; sub-step 3 fills it in
   - Claude operates as Principal Engineer in this workspace: own build quality, push back when wrong, hold gate standards without being asked.
+
+---
+
+## Sub-step 3/3: batch_estimate.py (2026-04-30)
+
+Branch: `feature/nutriosv2-v2`
+
+- Started: 2026-04-30
+- Test count: 340 → 355 (+15 Python); 0 LLM (inner skill; no capability prompt surface)
+- Review findings: 0 blockers / 5 non-blockers
+  - NB-1: `notes` field always `None`; locked prompt enforces exactly 4 keys; spec §6.2 mentions notes — deferred; separate design decision
+  - NB-2: no test for non-dict element triggering retry — fixed in-pass
+  - NB-3: no test for bool value rejection — fixed in-pass
+  - NB-4: stale module docstring — fixed in-pass
+  - NB-5: `.replace()` vs `.format()` pattern divergence from semantic_match.py — no fix; technical reason documented in KNOWN_ISSUES
+- Squash commit: pending
+- Release check: deferred; gate 3 rolls into Wispr breakfast spike (all three inner skills + log_meal_items)
+- KNOWN_ISSUES added:
+  - NB-1: `BaseMacroEstimate.notes` always `None`; prompt enforces 4-key schema; spec §6.2 notes capability deferred until schema relaxed
+  - NB-5: `batch_estimate._build_prompt` uses `.replace()` not `.format()`; required because prompt example contains literal JSON braces; do not normalize to `.format()` without escaping the example section
+- Notes:
+  - `_build_prompt` uses `.replace("{item_list}", ...)` not `.format()` — prompt example `[{"calories": ...}]` contains literal braces that break `.format()`; this is correct and must not be changed
+  - Two-commit pattern collapsed in-pass: 0 blockers; all NB fixes trivial; single commit
+  - Next: register `log_meal_items` in plugin + `tools.allow`, then Wispr breakfast spike
+  - Claude operates as Principal Engineer in this workspace: own build quality, push back when wrong, hold gate standards without being asked.
