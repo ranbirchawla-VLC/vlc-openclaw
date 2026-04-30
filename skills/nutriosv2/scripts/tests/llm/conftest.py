@@ -72,7 +72,7 @@ def _assert_model_matches_production() -> None:
         return
     # Strip routing prefix (e.g. "mnemo/") before comparing; the prefix is
     # OpenClaw dispatch-layer routing, not model identity.
-    prod_model_id = prod_model.split("/")[-1] if "/" in prod_model else prod_model
+    prod_model_id = prod_model.split("/")[-1]
     assert LLM_TEST_MODEL == prod_model_id, (
         f"LLM test model pin {LLM_TEST_MODEL!r} differs from production "
         f"runtime model {prod_model!r} (model id: {prod_model_id!r}). "
