@@ -201,6 +201,31 @@ export const TOOLS = [
     },
   },
   {
+    _script: "log_meal_items.py",
+    _spawn: "argv",
+    name: "log_meal_items",
+    description: "Orchestrate meal-item resolution and macro assembly. Accepts a list of items (description + portion); resolves each via exact recipe match, semantic recipe match, or batch estimation; returns resolved items with scaled macros and totals. Returns {ok: true, data: {items, totals, warnings}} on success; {ok: false, err: {code, message, details}} on failure. Does not write; call write_meal_log separately to persist.",
+    parameters: {
+      type: "object",
+      properties: {
+        user_id: { type: "integer", description: "Telegram user ID" },
+        items: {
+          type: "array",
+          description: "List of meal items to resolve",
+          items: {
+            type: "object",
+            properties: {
+              description: { type: "string", description: "Natural-language food description" },
+              portion: { type: "number", description: "Portion multiplier (1.0 = one full unit, 0.5 = half, 2.0 = double)" },
+            },
+            required: ["description", "portion"],
+          },
+        },
+      },
+      required: ["user_id", "items"],
+    },
+  },
+  {
     _script: "calculate_macros.py",
     _spawn: "argv",
     name: "calculate_macros",

@@ -24,12 +24,14 @@ Out of scope:
 ### 2.1 Schema
 
 ```
-log_meal_items(items: list[Item])
+log_meal_items(user_id: int, items: list[Item])
 
 Item:
   description: str
   portion: float
 ```
+
+Note: `user_id` is required per codebase convention (every disk-reading tool requires it); §2.1 of the original draft omitted it. The implementation adds it.
 
 Cardinality: list-in. Always a list, even for a single item. No single-item convenience form.
 

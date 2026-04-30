@@ -1211,3 +1211,27 @@ Branch: `feature/nutriosv2-v2`
   - Two-commit pattern collapsed in-pass: 0 blockers; all NB fixes trivial; single commit
   - Next: register `log_meal_items` in plugin + `tools.allow`, then Wispr breakfast spike
   - Claude operates as Principal Engineer in this workspace: own build quality, push back when wrong, hold gate standards without being asked.
+
+---
+
+## log_meal_items plugin registration (2026-04-30)
+
+Branch: `feature/nutriosv2-v2`
+
+- Scope: `tool-schemas.js` new entry, `tools.schema.json` regenerated (10 tools), `~/.openclaw/openclaw.json` tools.allow updated (11 entries), 8 registration tests added
+- Test count: 355 → 363 (+8 Python); 0 LLM
+- Review findings: 0 blockers / 4 non-blockers
+  - NB-1: `user_id` type not asserted in tests — fixed in-pass
+  - NB-2: spec §2.1 missing `user_id` — fixed in-pass; one-line update
+  - NB-3: description missing "Does not write" clause — fixed in-pass; matches compute_candidate_macros pattern; schema regenerated
+  - NB-4: no cross-agent contamination test — deferred; speculative risk; out of scope
+- Squash commit: pending
+- Release check: deferred; gate 3 is the Wispr breakfast spike
+- KNOWN_ISSUES added: none
+- Notes:
+  - Registration tests use Option A (file-content assertions on tools.schema.json and ~/.openclaw/openclaw.json); first registration test precedent in this codebase
+  - `tools.schema.json` is the committed single source of truth; LLM test conftest.py already reads it
+  - tools.allow is outside the repo; updated via script; no git tracking
+  - Two-commit pattern collapsed in-pass: 0 blockers; all NB fixes trivial; single commit
+  - Next: restart gateway (plugin changed), then Wispr breakfast spike
+  - Claude operates as Principal Engineer in this workspace: own build quality, push back when wrong, hold gate standards without being asked.
