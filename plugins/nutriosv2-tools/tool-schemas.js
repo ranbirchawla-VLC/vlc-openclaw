@@ -225,23 +225,4 @@ export const TOOLS = [
       required: ["base_macros", "portion"],
     },
   },
-  {
-    _script: "turn_state.py",
-    _spawn: "stdin",
-    name: "turn_state",
-    description: "Call first on every user turn. Classifies intent, detects intent-transition boundary, and returns the routed capability prompt read fresh from disk. Returns {intent, ambiguous, boundary, capability_prompt, today_date}.",
-    parameters: {
-      type: "object",
-      properties: {
-        user_message: { type: "string", description: "Verbatim text the user sent" },
-        user_id: { type: "integer", description: "Telegram user ID" },
-        intent_override: {
-          type: "string",
-          enum: ["mesocycle_setup", "cycle_read_back", "meal_log", "today_view", "default"],
-          description: "Skip classifier and force this intent. Used for slash command dispatch.",
-        },
-      },
-      required: ["user_message", "user_id"],
-    },
-  },
 ];
