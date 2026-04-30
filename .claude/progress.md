@@ -28,7 +28,7 @@ is the 13-column WatchTrack-derived canonical artifact. Strategy skill reads
 against it from the next cycle onward.
 
 **Branch**: `feature/grailzee-ledger-phase1-v2` (off `feature/grailzee-eval-v2`)
-**Tip**: `ae80d3a` (Phase 1 cutover script). Not pushed.
+**Tip**: `1256dfd` (Phase 1 durability artifacts). Pushed.
 **Tests**: ledger 332 / eval 1366 / 71 skipped / cowork 235
 
 **Production ledger**: `$GRAILZEE_ROOT/state/trade_ledger.csv`
@@ -42,13 +42,20 @@ against it from the next cycle onward.
 - Unmatched: 2 (TEY1048 stock 297Z8, TEY1029 stock I7411V5)
 - Idempotency confirmed (files_found=0 on second run)
 
-**ADRs landed**: ADR-0001 through ADR-0005
-(`docs/decisions/ADR-0005-extraction-agent-jsonl-contract.md` — JSONL format lock)
+**ADRs landed**: ADR-0001 through ADR-0007
+- ADR-0005: extraction-agent JSONL contract
+- ADR-0006: real-data sample-records rule
+- ADR-0007: why-this-matters rule
 
-**Supervisor-side remaining before Phase 1 can be called done**:
-- ShapeK Resume §7 update: "Phase 1 corrective pass complete. Gate 3 passed. Ledger redo Phase 1 ships."
-- Phase 1 closeout document
-- Spec v1.1 amendment list (compile; items include §2 cutover-posture, consignment in-scope, `buy_received_date` multi-line-item note, methodology rule, ADR-0006 for methodology)
+**Durability artifacts landed (2026-04-29)**: `1256dfd`
+- `docs/Grailzee_Ledger_Phase1_Closeout_2026-04-29.md` — permanent closeout record
+- `docs/decisions/ADR-0006` + `ADR-0007` — methodology rules, binding
+- `SUPERVISOR_ROLE.md` v2 — pre-emit audit, code prompt shape, methodology rules section
+- `watchtrack_full_final.jsonl` — canonical Gate 3 fixture with NR/RES Platform fee relabels
+
+**Supervisor-side remaining** (Drive / project knowledge, not repo):
+- `Grailzee_Ledger_Redo_Design_v1_1.md` — twelve amendments
+- `Grailzee_ShapeK_Resume_2026-04-28.md` §7 update
 
 | Sub-step | State | Tip |
 |---|---|---|
@@ -60,6 +67,7 @@ against it from the next cycle onward.
 | 1.6 archive move | DONE | `61f6f6a` |
 | 1.7 top-level orchestrator | DONE | `8d73c35` |
 | Phase 1 Gate 3 + cutover | DONE | `ae80d3a` |
+| Phase 1 durability + closeout | DONE | `1256dfd` |
 
 ---
 
