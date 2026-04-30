@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from calculate_macros import run_calculate_macros
@@ -96,7 +97,6 @@ def test_whole_number_float_macros_accepted():
 
 
 def test_fractional_float_macros_rejected():
-    from pydantic import ValidationError
     # Pydantic v2 (non-strict) rejects fractional floats with type 'int_from_float'
     float_base = {"calories": 400.9, "protein_g": 30.0, "fat_g": 15.0, "carbs_g": 40.0}
     with pytest.raises(ValidationError) as exc_info:

@@ -228,6 +228,15 @@ def test_future_dated_cycle_week_clamped_to_one_and_warns(tmp_path, capsys):
     assert "future_dated_cycle" in capsys.readouterr().err
 
 
+def test_future_dated_cycle_deeply_negative_raw_week_clamped(tmp_path, capsys):
+    # today (2026-04-29) < start_date (2026-05-10); raw_week = (-11//7)+1 = -1; clamp to 1
+    future_cycle = {**_MESOCYCLE, "start_date": "2026-05-10", "end_date": "2026-08-01"}
+    _write_mesocycle(tmp_path, future_cycle)
+    result = _ctx(tmp_path)
+    assert result["mesocycle"]["week"] == 1
+    assert "future_dated_cycle" in capsys.readouterr().err
+
+
 def test_mesocycle_not_expired_on_last_active_day(tmp_path):
     # end_date=2026-07-08 is exclusive; 2026-07-07 is the last active day
     _write_mesocycle(tmp_path, _MESOCYCLE)

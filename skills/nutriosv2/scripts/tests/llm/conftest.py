@@ -70,9 +70,13 @@ def _assert_model_matches_production() -> None:
             f"test pin is {LLM_TEST_MODEL!r}"
         )
         return
-    assert LLM_TEST_MODEL == prod_model, (
+    # Strip routing prefix (e.g. "mnemo/") before comparing; the prefix is
+    # OpenClaw dispatch-layer routing, not model identity.
+    prod_model_id = prod_model.split("/")[-1] if "/" in prod_model else prod_model
+    assert LLM_TEST_MODEL == prod_model_id, (
         f"LLM test model pin {LLM_TEST_MODEL!r} differs from production "
-        f"runtime model {prod_model!r}. Update LLM_TEST_MODEL in llm_test_utils.py "
+        f"runtime model {prod_model!r} (model id: {prod_model_id!r}). "
+        f"Update LLM_TEST_MODEL in llm_test_utils.py "
         f"or update the production agent config before running LLM tests."
     )
 
