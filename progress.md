@@ -1022,6 +1022,60 @@ Resolved structurally: workspace `openclaw.json` `tools[]` is gone. The LLM test
 
 ---
 
+## Session 2026-04-29 — NutriOS v2 S1 (branch: `feature/nutriosv2-v2`)
+
+Branch: `feature/nutriosv2-v2` off `main`
+
+### What was built
+
+**S1: context_builder + calculate_macros + plugin registration**
+
+Five commits (96f5ad1 → 918fe16) through four code-review passes. All items resolved in-pass; no carry-forward.
+
+- `context_builder.py`: assembles per-turn context block — date from system clock (never LLM-derived), active mesocycle name/week/targets, full recipe list, today's consumed totals (reconciled), USER.md content. 18 Python tests.
+- `calculate_macros.py`: portion × servings math with Pydantic validation (non-strict `_BaseMacros` — accepts whole-number floats from LLM, rejects fractional). 15 Python tests.
+- File-level checkout of Python recipe layer from `feature/nb-37-recipes` (`list_recipes`, `get_recipe`, `write_recipe`, `models.py` additions, 34 tests). These are library modules used by `context_builder`; `list_recipes` and `get_recipe` are intentionally NOT LLM tools in v2 per architecture-decision-v2.md.
+- `tool-schemas.js`: `write_recipe` + `calculate_macros` registered (9 active tools post-unregistration).
+- LLM test model-pin mismatch fixed: `conftest.py` now strips `mnemo/` routing prefix before comparing to `LLM_TEST_MODEL`.
+- Future-dated cycle diagnostic: `context_builder` emits structured JSON warning to stderr when `raw_week < 1`; week clamped to 1.
+
+**Baseline → final Python test count: 260 → 299 (+39), all passing.**
+
+### Commit log
+
+| SHA | Description |
+|---|---|
+| 96f5ad1 | S1 pre-review: context_builder + calculate_macros + plugin registration |
+| e43ce33 | S1 review fixes: B-1 (strict mode), B-2 (main() exception), B-3 (float tests), NB-1–7 |
+| d4985ed | S1 close: fractional-float assertion tightened; future-dated cycle warning |
+| 6bae34c | S1 close: import style, deeper-negative test, model-pin fix |
+| 918fe16 | S1 close: drop redundant branch in routing-prefix strip |
+
+### Unregistration commit
+
+| SHA | Description |
+|---|---|
+| b8132e8 | chore(v2): unregister turn_state + stale v1 tools from plugin and tools.allow |
+
+Files on disk intact: `turn_state.py`, `intent_classifier.py`, all capability `.md` files, all v1 tests. Only plugin registration removed. Reversible.
+
+`~/.openclaw/openclaw.json` `tools.allow` after unregistration:
+`["get_daily_reconciled_view", "message", "write_meal_log", "estimate_macros_from_description", "compute_candidate_macros", "lock_mesocycle", "get_active_mesocycle", "recompute_macros_with_overrides", "write_recipe"]`
+
+`tools.deny` unchanged: `["exec", "group:runtime"]`
+
+### Known issues / carry-forward
+
+- `calculate_macros`: tool description in `lock_mesocycle` schema still references `turn_state.today_date` verbatim — stale; update when SKILL.md rewrite lands.
+- `estimate_macros_from_description` still registered as an LLM tool; v2 architecture intends the main Claude agent to estimate macros directly without a sub-call. Remove in a future cleanup pass once SKILL.md rewrite confirms the flow.
+- `compute_candidate_macros`, `get_active_mesocycle`, `recompute_macros_with_overrides` — v1 mesocycle-setup tools still in `tools.allow`; v2 mesocycle setup flow not yet designed. Retain for now.
+
+### Next session
+
+S2: compact SKILL.md rewrite + LLM tests for v2 behavior (log a meal, log with recipe, log with portion, mesocycle setup). Starts after E2E spike confirms context_builder injection mechanism.
+
+---
+
 ## Session 2026-04-28 — Exec lockdown
 
 Branch: `feature/nutrios-v3`
