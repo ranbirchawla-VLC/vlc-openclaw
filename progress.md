@@ -1126,3 +1126,63 @@ log_meal_items spec locked:
 - Subprocess vs in-process resolved as in-process.
 - Three-build sequence next: log_meal_items.py → semantic_match.py → batch_estimate.py.
 - Gate 3 for entire sequence rolls into Wispr spike.
+
+---
+
+## Sub-step 1/3: log_meal_items.py (2026-04-30)
+
+Branch: `feature/nutriosv2-v2`
+Squash commit: 2922805
+
+- Started: 2026-04-30
+- Pre-review commit: working tree (no separate pre-review SHA; commit 1 folded into squash)
+- Test count: 299 → 325 (+26 Python); 0 LLM (not applicable at this layer)
+- Review findings: 3 blockers / 7 non-blockers
+  - B-1: dead `from typing import Any` import; removed
+  - B-2: no None guard on `resolved` slots before Step 4 sum; assertion added per slot
+  - B-3: inner-skill return list length not validated; length check added after each inner call; mismatch returns error envelope with `expected_length` / `actual_length` in details
+  - NB-1: em-dashes in module docstring and test docstring; replaced contextually
+  - NB-2: `_scale` passthrough wrapper; inlined `run_calculate_macros` at all three call sites
+  - NB-5/6/7: test specificity gaps; extended whitespace test, added mock-not-called assertion, removed stale arithmetic comment
+- Post-review commit: same squash (gate 2 skip applied; all fixes direct applications of subagent findings)
+- Squash commit: 2922805
+- Release check: deferred; gate 3 rolls into Wispr breakfast spike with sub-steps 2 and 3
+- KNOWN_ISSUES added:
+  - NB-3: `_error` helper migration to `common.py` pending; track for next sub-step needing §3.5 envelope
+  - NB-4: `recipe_by_name` last-write-wins on duplicate names; documented decision; no fix
+- Notes:
+  - Spec filename committed as `NutriOS_v3_log_meal_items_Spec_v1.md`; canonical path is `log_meal_items_spec.md`; rename deferred to next-session start
+  - `user_id` missing from spec §2.1; added per codebase convention; surfaced in reviewer report
+  - Error envelope shape diverges from `common.err` wire format; documented in module docstring; `_error` returns rich §3.5 shape
+  - Inner-skill skeletons at `scripts/inner_skills/semantic_match.py` and `scripts/inner_skills/batch_estimate.py`; both raise `NotImplementedError`; sub-steps 2 and 3 fill in bodies
+
+### Next session
+
+1. Rename spec file: `git mv` `NutriOS_v3_log_meal_items_Spec_v1.md` → `log_meal_items_spec.md`
+2. Open build chat for sub-step 2 (`semantic_match.py`); paste `NutriOS_v3_semantic_match_BuildPrompt_v1.md`
+3. After sub-step 2 closes: draft sub-step 3 build prompt (`batch_estimate.py`) in supervisor chat
+
+---
+
+## Sub-step 2/3: semantic_match.py (2026-04-30)
+
+Branch: `feature/nutriosv2-v2`
+
+- Started: 2026-04-30
+- Pre-build: spec rename (`NutriOS_v3_log_meal_items_Spec_v1.md` → `log_meal_items_spec.md`) landed in same commit
+- Test count: 325 → 340 (+15 Python); 0 LLM (inner skill; no capability prompt surface)
+- Review findings: 0 blockers / 5 non-blockers
+  - NB-1: `_call` closure missing return annotation; replaced with module-level `_call_llm` (mirrors `estimate_macros.py`) — fixed in-pass
+  - NB-2: no test for integer element triggering retry — fixed in-pass; test added
+  - NB-3: `_load_api_key` / `_build_prompt` missing `-> str` — false positive; annotations already present
+  - NB-4: `_MAX_TOKENS = 4096` undocumented — fixed in-pass; comment added
+  - NB-5: empty-string recipe name accepted silently — deferred; degenerate input, wrong layer for guard
+- Squash commit: pending
+- Release check: deferred; gate 3 rolls into Wispr breakfast spike with sub-step 3
+- KNOWN_ISSUES added:
+  - NB-5: empty-string recipe name accepted by `_validate`; degenerate case; fix only if `list_recipes` can return empty names
+- Notes:
+  - `estimate_macros_from_description.py` referenced in build prompt; actual file is `estimate_macros.py` (different filename, same pattern mirrored)
+  - Two-commit pattern collapsed in-pass: 0 blockers; all NB fixes trivial; single commit
+  - `batch_estimate.py` skeleton still raises `NotImplementedError`; sub-step 3 fills it in
+  - Claude operates as Principal Engineer in this workspace: own build quality, push back when wrong, hold gate standards without being asked.
