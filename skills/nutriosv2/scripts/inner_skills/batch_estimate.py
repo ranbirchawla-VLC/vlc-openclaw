@@ -118,7 +118,7 @@ def estimate_macros(descriptions: list[str]) -> BatchEstimateResult:
 
     client = anthropic.Anthropic(
         api_key=_load_api_key(),
-        base_url="http://127.0.0.1:9999",
+        base_url="https://api.anthropic.com",
     )
     prompt = _build_prompt(descriptions)
 

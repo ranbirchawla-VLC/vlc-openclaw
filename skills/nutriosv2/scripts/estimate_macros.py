@@ -103,9 +103,13 @@ def estimate_macros_from_description(description: str) -> dict:
     Returns dict: calories, protein_g, fat_g, carbs_g, confidence.
     Retries once on schema failure; raises ValueError if both attempts fail.
     """
+    # base_url hardcoded to bypass mnemo request-body truncation bug.
+    # mnemo 0.1.0 truncates Python SDK request bodies before forwarding to Anthropic.
+    # The UTF-8 char boundary panic (server.rs:518,695) is fixed by the ASCII-only
+    # rule in SOUL.md/AGENTS.md. This truncation is a separate bug; revert when fixed.
     client = anthropic.Anthropic(
         api_key=_load_api_key(),
-        base_url="http://127.0.0.1:9999",
+        base_url="https://api.anthropic.com",
     )
     retried = False
 
