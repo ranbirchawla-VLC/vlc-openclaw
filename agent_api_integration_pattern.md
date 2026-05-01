@@ -225,6 +225,133 @@ Both are in `common.py`.
 
 ---
 
+## Inner LLM calls from plugin tools
+
+Some tools need to call Claude themselves — macro estimation, semantic matching, structured extraction. These are inner LLM calls made from within a Python plugin script. The configuration below is production-verified across `batch_estimate.py`, `semantic_match.py`, and `estimate_macros.py`.
+
+### Configuration constants
+
+```python
+import anthropic
+import time
+
+_MODEL = "claude-sonnet-4-6"   # pin the model; never leave it as a variable
+_TEMPERATURE = 0                # deterministic output; required for retry logic and LLM tests
+_MAX_TOKENS = 1024              # size to your expected output; don't over-allocate
+_MAX_RETRIES = 3                # 3 retries + 1 initial = 4 total attempts
+```
+
+Pin `_MODEL` as a module-level constant. A variable model string is a production incident waiting to happen — it will drift in tests, drift in prod, and be invisible until behavior changes.
+
+`_TEMPERATURE = 0` is mandatory for any tool that has a retry loop. Non-zero temperature means each retry gets a different (potentially worse) response. Zero temperature means retrying on a transient failure gives the same good response once the failure clears.
+
+### API key loading
+
+```python
+import json
+import os
+from pathlib import Path
+
+def _load_api_key() -> str:
+    env_key = os.environ.get("ANTHROPIC_API_KEY")
+    if env_key:
+        return env_key
+    config_path = Path.home() / ".openclaw" / "openclaw.json"
+    if config_path.exists():
+        config = json.loads(config_path.read_text())
+        try:
+            return config["models"]["providers"]["mnemo"]["apiKey"]
+        except KeyError:
+            pass
+    raise RuntimeError(
+        "ANTHROPIC_API_KEY not set and no key found at ~/.openclaw/openclaw.json"
+    )
+```
+
+### Base URL
+
+```python
+client = anthropic.Anthropic(
+    api_key=_load_api_key(),
+    base_url="https://api.anthropic.com",  # bypass mnemo proxy — see note below
+)
+```
+
+**Why direct to `api.anthropic.com`:** mnemo 0.1.0 has a request-body truncation bug (Bug 2) that silently drops Python SDK requests routed through the proxy. Inner skill calls must bypass mnemo until this is fixed. The fix is a one-line `base_url` swap per script once Bug 2 is resolved.
+
+Outer LLM calls (Telegram turns) still route through mnemo normally.
+
+### Retry loop
+
+The nested try/except pattern is fragile and doesn't scale past one retry. Use a loop:
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class MyResult:
+    data: list
+    retry_occurred: bool  # caller can append a system-level warning when True
+
+
+def call_llm(descriptions: list[str]) -> MyResult:
+    client = anthropic.Anthropic(api_key=_load_api_key(), base_url="https://api.anthropic.com")
+    prompt = _build_prompt(descriptions)
+    raw = ""
+    last_exc: Exception | None = None
+
+    for attempt in range(_MAX_RETRIES + 1):
+        if attempt > 0:
+            time.sleep(1)          # 1-second pause between attempts; mock this in tests
+        raw = _call_llm(client, prompt)
+        try:
+            data = _validate(raw, len(descriptions))
+            return MyResult(data=data, retry_occurred=attempt > 0)
+        except (json.JSONDecodeError, ValueError) as e:
+            last_exc = e
+
+    raise ValueError(
+        f"<tool_name>: schema validation failed after {_MAX_RETRIES} retries: {last_exc}; "
+        f"last response: {raw!r}"
+    ) from last_exc
+```
+
+`retry_occurred` on the result lets `log_meal_items` (or any orchestrating caller) append a system-level warning without parsing strings.
+
+Initialize `raw = ""` and `last_exc: Exception | None = None` before the loop. Both are always set by the first iteration, but the explicit init keeps type checkers and readers happy.
+
+### Mocking in tests
+
+`time.sleep` must be mocked in any test that exercises the retry path — otherwise your test suite accumulates 3 seconds per exhaustion test:
+
+```python
+from unittest.mock import patch
+
+def test_exhaustion_raises() -> None:
+    bad_responses = ["not json"] * (_MAX_RETRIES + 1)
+    client = _make_mock_client(bad_responses)
+    with patch("inner_skills.my_tool.anthropic.Anthropic", return_value=client), \
+         patch("inner_skills.my_tool._load_api_key", return_value="test-key"), \
+         patch("inner_skills.my_tool.time.sleep") as mock_sleep:
+        with pytest.raises(ValueError, match="schema validation failed"):
+            call_llm(["item"])
+
+    assert client.messages.create.call_count == _MAX_RETRIES + 1
+    assert mock_sleep.call_count == _MAX_RETRIES
+```
+
+### Reference implementations
+
+All three are in `skills/nutriosv2/scripts/inner_skills/`:
+
+| File | What it does | Key complexity |
+|---|---|---|
+| `batch_estimate.py` | Estimates per-unit macros for a list of food descriptions | Batch JSON array validation; `round()` on float returns |
+| `semantic_match.py` | Matches colloquial food references to named recipes | Verbatim-match validation against a recipe name set; null-safe |
+| `estimate_macros.py` | Single-item macro estimate (used by v1 capability) | Simpler; single-object schema |
+
+---
+
 ## For public API integrations (Gmail, Google Calendar, etc.)
 
 The Python script is responsible for:
