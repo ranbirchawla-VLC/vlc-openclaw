@@ -68,6 +68,14 @@ A capability that fails any of these gets its draft revised. Tools are not chang
 
 If any of the above prove necessary during the rollout, that is a signal to pause the rollout and address the underlying issue separately.
 
+### Logged exception, 2026-05-01
+
+During the `meal_log.md` rewrite, the code-reviewer subagent surfaced a tool-surface gap: `log_meal_items` output exposed `recipe_match` (the recipe name) but no `recipe_id`, leaving the SKILL unable to construct valid recipe-source `write_meal_log` calls. The validator on `write_meal_log` rejects `source="recipe"` without a `recipe_id`, which would have forced the SKILL to either always write `source="ad_hoc"` (losing recipe provenance) or carry an unspecified silence the LLM could trip on at runtime.
+
+We chose to fix the interface (commit `1dc2cf7`) rather than work around it in the SKILL prompt. Reasoning: building LLM discipline around a known-bad interface is exactly the failure mode this rollout exists to prevent. The fix was small and additive — a new `recipe_id` field on `ResolvedItem`, populated for recipe-match items, `null` for estimation items. Spec §3.1 updated; tests updated; 376 tests still passing; subagent clean.
+
+This is the only Python compute-path change made under this rollout. The §5 rule otherwise stands. Future rollout work should treat tool-surface gaps the same way: if the SKILL has to work around a bad interface to land, fix the interface instead, but only after the gap is surfaced and the operator agrees the fix is in scope.
+
 ---
 
 ## 6. Status tracker
@@ -76,13 +84,25 @@ Updated as work progresses.
 
 | Capability | Draft started | Draft locked | Committed | Scenarios passed |
 |---|---|---|---|---|
-| meal_log | — | — | — | — |
+| meal_log | 2026-05-01 | 2026-05-01 | 2026-05-01 | — |
 | mesocycle_setup | — | — | — | — |
 | today_view | — | — | — | — |
 
 ---
 
-## 7. Related documents
+## 7. Carry-forward items
+
+These are known cleanup or follow-on tasks that depend on future capability work landing. Each entry names what to do, when to do it, and why it can't be done now. New chats read this section to pick up tracked work without the operator having to remember it.
+
+- **Retire `capabilities/_shared/confirm_macros.md`.** The file is orphaned after the `meal_log.md` rewrite — `meal_log.md` no longer embeds the sub-flow because confirmation is now coach discretion, not a shared procedural gate. The file is still referenced by inclusion-convention comments in `capabilities/mesocycle_setup.md`. Delete the file and any remaining references when `mesocycle_setup.md` is rewritten under this plan. Doing it earlier creates stale comments in a file we're going to rewrite anyway.
+
+- **Audit `intent_classifier.py` for capability-shape implications.** The classifier currently routes on intent labels (`meal_log`, `mesocycle_setup`, etc.). After all three capabilities are coach-shaped, revisit whether the classifier still makes sense as a discrete dispatcher or whether intent recognition should fold into the capabilities themselves. Defer until all three rewrites land; until then the classifier works as-is.
+
+- **Eventual `turn_state` deprecation.** Operator intent: `turn_state` goes away over time. New capabilities anchor to `get_today_date` directly rather than `turn_state.today_date`. When the second and third capabilities are rewritten, evaluate whether `turn_state` still has a non-date job, and plan its retirement separately.
+
+---
+
+## 8. Related documents
 
 - `architecture-decision-capability-shape.md` — the decision this plan implements.
 - `architecture-decision-v2-meal-log-path.md` — Python tool surface decision (predecessor).
