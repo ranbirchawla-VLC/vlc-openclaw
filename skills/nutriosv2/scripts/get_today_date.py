@@ -1,4 +1,4 @@
-"""get_today_date — return today's date in the agent timezone.
+"""get_today_date; return today's date in the agent timezone.
 
 Usage: python3 get_today_date.py [ignored]
 

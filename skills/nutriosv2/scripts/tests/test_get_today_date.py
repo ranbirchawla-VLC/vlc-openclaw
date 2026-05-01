@@ -62,7 +62,7 @@ def test_denver_date_differs_from_utc_at_midnight_boundary() -> None:
 
 
 def test_empty_argv_returns_date(capsys) -> None:
-    # main() must work with no sys.argv[1] — tool takes no input.
+    # main() must work with no sys.argv[1]; tool takes no input.
     original_argv = sys.argv
     sys.argv = ["get_today_date.py"]
     try:

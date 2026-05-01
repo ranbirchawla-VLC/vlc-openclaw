@@ -145,11 +145,15 @@ def test_get_today_date_in_tools_allow() -> None:
 
 
 def test_get_today_date_in_tool_schemas_js() -> None:
-    """get_today_date entry exists in the tool-schemas.js source file."""
+    """get_today_date entry exists in tool-schemas.js with _spawn: argv."""
     schemas_js = _WORKSPACE / "plugins" / "nutriosv2-tools" / "tool-schemas.js"
     content = schemas_js.read_text()
     assert '"get_today_date"' in content, (
         "get_today_date not found in tool-schemas.js"
+    )
+    # _spawn drives execution; verify it is present alongside the tool name.
+    assert '_spawn: "argv"' in content, (
+        "_spawn: argv not found in tool-schemas.js"
     )
 
 
