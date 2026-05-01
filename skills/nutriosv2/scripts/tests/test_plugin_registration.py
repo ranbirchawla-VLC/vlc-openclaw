@@ -111,3 +111,60 @@ def test_calculate_macros_remains_in_tools_allow() -> None:
     """calculate_macros still in tools.allow after log_meal_items registration."""
     allow = _load_allow_list()
     assert "calculate_macros" in allow
+
+
+# ---------------------------------------------------------------------------
+# get_today_date: manifest presence, schema, and allowlist
+# ---------------------------------------------------------------------------
+
+
+def test_get_today_date_in_plugin_manifest() -> None:
+    """get_today_date appears in tools.schema.json."""
+    tools = _load_schema_tools()
+    assert _find_tool(tools, "get_today_date") is not None, (
+        "get_today_date not found in tools.schema.json"
+    )
+
+
+def test_get_today_date_schema_empty_required() -> None:
+    """get_today_date inputSchema has no required fields (tool takes no input)."""
+    tools = _load_schema_tools()
+    tool = _find_tool(tools, "get_today_date")
+    assert tool is not None
+    schema = tool["inputSchema"]
+    assert schema["type"] == "object"
+    assert schema.get("required", []) == []
+
+
+def test_get_today_date_in_tools_allow() -> None:
+    """get_today_date appears in the nutriosv2 tools.allow list."""
+    allow = _load_allow_list()
+    assert "get_today_date" in allow, (
+        f"get_today_date not in tools.allow; current list: {allow}"
+    )
+
+
+def test_get_today_date_in_tool_schemas_js() -> None:
+    """get_today_date entry exists in the tool-schemas.js source file."""
+    schemas_js = _WORKSPACE / "plugins" / "nutriosv2-tools" / "tool-schemas.js"
+    content = schemas_js.read_text()
+    assert '"get_today_date"' in content, (
+        "get_today_date not found in tool-schemas.js"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Preservation: log_meal_items still present after get_today_date registration
+# ---------------------------------------------------------------------------
+
+
+def test_log_meal_items_remains_in_manifest() -> None:
+    """log_meal_items still present in tools.schema.json after get_today_date registration."""
+    tools = _load_schema_tools()
+    assert _find_tool(tools, "log_meal_items") is not None
+
+
+def test_log_meal_items_remains_in_tools_allow() -> None:
+    """log_meal_items still in tools.allow after get_today_date registration."""
+    allow = _load_allow_list()
+    assert "log_meal_items" in allow
