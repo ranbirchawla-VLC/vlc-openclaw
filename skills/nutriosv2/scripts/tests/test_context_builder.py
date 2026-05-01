@@ -277,6 +277,7 @@ def test_recipes_names_only_no_ids_or_macros(tmp_path):
     _write_recipes(tmp_path, _RECIPES)
     result = _ctx(tmp_path)
     assert all(isinstance(r, str) for r in result["recipes"])
+    assert not any(isinstance(r, dict) for r in result["recipes"])
 
 
 def test_recipes_names_present_in_output(tmp_path):
