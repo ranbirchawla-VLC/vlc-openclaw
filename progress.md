@@ -1397,3 +1397,24 @@ meal_log.md: draft complete with all redlines applied. NOT committed — blocked
 - Date anchor decision for `meal_log` rewrite: explicit `get_today_date` tool call. `turn_state.today_date` is on the deprecation path (operator intent: `turn_state` goes away eventually); new capabilities anchor to `get_today_date` directly.
 - Current work: drafting `capabilities/meal_log.md` in chat, section by section per ADR §2.1, operator redline before each section locks.
 - Wispr breakfast spike: still gated behind `meal_log.md` rewrite. Per execution plan §3, conversational scenarios become the acceptance criterion before any capability is considered shipped.
+
+### Session 2026-05-01 (continued) — meal_log.md landed
+
+**get_today_date plugin tool** (`2d6e642`, `de30993`): Python script wraps `common.today_str()`; registered in plugin (11 tools); 10 new tests (4 functional, 6 registration). Gate 1 and gate 2 (code-reviewer subagent) both green. 376 Python tests passing.
+
+**agent_api_integration_pattern.md** committed and cherry-picked to `main` (`f846da3`). Plugin wiring reference for external API integrations (Gmail, Calendar, etc.). Also brought updated `tool-schemas.js` + `tools.schema.json` to main so new agent branches have the complete plugin pattern in place.
+
+**capabilities/meal_log.md** — full rewrite under the new coach shape ADR. Four-commit sequence:
+- `024b98d`: initial rewrite (procedural v1 → coach-shaped v2)
+- `1dc2cf7`: expose `recipe_id` in `log_meal_items` ResolvedItem output — surfaced by code-reviewer as tool-surface gap (write_meal_log validator would reject source="recipe" without recipe_id); additive fix, spec + tests updated, 376 still passing
+- `2a44e24`: apply all subagent findings (B-1, B-3, NB-1 through NB-5) + thread source-field rule into Hard rules now that recipe_id is available
+- `5080cdb`: remove cost-asymmetry framing from failure preamble (NB-NEW-1)
+
+**Option C from deferred list is now closed**: `log_meal_items` returning `recipe_id` per item was the Option C fix. Landed as part of this session rather than deferred post-spike.
+
+**Current state**: `meal_log.md` is fully committed and clean against all subagent findings. Gateway restart required before Wispr spike (plugin changed with get_today_date). Wispr spike is the next action — all four scenarios per execution plan §3.
+
+**Next session — in order:**
+1. Restart gateway (get_today_date plugin needs to load).
+2. Wispr spike — all four scenarios. Gate 3 for the entire log_meal_items build sequence.
+3. After spike passes: mesocycle_setup.md rewrite per execution plan §4.
