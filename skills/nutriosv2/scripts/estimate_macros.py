@@ -103,14 +103,9 @@ def estimate_macros_from_description(description: str) -> dict:
     Returns dict: calories, protein_g, fat_g, carbs_g, confidence.
     Retries once on schema failure; raises ValueError if both attempts fail.
     """
-    # base_url hardcoded to bypass the mnemo proxy, which has a body-read bug
-    # with the current anthropic SDK version. The LLM tests already bypass mnemo
-    # implicitly (no ANTHROPIC_BASE_URL in test env). When called as an OpenClaw
-    # subprocess the gateway env sets ANTHROPIC_BASE_URL to the mnemo endpoint;
-    # the explicit base_url here overrides that.
     client = anthropic.Anthropic(
         api_key=_load_api_key(),
-        base_url="https://api.anthropic.com",
+        base_url="http://127.0.0.1:9999",
     )
     retried = False
 

@@ -123,7 +123,7 @@ def match_recipes(
 
     client = anthropic.Anthropic(
         api_key=_load_api_key(),
-        base_url="https://api.anthropic.com",
+        base_url="http://127.0.0.1:9999",
     )
     prompt = _build_prompt(unmatched_items, recipe_names)
 
