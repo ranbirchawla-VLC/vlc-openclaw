@@ -1418,3 +1418,51 @@ meal_log.md: draft complete with all redlines applied. NOT committed — blocked
 1. Restart gateway (get_today_date plugin needs to load).
 2. Wispr spike — all four scenarios. Gate 3 for the entire log_meal_items build sequence.
 3. After spike passes: mesocycle_setup.md rewrite per execution plan §4.
+
+---
+
+## Wispr Spike — Partial Results (2026-05-01)
+
+Branch: `feature/nutriosv2-v2`
+
+### Scenario results
+
+| # | Scenario | Result | Notes |
+|---|---|---|---|
+| 1 | All exact match | PASS | `get_today_date` → `log_meal_items` (recipe) → `write_meal_log` → `get_daily_reconciled_view`. Date correct. 0 forbidden, 0 exec. |
+| 2 | Mixed (recipe + estimation) | PASS | Coach correctly deduped the shake from scenario 1 (session context). Only wrote new items. Totals from `get_daily_reconciled_view` verified correct against target. |
+| 3 | All estimation | PARTIAL | "Strawberries and yogurt" hit a recipe match (Strawberries with Yogurt recipe exists). Pure estimation path not exercised. Need a third recipe-free food to test this path cleanly. |
+| 4 | Semantic match | NOT RUN | Transient `batch_estimation_failed` error mid-scenario (see below). Need a recipe with a colloquial shortening to test semantic match. |
+
+### Findings
+
+**F-1: Transient inner LLM failure (`batch_estimation_failed`)**
+`log_meal_items` call for "strawberries and yogurt snack" returned `{"ok": false, "error": "script exited non-zero", "status": 1}`. Root cause: `batch_estimate.py` inner LLM call failed on both attempts (one retry). Reproduced locally with different input — script runs clean; confirmed transient API error.
+
+Decision locked: **increase retries in `batch_estimate.py` to 3, add 1-second pause between retries.** Same fix applies to `semantic_match.py`. No LLM surface change for the retry logic itself.
+
+After retries exhausted: **surface to user and ask to retry the message** ("I had trouble estimating one of those items, try sending that again"). One addition to `meal_log.md` failure modes. No auto-retry at the SKILL layer (adds complexity for a rare case the user retry handles).
+
+**F-2: Coach fell back to `estimate_macros_from_description` after `log_meal_items` failure**
+After `log_meal_items` errored, the coach called the v1 `estimate_macros_from_description` tool — a Hard rules violation (capability says "surface the failure; do not compute yourself"). Root cause: tool is still in `tools.allow`. `estimate_macros_from_description` also failed (result `[no result found]`).
+
+Fix: remove `estimate_macros_from_description` from `tools.allow`. Structural removal beats prompt instruction for this class of failure.
+
+**F-3: `get_today_date` and `log_meal_items` show as UNKNOWN in audit**
+`audit_session.py` registered-tools list predates v2. Both tools fire correctly but are flagged as unknown. Two-line fix to the audit script.
+
+### Before spike can close
+
+1. `batch_estimate.py`: increase to 3 retries, add 1-second pause between attempts. Same for `semantic_match.py`.
+2. `meal_log.md`: add explicit "batch_estimation_failed" failure mode entry instructing coach to surface and ask user to retry.
+3. Remove `estimate_macros_from_description` from `tools.allow`.
+4. Update `audit_session.py` registered-tools list.
+5. Add a third recipe-free test food for scenario 3 (all estimation).
+6. Add a recipe with a colloquial shortening for scenario 4 (semantic match). Could use "Strawberries with Yogurt" → "my strawberry yogurt" as the test pair.
+7. Re-run scenarios 3 and 4 clean.
+
+### Notes
+
+- Duplicate-detection behavior (scenario 2) is emergent — coach used session context to avoid double-logging the shake. Works within a session; will not catch duplicates logged in a prior conversation window. No fix needed now; note for mesocycle_setup rewrite.
+- `get_active_mesocycle` fires on session start (scenarios 1 and 2 turn start). Consistent with coach needing cycle context. Not in the capability explicitly; worth auditing once SKILL.md is rewritten.
+- Claude operates as Principal Engineer in this workspace: own build quality, push back when wrong, hold gate standards without being asked.
