@@ -3,7 +3,7 @@
 Every turn, this script produces a snapshot of the user's current state:
 - Current date + day name (from system clock; never derived by LLM)
 - Active mesocycle: name, week, today's macro targets (pre-computed by Python)
-- Full recipe list from recipes.json
+- Recipe names (alphabetical) from recipes.json
 - Today's consumed totals (reconciled from meal_log.jsonl)
 - User profile text (from USER.md)
 
@@ -126,7 +126,7 @@ def run_context_builder(
     return {
         "date": {"iso": today_iso, "day_name": day_name},
         "mesocycle": mesocycle_ctx,
-        "recipes": recipes_result["recipes"],
+        "recipes": [r["name"] for r in recipes_result["recipes"]],
         "totals": totals,
         "user_profile": user_profile,
     }

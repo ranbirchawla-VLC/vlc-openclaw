@@ -264,11 +264,27 @@ def test_recipes_populated(tmp_path):
     assert len(result["recipes"]) == 2
 
 
-def test_recipes_alphabetically_sorted(tmp_path):
+def test_recipes_are_name_strings_alphabetically_sorted(tmp_path):
+    """Injected recipes are plain name strings, alphabetical order from source."""
     _write_recipes(tmp_path, _RECIPES)
     result = _ctx(tmp_path)
-    names = [r["name"] for r in result["recipes"]]
-    assert names == sorted(names, key=str.lower)
+    # _RECIPES: "Zebra Smoothie" (id=1), "Apple Oats" (id=2); source sorts alpha
+    assert result["recipes"] == ["Apple Oats", "Zebra Smoothie"]
+
+
+def test_recipes_names_only_no_ids_or_macros(tmp_path):
+    """Injected recipes contain only name strings; recipe_id and macro values absent."""
+    _write_recipes(tmp_path, _RECIPES)
+    result = _ctx(tmp_path)
+    assert all(isinstance(r, str) for r in result["recipes"])
+
+
+def test_recipes_names_present_in_output(tmp_path):
+    """Each recipe name from the fixture appears verbatim in the injected list."""
+    _write_recipes(tmp_path, _RECIPES)
+    result = _ctx(tmp_path)
+    assert "Zebra Smoothie" in result["recipes"]
+    assert "Apple Oats" in result["recipes"]
 
 
 # ── totals ────────────────────────────────────────────────────────────────────
