@@ -1466,3 +1466,38 @@ Fix: remove `estimate_macros_from_description` from `tools.allow`. Structural re
 - Duplicate-detection behavior (scenario 2) is emergent — coach used session context to avoid double-logging the shake. Works within a session; will not catch duplicates logged in a prior conversation window. No fix needed now; note for mesocycle_setup rewrite.
 - `get_active_mesocycle` fires on session start (scenarios 1 and 2 turn start). Consistent with coach needing cycle context. Not in the capability explicitly; worth auditing once SKILL.md is rewritten.
 - Claude operates as Principal Engineer in this workspace: own build quality, push back when wrong, hold gate standards without being asked.
+
+---
+
+## Mnemo Investigation (2026-05-01)
+
+### Finding: two separate bugs in mnemo 0.1.0
+
+**Bug 1 — Response text truncation (UTF-8 char boundary panic)**
+File: `crates/mnemo/src/proxy/server.rs`, lines 518 and 695.
+Rust panics when slicing response text at a fixed byte offset (100) that lands inside a multi-byte UTF-8 character. The middle dot `·` (U+00B7, bytes 0xC2 0xB7) in macro readbacks ("1,378 cal · 119g protein") was the confirmed trigger.
+
+Status: **FIXED** in this session. ASCII-only rule added to `SOUL.md` and `AGENTS.md` (`b544c27`). LLM now uses `|` as separator. No new mnemo panics since restart. Outer LLM calls route through mnemo cleanly.
+
+**Bug 2 — Request body truncation**
+Python SDK requests sent through mnemo return `[no result found]` — the body is being cut before it reaches Anthropic. Confirmed by direct test: same call succeeds against `https://api.anthropic.com`, fails through `http://127.0.0.1:9999`. Different code path from Bug 1; not fixed by the ASCII rule.
+
+Status: **OPEN**. Inner skill calls (`batch_estimate.py`, `semantic_match.py`, `estimate_macros.py`) reverted to direct Anthropic API (`05f8165`). Comment in `estimate_macros.py` distinguishes the two bugs for future reference.
+
+### Current routing split
+
+| Call path | Endpoint | Status |
+|---|---|---|
+| Outer LLM (Telegram turns) | mnemo `http://127.0.0.1:9999` | Working — Bug 1 fixed |
+| Inner LLM (batch_estimate, semantic_match, estimate_macros) | Direct `https://api.anthropic.com` | Working — bypasses Bug 2 |
+
+### What to hand to mnemo maintainer
+
+- Version: `0.1.0`
+- Bug 2 reproduction: any Python `anthropic` SDK call with a non-trivial request body fails through the proxy. The response is empty (`[no result found]`). Direct API call with identical payload succeeds.
+- Bug 1 reproduction (for verification): send a response containing `·` (U+00B7) through the proxy; server panics at `server.rs:518` and `server.rs:695` with "byte index 100 is not a char boundary."
+- Bug 2 fix direction: request body reader in the proxy is likely reading up to a fixed buffer size and forwarding a truncated JSON string. Fix: stream or read the full body before forwarding.
+
+### When Bug 2 is fixed
+
+Three-line change: swap `base_url` back to `http://127.0.0.1:9999` in `batch_estimate.py`, `semantic_match.py`, and `estimate_macros.py`. Inner skills get mnemo caching for repeated food estimates.
