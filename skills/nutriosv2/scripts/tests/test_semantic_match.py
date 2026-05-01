@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from inner_skills.semantic_match import SemanticMatchResult, match_recipes
+from inner_skills.semantic_match import SemanticMatchResult, _MAX_RETRIES, match_recipes
 
 
 def _make_mock_client(responses: list[str]) -> MagicMock:
@@ -202,7 +202,8 @@ def test_schema_length_mismatch_triggers_retry_then_succeeds() -> None:
     correct = json.dumps(["Chicken Tikka Lunch Bowl"])
     client = _make_mock_client([wrong_length, correct])
     with patch("inner_skills.semantic_match.anthropic.Anthropic", return_value=client), \
-         patch("inner_skills.semantic_match._load_api_key", return_value="test-key"):
+         patch("inner_skills.semantic_match._load_api_key", return_value="test-key"), \
+         patch("inner_skills.semantic_match.time.sleep") as mock_sleep:
         result = match_recipes(
             unmatched_items=["tikka lunch"],
             recipe_names=["Chicken Tikka Lunch Bowl"],
@@ -211,6 +212,7 @@ def test_schema_length_mismatch_triggers_retry_then_succeeds() -> None:
     assert result.matches == ["Chicken Tikka Lunch Bowl"]
     assert result.retry_occurred is True
     assert client.messages.create.call_count == 2
+    assert mock_sleep.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +226,8 @@ def test_schema_nonverbatim_name_triggers_retry_then_succeeds() -> None:
     correct = json.dumps(["Chicken Tikka Lunch Bowl"])
     client = _make_mock_client([nonverbatim, correct])
     with patch("inner_skills.semantic_match.anthropic.Anthropic", return_value=client), \
-         patch("inner_skills.semantic_match._load_api_key", return_value="test-key"):
+         patch("inner_skills.semantic_match._load_api_key", return_value="test-key"), \
+         patch("inner_skills.semantic_match.time.sleep") as mock_sleep:
         result = match_recipes(
             unmatched_items=["tikka lunch"],
             recipe_names=["Chicken Tikka Lunch Bowl"],
@@ -233,6 +236,7 @@ def test_schema_nonverbatim_name_triggers_retry_then_succeeds() -> None:
     assert result.matches == ["Chicken Tikka Lunch Bowl"]
     assert result.retry_occurred is True
     assert client.messages.create.call_count == 2
+    assert mock_sleep.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +249,8 @@ def test_retry_on_bad_json_succeeds_second_attempt() -> None:
     correct = json.dumps(["Recovery Shake"])
     client = _make_mock_client(["not valid json {{{", correct])
     with patch("inner_skills.semantic_match.anthropic.Anthropic", return_value=client), \
-         patch("inner_skills.semantic_match._load_api_key", return_value="test-key"):
+         patch("inner_skills.semantic_match._load_api_key", return_value="test-key"), \
+         patch("inner_skills.semantic_match.time.sleep") as mock_sleep:
         result = match_recipes(
             unmatched_items=["my recovery shake"],
             recipe_names=["Recovery Shake"],
@@ -254,24 +259,47 @@ def test_retry_on_bad_json_succeeds_second_attempt() -> None:
     assert result.matches == ["Recovery Shake"]
     assert result.retry_occurred is True
     assert client.messages.create.call_count == 2
+    assert mock_sleep.call_count == 1
+
+
+def test_success_on_third_attempt() -> None:
+    """Two bad responses followed by a valid response; succeeds on attempt 3; sleep called twice."""
+    bad = "not valid json"
+    correct = json.dumps(["Recovery Shake"])
+    client = _make_mock_client([bad, bad, correct])
+    with patch("inner_skills.semantic_match.anthropic.Anthropic", return_value=client), \
+         patch("inner_skills.semantic_match._load_api_key", return_value="test-key"), \
+         patch("inner_skills.semantic_match.time.sleep") as mock_sleep:
+        result = match_recipes(
+            unmatched_items=["my recovery shake"],
+            recipe_names=["Recovery Shake"],
+        )
+
+    assert result.matches == ["Recovery Shake"]
+    assert result.retry_occurred is True
+    assert client.messages.create.call_count == 3
+    assert mock_sleep.call_count == 2
 
 
 def test_retry_on_bad_json_both_fail_raises() -> None:
-    """Malformed JSON on both attempts raises ValueError per spec §6.1."""
-    client = _make_mock_client(["not json", "also not json"])
+    """Malformed JSON on all attempts raises ValueError after exhausting all retries."""
+    bad_responses = ["not json"] * (_MAX_RETRIES + 1)
+    client = _make_mock_client(bad_responses)
     with patch("inner_skills.semantic_match.anthropic.Anthropic", return_value=client), \
-         patch("inner_skills.semantic_match._load_api_key", return_value="test-key"):
-        with pytest.raises(ValueError, match="schema validation failed after retry"):
+         patch("inner_skills.semantic_match._load_api_key", return_value="test-key"), \
+         patch("inner_skills.semantic_match.time.sleep") as mock_sleep:
+        with pytest.raises(ValueError, match="schema validation failed"):
             match_recipes(
                 unmatched_items=["tikka lunch"],
                 recipe_names=["Chicken Tikka Lunch Bowl"],
             )
 
-    assert client.messages.create.call_count == 2
+    assert client.messages.create.call_count == _MAX_RETRIES + 1
+    assert mock_sleep.call_count == _MAX_RETRIES
 
 
 # ---------------------------------------------------------------------------
-# Multi-item: mixed matches and nulls in one call
+# Multi-item: integer element and mixed matches
 # ---------------------------------------------------------------------------
 
 
@@ -281,7 +309,8 @@ def test_schema_integer_element_triggers_retry_then_succeeds() -> None:
     correct = json.dumps(["Recovery Shake"])
     client = _make_mock_client([integer_element, correct])
     with patch("inner_skills.semantic_match.anthropic.Anthropic", return_value=client), \
-         patch("inner_skills.semantic_match._load_api_key", return_value="test-key"):
+         patch("inner_skills.semantic_match._load_api_key", return_value="test-key"), \
+         patch("inner_skills.semantic_match.time.sleep") as mock_sleep:
         result = match_recipes(
             unmatched_items=["my recovery shake"],
             recipe_names=["Recovery Shake"],
@@ -290,6 +319,7 @@ def test_schema_integer_element_triggers_retry_then_succeeds() -> None:
     assert result.matches == ["Recovery Shake"]
     assert result.retry_occurred is True
     assert client.messages.create.call_count == 2
+    assert mock_sleep.call_count == 1
 
 
 def test_multi_item_mixed_matches_and_nulls() -> None:

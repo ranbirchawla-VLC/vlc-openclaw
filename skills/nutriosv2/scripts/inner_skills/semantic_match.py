@@ -1,15 +1,14 @@
-"""semantic_match inner skill; skeleton stub for log_meal_items sub-step 1.
+"""semantic_match inner skill — matches colloquial food references to user-defined recipes.
 
-Implemented in sub-step 2. Body raises NotImplementedError.
-
-retry_occurred is the retry indicator communicated back to log_meal_items as a
-dataclass field. log_meal_items checks this flag to append a system-level
-warning without parsing strings.
+Makes one Anthropic API call (claude-sonnet-4-6, temperature 0) with up to 3 retries on
+schema failure, with a 1-second pause between attempts. retry_occurred is returned as a
+dataclass field; log_meal_items checks this flag to append a system-level warning when True.
 """
 
 from __future__ import annotations
 import json
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,6 +18,7 @@ import anthropic
 _MODEL = "claude-sonnet-4-6"
 _TEMPERATURE = 0
 _MAX_TOKENS = 4096  # ceiling for large recipe lists; output is N strings/nulls, not a single object
+_MAX_RETRIES = 3
 
 _PROMPT = """\
 You are matching colloquial food references to a user's named recipes. For each item description, return either the exact name of a single matching recipe from the list, or null.
@@ -126,18 +126,20 @@ def match_recipes(
         base_url="https://api.anthropic.com",
     )
     prompt = _build_prompt(unmatched_items, recipe_names)
+    raw = ""
+    last_exc: Exception | None = None
 
-    raw = _call_llm(client, prompt)
-    try:
-        matches = _validate(raw, recipe_names, len(unmatched_items))
-        return SemanticMatchResult(matches=matches, retry_occurred=False)
-    except (json.JSONDecodeError, ValueError):
+    for attempt in range(_MAX_RETRIES + 1):
+        if attempt > 0:
+            time.sleep(1)
         raw = _call_llm(client, prompt)
         try:
             matches = _validate(raw, recipe_names, len(unmatched_items))
-            return SemanticMatchResult(matches=matches, retry_occurred=True)
+            return SemanticMatchResult(matches=matches, retry_occurred=attempt > 0)
         except (json.JSONDecodeError, ValueError) as e:
-            raise ValueError(
-                f"semantic_match: schema validation failed after retry: {e}; "
-                f"last response: {raw!r}"
-            ) from e
+            last_exc = e
+
+    raise ValueError(
+        f"semantic_match: schema validation failed after {_MAX_RETRIES} retries: {last_exc}; "
+        f"last response: {raw!r}"
+    ) from last_exc

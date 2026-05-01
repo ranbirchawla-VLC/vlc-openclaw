@@ -1,13 +1,14 @@
 """batch_estimate inner skill — estimates per-unit macros for a list of food descriptions.
 
-Makes one Anthropic API call (claude-sonnet-4-6, temperature 0) with one retry on schema
-failure. retry_occurred is returned as a dataclass field; log_meal_items appends a
-system-level warning when True.
+Makes one Anthropic API call (claude-sonnet-4-6, temperature 0) with up to 3 retries on
+schema failure, with a 1-second pause between attempts. retry_occurred is returned as a
+dataclass field; log_meal_items appends a system-level warning when True.
 """
 
 from __future__ import annotations
 import json
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +19,7 @@ _MODEL = "claude-sonnet-4-6"
 _TEMPERATURE = 0
 _MAX_TOKENS = 1024  # 1-10 items x ~70 chars per macro object; comfortable ceiling without over-allocating
 
+_MAX_RETRIES = 3
 _REQUIRED_KEYS = frozenset({"calories", "protein_g", "fat_g", "carbs_g"})
 
 _PROMPT = """\
@@ -121,18 +123,20 @@ def estimate_macros(descriptions: list[str]) -> BatchEstimateResult:
         base_url="https://api.anthropic.com",
     )
     prompt = _build_prompt(descriptions)
+    raw = ""
+    last_exc: Exception | None = None
 
-    raw = _call_llm(client, prompt)
-    try:
-        items = _validate(raw, len(descriptions))
-        return BatchEstimateResult(items=items, retry_occurred=False)
-    except (json.JSONDecodeError, ValueError):
+    for attempt in range(_MAX_RETRIES + 1):
+        if attempt > 0:
+            time.sleep(1)
         raw = _call_llm(client, prompt)
         try:
             items = _validate(raw, len(descriptions))
-            return BatchEstimateResult(items=items, retry_occurred=True)
+            return BatchEstimateResult(items=items, retry_occurred=attempt > 0)
         except (json.JSONDecodeError, ValueError) as e:
-            raise ValueError(
-                f"batch_estimate: schema validation failed after retry: {e}; "
-                f"last response: {raw!r}"
-            ) from e
+            last_exc = e
+
+    raise ValueError(
+        f"batch_estimate: schema validation failed after {_MAX_RETRIES} retries: {last_exc}; "
+        f"last response: {raw!r}"
+    ) from last_exc

@@ -95,10 +95,10 @@ def test_estimate_macros_from_description_remains_in_manifest() -> None:
     assert _find_tool(tools, "estimate_macros_from_description") is not None
 
 
-def test_estimate_macros_from_description_remains_in_tools_allow() -> None:
-    """estimate_macros_from_description still in tools.allow after log_meal_items registration."""
+def test_estimate_macros_from_description_not_in_tools_allow() -> None:
+    """estimate_macros_from_description removed from tools.allow per spike finding F-2 (v1 fallback eliminated)."""
     allow = _load_allow_list()
-    assert "estimate_macros_from_description" in allow
+    assert "estimate_macros_from_description" not in allow
 
 
 def test_calculate_macros_remains_in_manifest() -> None:

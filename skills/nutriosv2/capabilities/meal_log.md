@@ -96,6 +96,14 @@ The user is correcting a logged entry. This is a `supersedes_log_id` write — c
 
 Corrections are normal when the user later finds better information about a food the system estimated (e.g., a packaged item with a label they checked after eating). Corrections should not be the cleanup mechanism for sloppy logging. If `log_meal_items` could have given you the right answer the first time, calling it the first time is the rule, not "log fast and correct later."
 
+### Estimation failure
+
+> User: "Strawberries and yogurt snack."
+
+`log_meal_items` returns `batch_estimation_failed` after retries exhaust. The tool has surfaced the failure to you. Surface it to the user in plain language, name the item, and ask them to send it again. Do not log anything partial. Do not fall back to estimating the macros yourself. The user retry resolves the transient case cleanly.
+
+Coach voice: "Couldn't estimate the strawberries and yogurt snack. Send that one again?"
+
 ### Logging without an active cycle
 
 > User: "Two eggs and toast." (`get_daily_reconciled_view` returns null target)

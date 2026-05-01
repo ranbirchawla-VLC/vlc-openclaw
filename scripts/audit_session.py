@@ -32,6 +32,10 @@ REGISTERED_TOOLS = {
         "estimate_macros_from_description",
         "write_meal_log",
         "get_daily_reconciled_view",
+        "get_today_date",
+        "log_meal_items",
+        "calculate_macros",
+        "write_recipe",
         "message",
     }
 }

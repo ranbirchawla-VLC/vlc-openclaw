@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from inner_skills.batch_estimate import (
     BaseMacroEstimate,
     BatchEstimateResult,
+    _MAX_RETRIES,
     _PROMPT,
     estimate_macros,
 )
@@ -118,12 +119,14 @@ def test_schema_length_mismatch_triggers_retry_then_succeeds() -> None:
     correct = json.dumps([_EGG])
     client = _make_mock_client([wrong, correct])
     with patch("inner_skills.batch_estimate.anthropic.Anthropic", return_value=client), \
-         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"):
+         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"), \
+         patch("inner_skills.batch_estimate.time.sleep") as mock_sleep:
         result = estimate_macros(["two eggs"])
 
     assert len(result.items) == 1
     assert result.retry_occurred is True
     assert client.messages.create.call_count == 2
+    assert mock_sleep.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -137,11 +140,13 @@ def test_schema_missing_required_key_triggers_retry_then_succeeds() -> None:
     correct = json.dumps([_EGG])
     client = _make_mock_client([missing_key, correct])
     with patch("inner_skills.batch_estimate.anthropic.Anthropic", return_value=client), \
-         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"):
+         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"), \
+         patch("inner_skills.batch_estimate.time.sleep") as mock_sleep:
         result = estimate_macros(["egg"])
 
     assert result.retry_occurred is True
     assert client.messages.create.call_count == 2
+    assert mock_sleep.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -155,11 +160,13 @@ def test_schema_extra_key_triggers_retry_then_succeeds() -> None:
     correct = json.dumps([_EGG])
     client = _make_mock_client([extra_key, correct])
     with patch("inner_skills.batch_estimate.anthropic.Anthropic", return_value=client), \
-         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"):
+         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"), \
+         patch("inner_skills.batch_estimate.time.sleep") as mock_sleep:
         result = estimate_macros(["egg"])
 
     assert result.retry_occurred is True
     assert client.messages.create.call_count == 2
+    assert mock_sleep.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -173,11 +180,13 @@ def test_schema_negative_value_triggers_retry_then_succeeds() -> None:
     correct = json.dumps([_EGG])
     client = _make_mock_client([negative, correct])
     with patch("inner_skills.batch_estimate.anthropic.Anthropic", return_value=client), \
-         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"):
+         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"), \
+         patch("inner_skills.batch_estimate.time.sleep") as mock_sleep:
         result = estimate_macros(["egg"])
 
     assert result.retry_occurred is True
     assert client.messages.create.call_count == 2
+    assert mock_sleep.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -191,11 +200,13 @@ def test_schema_nonnumeric_value_triggers_retry_then_succeeds() -> None:
     correct = json.dumps([_EGG])
     client = _make_mock_client([nonnumeric, correct])
     with patch("inner_skills.batch_estimate.anthropic.Anthropic", return_value=client), \
-         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"):
+         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"), \
+         patch("inner_skills.batch_estimate.time.sleep") as mock_sleep:
         result = estimate_macros(["egg"])
 
     assert result.retry_occurred is True
     assert client.messages.create.call_count == 2
+    assert mock_sleep.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -207,23 +218,44 @@ def test_retry_on_bad_json_succeeds_second_attempt() -> None:
     """Malformed JSON on first call; valid response on second; retry_occurred=True."""
     client = _make_mock_client(["not valid json {{{", json.dumps([_EGG])])
     with patch("inner_skills.batch_estimate.anthropic.Anthropic", return_value=client), \
-         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"):
+         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"), \
+         patch("inner_skills.batch_estimate.time.sleep") as mock_sleep:
         result = estimate_macros(["egg"])
 
     assert len(result.items) == 1
     assert result.retry_occurred is True
     assert client.messages.create.call_count == 2
+    assert mock_sleep.call_count == 1
+
+
+def test_success_on_third_attempt() -> None:
+    """Two bad responses followed by a valid response; succeeds on attempt 3; sleep called twice."""
+    bad = "not valid json"
+    correct = json.dumps([_EGG])
+    client = _make_mock_client([bad, bad, correct])
+    with patch("inner_skills.batch_estimate.anthropic.Anthropic", return_value=client), \
+         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"), \
+         patch("inner_skills.batch_estimate.time.sleep") as mock_sleep:
+        result = estimate_macros(["egg"])
+
+    assert len(result.items) == 1
+    assert result.retry_occurred is True
+    assert client.messages.create.call_count == 3
+    assert mock_sleep.call_count == 2
 
 
 def test_retry_on_bad_json_both_fail_raises() -> None:
-    """Malformed JSON on both attempts raises ValueError per spec §6.2."""
-    client = _make_mock_client(["not json", "also not json"])
+    """Malformed JSON on all attempts raises ValueError after exhausting all retries."""
+    bad_responses = ["not json"] * (_MAX_RETRIES + 1)
+    client = _make_mock_client(bad_responses)
     with patch("inner_skills.batch_estimate.anthropic.Anthropic", return_value=client), \
-         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"):
-        with pytest.raises(ValueError, match="schema validation failed after retry"):
+         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"), \
+         patch("inner_skills.batch_estimate.time.sleep") as mock_sleep:
+        with pytest.raises(ValueError, match="schema validation failed"):
             estimate_macros(["egg"])
 
-    assert client.messages.create.call_count == 2
+    assert client.messages.create.call_count == _MAX_RETRIES + 1
+    assert mock_sleep.call_count == _MAX_RETRIES
 
 
 # ---------------------------------------------------------------------------
@@ -237,15 +269,17 @@ def test_retry_on_schema_fail_succeeds_second_attempt() -> None:
     correct = json.dumps([_EGG])
     client = _make_mock_client([schema_fail, correct])
     with patch("inner_skills.batch_estimate.anthropic.Anthropic", return_value=client), \
-         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"):
+         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"), \
+         patch("inner_skills.batch_estimate.time.sleep") as mock_sleep:
         result = estimate_macros(["egg"])
 
     assert result.retry_occurred is True
     assert client.messages.create.call_count == 2
+    assert mock_sleep.call_count == 1
 
 
 # ---------------------------------------------------------------------------
-# Float values rounded to int
+# Non-dict and bool element validation
 # ---------------------------------------------------------------------------
 
 
@@ -255,11 +289,13 @@ def test_schema_non_dict_element_triggers_retry_then_succeeds() -> None:
     correct = json.dumps([_EGG])
     client = _make_mock_client([non_dict, correct])
     with patch("inner_skills.batch_estimate.anthropic.Anthropic", return_value=client), \
-         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"):
+         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"), \
+         patch("inner_skills.batch_estimate.time.sleep") as mock_sleep:
         result = estimate_macros(["egg"])
 
     assert result.retry_occurred is True
     assert client.messages.create.call_count == 2
+    assert mock_sleep.call_count == 1
 
 
 def test_schema_bool_value_triggers_retry_then_succeeds() -> None:
@@ -268,11 +304,18 @@ def test_schema_bool_value_triggers_retry_then_succeeds() -> None:
     correct = json.dumps([_EGG])
     client = _make_mock_client([bool_val, correct])
     with patch("inner_skills.batch_estimate.anthropic.Anthropic", return_value=client), \
-         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"):
+         patch("inner_skills.batch_estimate._load_api_key", return_value="test-key"), \
+         patch("inner_skills.batch_estimate.time.sleep") as mock_sleep:
         result = estimate_macros(["egg"])
 
     assert result.retry_occurred is True
     assert client.messages.create.call_count == 2
+    assert mock_sleep.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Float values rounded to int (no retry path)
+# ---------------------------------------------------------------------------
 
 
 def test_float_macro_values_rounded_to_int() -> None:
