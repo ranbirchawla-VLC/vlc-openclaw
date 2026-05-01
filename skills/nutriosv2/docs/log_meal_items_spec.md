@@ -69,6 +69,7 @@ ResolvedItem:
   description: str            # echoed back verbatim
   source: "recipe" | "estimate"
   recipe_match: str | null    # name of matched recipe if source=recipe
+  recipe_id: int | null       # ID of matched recipe if source=recipe, null otherwise
   base_macros: {calories: int, protein_g: int, fat_g: int, carbs_g: int}
   portion: float              # echoed back from input
   scaled_macros: {calories: int, protein_g: int, fat_g: int, carbs_g: int}
@@ -135,7 +136,7 @@ The outer LLM surfaces failures conversationally via SOUL/USER. No items partial
 
 Reasoning: stripping trailing words creates false-positive risk and pushes work into Step 1 that Step 2 is purpose-built to handle. Leading-article stripping covers the common natural-speech variants ("my shake" → "shake"). Anything beyond is the semantic skill's job by design.
 
-**Match logic:** if exactly one recipe matches the normalized description, the item resolves as `source="recipe"`. If zero or multiple match, the item proceeds to Step 2.
+**Match logic:** if exactly one recipe matches the normalized description, the item resolves as `source="recipe"` with `recipe_match` set to the recipe name and `recipe_id` set to the recipe's integer ID. If zero or multiple match, the item proceeds to Step 2.
 
 **No LLM call.** Pure Python and disk read.
 
@@ -149,6 +150,8 @@ Reasoning: stripping trailing words creates false-positive risk and pushes work 
 
 Reasoning: arch doc §5.1 already commits the skill to false-negative bias, and the §5.1 prompt examples explicitly lock `null` on multi-recipe ambiguity. The ambiguity-marker alternative would force the outer LLM to reason about a new return shape mid-tool, violating "one tool call out, one structured result back." Falling through to estimation gives the user approximately-right macros; the user owns disambiguation by naming recipes more distinctly. This is the documented user contract.
 
+When the skill returns a recipe name, the item resolves as `source="recipe"` with `recipe_match` set to the matched name and `recipe_id` set to the recipe's integer ID (looked up from the recipe record by name).
+
 When the skill returns `null` on multi-recipe ambiguity, Step 2 appends a warning: `"Multiple recipes plausibly matched '<description>'; routed to estimation. Consider renaming for distinct match."`
 
 ### 4.3 Step 3: batch estimation (inner LLM)
@@ -161,7 +164,7 @@ When the skill returns `null` on multi-recipe ambiguity, Step 2 appends a warnin
 
 Reasoning: estimation quality is the variable that affects user trust. The bot is already on Sonnet 4 with high thinking; the inner LLM is not the latency bottleneck. Per the operator's framing — *"Wired the smartest way; Python should be fast, the LLM is the slow part"* — don't trade quality for speed at the inner-skill layer. Build at Sonnet first; revisit only with cost or latency data.
 
-**Behavior:** receives quantifier-free food descriptions, returns per-unit base macros for each. See §6.2 for the prompt spec.
+**Behavior:** receives quantifier-free food descriptions, returns per-unit base macros for each. See §6.2 for the prompt spec. Estimation-resolved items have `recipe_match: null` and `recipe_id: null`.
 
 ### 4.4 Step 4: portion math and totals
 

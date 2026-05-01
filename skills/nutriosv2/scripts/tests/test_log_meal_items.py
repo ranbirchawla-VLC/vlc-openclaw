@@ -95,6 +95,7 @@ def test_all_exact_match_no_inner_calls(tmp_path):
     assert len(d["items"]) == 1
     assert d["items"][0]["source"] == "recipe"
     assert d["items"][0]["recipe_match"] == "Recovery Shake"
+    assert d["items"][0]["recipe_id"] == 1
 
 
 def test_all_semantic_match_step3_not_called(tmp_path):
@@ -112,6 +113,7 @@ def test_all_semantic_match_step3_not_called(tmp_path):
     assert result["ok"] is True
     assert result["data"]["items"][0]["source"] == "recipe"
     assert result["data"]["items"][0]["recipe_match"] == "Recovery Shake"
+    assert result["data"]["items"][0]["recipe_id"] == 1
 
 
 def test_all_estimation_step1_and_step2_miss(tmp_path):
@@ -130,6 +132,7 @@ def test_all_estimation_step1_and_step2_miss(tmp_path):
     assert result["ok"] is True
     assert result["data"]["items"][0]["source"] == "estimate"
     assert result["data"]["items"][0]["recipe_match"] is None
+    assert result["data"]["items"][0]["recipe_id"] is None
     assert result["data"]["items"][0]["scaled_macros"]["calories"] == round(90 * 2.0)
 
 
@@ -156,9 +159,12 @@ def test_mixed_resolution_paths(tmp_path):
     items = result["data"]["items"]
     assert items[0]["source"] == "recipe"
     assert items[0]["recipe_match"] == "Recovery Shake"
+    assert items[0]["recipe_id"] == 1
     assert items[1]["source"] == "recipe"
     assert items[1]["recipe_match"] == "Chicken Tikka Lunch Bowl"
+    assert items[1]["recipe_id"] == 2
     assert items[2]["source"] == "estimate"
+    assert items[2]["recipe_id"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -345,6 +351,7 @@ def test_article_variation_matches(tmp_path):
     assert result["ok"] is True
     assert result["data"]["items"][0]["source"] == "recipe"
     assert result["data"]["items"][0]["recipe_match"] == "Recovery Shake"
+    assert result["data"]["items"][0]["recipe_id"] == 1
 
 
 def test_multi_recipe_step1_zero_match_falls_through(tmp_path):
