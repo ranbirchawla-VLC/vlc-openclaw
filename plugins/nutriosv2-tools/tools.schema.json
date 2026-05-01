@@ -352,35 +352,157 @@
       }
     },
     {
-      "name": "turn_state",
-      "description": "Call first on every user turn. Classifies intent, detects intent-transition boundary, and returns the routed capability prompt read fresh from disk. Returns {intent, ambiguous, boundary, capability_prompt, today_date}.",
+      "name": "write_recipe",
+      "description": "Save a new named recipe for a user. Returns {recipe_id, name} on success. Returns {ok: false, error: 'name_collision', existing_recipe_id, message} when a recipe with the same name already exists (case-insensitive). Exit code 0 on collision so the LLM receives the structured error.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "user_message": {
-            "type": "string",
-            "description": "Verbatim text the user sent"
-          },
           "user_id": {
             "type": "integer",
             "description": "Telegram user ID"
           },
-          "intent_override": {
+          "name": {
             "type": "string",
-            "enum": [
-              "mesocycle_setup",
-              "cycle_read_back",
-              "meal_log",
-              "today_view",
-              "default"
-            ],
-            "description": "Skip classifier and force this intent. Used for slash command dispatch."
+            "description": "Recipe name; must be unique per user (case-insensitive)"
+          },
+          "macros": {
+            "type": "object",
+            "description": "Macro values per serving",
+            "properties": {
+              "calories": {
+                "type": "integer"
+              },
+              "protein_g": {
+                "type": "integer"
+              },
+              "fat_g": {
+                "type": "integer"
+              },
+              "carbs_g": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "calories",
+              "protein_g",
+              "fat_g",
+              "carbs_g"
+            ]
+          },
+          "ingredients": {
+            "type": "array",
+            "description": "Optional list of ingredient descriptions",
+            "items": {
+              "type": "object",
+              "properties": {
+                "description": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "description"
+              ]
+            }
           }
         },
         "required": [
-          "user_message",
-          "user_id"
+          "user_id",
+          "name",
+          "macros"
         ]
+      }
+    },
+    {
+      "name": "log_meal_items",
+      "description": "Orchestrate meal-item resolution and macro assembly. Accepts a list of items (description + portion); resolves each via exact recipe match, semantic recipe match, or batch estimation; returns resolved items with scaled macros and totals. Returns {ok: true, data: {items, totals, warnings}} on success; {ok: false, err: {code, message, details}} on failure. Does not write; call write_meal_log separately to persist.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "description": "Telegram user ID"
+          },
+          "items": {
+            "type": "array",
+            "description": "List of meal items to resolve",
+            "items": {
+              "type": "object",
+              "properties": {
+                "description": {
+                  "type": "string",
+                  "description": "Natural-language food description"
+                },
+                "portion": {
+                  "type": "number",
+                  "description": "Portion multiplier (1.0 = one full unit, 0.5 = half, 2.0 = double)"
+                }
+              },
+              "required": [
+                "description",
+                "portion"
+              ]
+            }
+          }
+        },
+        "required": [
+          "user_id",
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "calculate_macros",
+      "description": "Scale a base macro set by portion fraction and/or serving count. Returns {calories, protein_g, fat_g, carbs_g} as integers. Use when the user describes a partial portion (portion=0.5 for half a serving) or multiple servings (servings=2).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "base_macros": {
+            "type": "object",
+            "description": "Macro values for one full serving",
+            "properties": {
+              "calories": {
+                "type": "integer"
+              },
+              "protein_g": {
+                "type": "integer"
+              },
+              "fat_g": {
+                "type": "integer"
+              },
+              "carbs_g": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "calories",
+              "protein_g",
+              "fat_g",
+              "carbs_g"
+            ]
+          },
+          "portion": {
+            "type": "number",
+            "description": "Fraction of one serving (1.0 = full, 0.5 = half, 0.33 = one-third)"
+          },
+          "servings": {
+            "type": "number",
+            "description": "Number of servings (default 1.0)",
+            "default": 1
+          }
+        },
+        "required": [
+          "base_macros",
+          "portion"
+        ]
+      }
+    },
+    {
+      "name": "get_today_date",
+      "description": "Return today's date as YYYY-MM-DD in the America/Denver timezone. Call before any flow that requires the current date. Returns {ok: true, data: {date: \"YYYY-MM-DD\"}}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
       }
     }
   ]
