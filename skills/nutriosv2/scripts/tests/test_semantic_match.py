@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -28,13 +28,6 @@ def _make_mock_client(responses: list[str]) -> MagicMock:
     client = MagicMock()
     client.messages.create.side_effect = _create
     return client
-
-
-def _patch(client: MagicMock):
-    return (
-        patch("inner_skills.semantic_match.anthropic.Anthropic", return_value=client),
-        patch("inner_skills.semantic_match._load_api_key", return_value="test-key"),
-    )
 
 
 # ---------------------------------------------------------------------------
