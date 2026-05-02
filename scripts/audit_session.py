@@ -33,6 +33,7 @@ REGISTERED_TOOLS = {
         "write_meal_log",
         "get_daily_reconciled_view",
         "get_today_date",
+        "build_macro_grid",
         "log_meal_items",
         "calculate_macros",
         "write_recipe",

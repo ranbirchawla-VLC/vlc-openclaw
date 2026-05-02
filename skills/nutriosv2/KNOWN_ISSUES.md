@@ -262,6 +262,14 @@ Items deferred from prior sub-step gates, with target sub-step for resolution. A
 - Priority: low.
 - Target: cleanup pass.
 
+### NB-51: lock_mesocycle ends the active cycle immediately on call; no pre-planning support
+
+- File: `skills/nutriosv2/scripts/lock_mesocycle.py:131-138`
+- Issue: `run_lock_mesocycle` ends the prior active cycle at call time regardless of the new cycle's `start_date`. Pre-planning scenario (user builds next cycle before current one ends, start_date in the future) immediately terminates the active cycle.
+- Required for fix: (1) `mode: "immediate" | "scheduled"` param on `lock_mesocycle`; (2) `status="pending"` Literal on `Mesocycle`; (3) promotion logic in `get_active_mesocycle` (lazy: promote pending→active when start_date <= today, end prior) or a HEARTBEAT cron check; (4) capability prompt updated to use `scheduled` mode when start_date is in the future.
+- Priority: medium; blocks valid UX once users have recurring cycles.
+- Target: Phase 2 or standalone pre-planning pass.
+
 ### NB-50: intent.rationale required in plugin schema but optional in Python model
 
 - File: `plugins/nutriosv2-tools/tool-schemas.js` lock_mesocycle intent object

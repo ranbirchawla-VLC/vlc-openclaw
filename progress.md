@@ -1720,10 +1720,38 @@ KNOWN_ISSUES added:
 - Step 4: `78192ce`
 Tests: 422 Python passing
 
-**Next session — opening action:**
-Phase 1 gate 3: restart gateway, run /newcycle end-to-end. Verify `build_macro_grid` fires as a registered tool call (audit_session.py should show it in registered, not exec). Confirm 7-row grid returned and flows to lock_mesocycle.
+### Phase 1 Gate 3 — CLOSED (2026-05-02)
 
-After gate 3: Phase 2 — `mesocycle_setup.md` rewrite per coach-shape ADR. Read `capability-shape-execution-plan.md` §4.
+Session: `d6ace15e` — 6/6 registered, 0 forbidden, 0 exec.
+
+Timeline:
+- `get_active_mesocycle` → null (clean slate after stale cycle deleted)
+- `get_today_date` → ok
+- `compute_candidate_macros` → ok
+- `build_macro_grid` → fired registered; returned 7-row Sun→Sat grid ✅
+- `recompute_macros_with_overrides` → fired registered (Monday override) ✅
+- `lock_mesocycle` → `mesocycle_id: 1, "Ranbir's Spring Cut"` written ✅
+
+**Stale data incident:** prior cycle 3 ("Spring 2026 Mega Cut", created 2026-04-28) was on disk in pre-Step-2 MacroRow format; caused `get_active_mesocycle` + `lock_mesocycle` to fail with 21 pydantic errors on first Gate 3 attempt. Deleted `3.json` + `active.txt` and retested clean. ADR §3.4 ("no live cycles in production") was incorrect.
+
+**Post-lock deficit change test:** operator asked bot "what if I change deficit to 4000 cal?" Bot replied with inline arithmetic (zero-arithmetic violation); no tool called. Root cause: no capability instruction covers post-lock "what if" scenarios. Tools are all registered and working; fix is a capability prompt addition in Phase 2 `mesocycle_setup.md`. No Python changes needed.
+
+**Housekeeping landed this session:**
+- `scripts/audit_session.py`: `build_macro_grid` added to `REGISTERED_TOOLS["nutriosv2"]`
+- `KNOWN_ISSUES.md`: NB-51 added (pre-planning scenario; `lock_mesocycle` ends active cycle immediately; fix design documented)
+
+**Phase 1 complete. All 4 steps gated (1+2), all gates green (1+2+3).**
+
+---
+
+**Next session — opening action:**
+
+Phase 2: `mesocycle_setup.md` rewrite per coach-shape ADR. Read in order:
+1. `skills/nutriosv2/docs/capability-shape-execution-plan.md` — §4 scope
+2. `skills/nutriosv2/docs/architecture-decision-capability-shape.md` — shape rules
+3. `skills/nutriosv2/capabilities/mesocycle_setup.md` — current HEAD (v1 shape to replace)
+
+First section to draft: post-lock adjustment flow (what-if deficit/TDEE change → call tools, not arithmetic). This directly closes the Gate 3 behavioral gap.
 
 ### PE reminder
 
