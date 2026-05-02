@@ -269,4 +269,43 @@ export const TOOLS = [
       required: [],
     },
   },
+  {
+    _script: "build_macro_grid.py",
+    _spawn: "argv",
+    name: "build_macro_grid",
+    description: "Assemble the full 7-row macro grid from cycle intent. Returns {rows: [7 MacroRow objects in Sun-Sat order], weekly_kcal_target}. Each row: {weekday, calories, protein_g, fat_g, carbs_g, restrictions, protein_floor_g, fat_ceiling_g}. Per-day targets are sparse; absent fields use the baseline computation (TDEE minus normalized daily deficit). Per-day protein_floor_g or fat_ceiling_g in a target entry override the cycle baseline for that day only. Constraint violations return an error naming the day, the value, and resolution paths. Does not persist anything.",
+    parameters: {
+      type: "object",
+      properties: {
+        estimated_tdee_kcal: { type: "integer", description: "User's estimated total daily energy expenditure in kcal" },
+        target_deficit_kcal: { type: "integer", description: "Deficit value; unit determined by deficit_unit" },
+        deficit_unit: { type: "string", enum: ["weekly_kcal", "daily_kcal"], default: "weekly_kcal", description: "Unit for target_deficit_kcal; omit to use weekly_kcal" },
+        protein_floor_g: { type: "integer", description: "Minimum daily protein in grams for the cycle baseline" },
+        fat_ceiling_g: { type: "integer", description: "Maximum daily fat in grams for the cycle baseline" },
+        dose_weekday: {
+          type: "string",
+          enum: ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"],
+          description: "Day the user takes their weekly dose",
+        },
+        per_weekday_targets: {
+          type: "object",
+          description: "Sparse map of per-day macro targets, keyed by weekday name. Each entry overrides specific fields for that day; absent fields use the baseline. Per-day protein_floor_g or fat_ceiling_g override the cycle baseline for that day only.",
+          propertyNames: {
+            enum: ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"],
+          },
+          additionalProperties: {
+            type: "object",
+            properties: {
+              calories:        { type: "integer" },
+              protein_g:       { type: "integer" },
+              fat_g:           { type: "integer" },
+              protein_floor_g: { type: "integer", description: "Per-day protein floor; overrides cycle baseline for this day only" },
+              fat_ceiling_g:   { type: "integer", description: "Per-day fat ceiling; overrides cycle baseline for this day only" },
+            },
+          },
+        },
+      },
+      required: ["estimated_tdee_kcal", "target_deficit_kcal", "protein_floor_g", "fat_ceiling_g", "dose_weekday"],
+    },
+  },
 ];
