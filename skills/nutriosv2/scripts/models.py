@@ -6,13 +6,19 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 
+_WEEKDAY_ORDER = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+
+
 class MacroRow(BaseModel):
     model_config = ConfigDict(strict=True)
+    weekday: Literal["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
     calories: int
     protein_g: int
     fat_g: int
     carbs_g: int
     restrictions: list[str]
+    protein_floor_g: int
+    fat_ceiling_g: int
 
 
 class Intent(BaseModel):
@@ -54,9 +60,15 @@ class Mesocycle(BaseModel):
 
     @field_validator("macro_table")
     @classmethod
-    def macro_table_seven_rows(cls, v: list) -> list:
+    def macro_table_valid(cls, v: list) -> list:
         if len(v) != 7:
             raise ValueError(f"macro_table must have exactly 7 rows, got {len(v)}")
+        weekdays = [r.weekday for r in v]
+        if weekdays != _WEEKDAY_ORDER:
+            raise ValueError(
+                "macro_table rows must be in Sun→Sat order "
+                "(sunday, monday, tuesday, wednesday, thursday, friday, saturday)"
+            )
         return v
 
 

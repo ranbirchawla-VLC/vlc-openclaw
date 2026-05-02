@@ -29,7 +29,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-from common import err, ok
+from common import dose_offset_to_weekday, err, ok
 from models import MacroRow
 
 from typing import Any
@@ -54,6 +54,7 @@ def _build_row(
     protein_floor_g: int,
     fat_ceiling_g: int,
     offset: int,
+    dose_weekday: int,
 ) -> MacroRow:
     if protein_g < protein_floor_g:
         raise ValueError(
@@ -70,11 +71,14 @@ def _build_row(
             f"protein_floor_g {protein_floor_g}g and fat_ceiling_g {fat_ceiling_g}g constraints"
         )
     return MacroRow(
+        weekday=dose_offset_to_weekday(dose_weekday, offset).lower(),
         calories=calories,
         protein_g=protein_g,
         fat_g=fat_g,
         carbs_g=carbs_kcal // 4,
         restrictions=[],
+        protein_floor_g=protein_floor_g,
+        fat_ceiling_g=fat_ceiling_g,
     )
 
 
@@ -84,6 +88,7 @@ def recompute(
     protein_floor_g: int,
     fat_ceiling_g: int,
     overrides: dict[int, dict[str, Any]],
+    dose_weekday: int,
 ) -> list[MacroRow]:
     """Redistribute weekly kcal target across 7 rows, landing override rows verbatim.
 
@@ -126,6 +131,7 @@ def recompute(
                 protein_floor_g=protein_floor_g,
                 fat_ceiling_g=fat_ceiling_g,
                 offset=offset,
+                dose_weekday=dose_weekday,
             ))
         else:
             rows.append(_build_row(
@@ -135,6 +141,7 @@ def recompute(
                 protein_floor_g=protein_floor_g,
                 fat_ceiling_g=fat_ceiling_g,
                 offset=offset,
+                dose_weekday=dose_weekday,
             ))
     return rows
 
@@ -171,6 +178,7 @@ def main() -> None:
             protein_floor_g=inp.protein_floor_g,
             fat_ceiling_g=inp.fat_ceiling_g,
             overrides=int_overrides,
+            dose_weekday=inp.dose_weekday,
         )
     except ValueError as e:
         err(str(e))

@@ -7,6 +7,7 @@ import sys
 from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from compute_candidate_macros import _Input as MacrosInput, compute
@@ -16,10 +17,13 @@ from get_active_mesocycle import run_get_active_mesocycle
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+_WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+
+
 def _seven_rows() -> list[dict]:
     return [
-        dict(calories=2000, protein_g=180, fat_g=70, carbs_g=200, restrictions=[])
-        for _ in range(7)
+        dict(weekday=_WEEKDAYS[i], calories=2000, protein_g=180, fat_g=70, carbs_g=200, restrictions=[], protein_floor_g=175, fat_ceiling_g=65)
+        for i in range(7)
     ]
 
 
@@ -279,3 +283,38 @@ def test_lock_intent_rationale_optional(tmp_path):
     assert result["mesocycle_id"] == 1
     data = json.loads((tmp_path / "1001" / "mesocycles" / "1.json").read_text())
     assert data["intent"]["rationale"] == ""
+
+
+# ── macro_table shape validators ─────────────────────────────────────────────
+
+def test_lock_macro_table_out_of_order_rejected():
+    rows = [
+        dict(weekday=w, calories=2000, protein_g=180, fat_g=70, carbs_g=200, restrictions=[], protein_floor_g=175, fat_ceiling_g=65)
+        for w in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    ]
+    with pytest.raises(ValidationError):
+        _lock_input(macro_table=rows)
+
+
+def test_lock_macro_table_duplicate_weekday_rejected():
+    rows = [
+        dict(weekday=w, calories=2000, protein_g=180, fat_g=70, carbs_g=200, restrictions=[], protein_floor_g=175, fat_ceiling_g=65)
+        for w in ["sunday", "sunday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+    ]
+    with pytest.raises(ValidationError):
+        _lock_input(macro_table=rows)
+
+
+def test_lock_macro_table_wrong_count_rejected():
+    with pytest.raises(ValidationError):
+        _lock_input(macro_table=_seven_rows()[:5])
+
+
+def test_lock_macro_table_new_shape_persists_correctly(tmp_path):
+    inp = _lock_input()
+    run_lock_mesocycle(inp, data_root=str(tmp_path))
+    data = json.loads((tmp_path / "1001" / "mesocycles" / "1.json").read_text())
+    assert data["macro_table"][0]["weekday"] == "sunday"
+    assert data["macro_table"][0]["protein_floor_g"] == 175
+    assert data["macro_table"][0]["fat_ceiling_g"] == 65
+    assert data["macro_table"][6]["weekday"] == "saturday"

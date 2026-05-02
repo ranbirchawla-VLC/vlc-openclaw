@@ -16,10 +16,13 @@ from lock_mesocycle import _Input as LockInput, run_lock_mesocycle
 
 # ── fixtures ──────────────────────────────────────────────────────────────────
 
+_WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+
+
 def _seven_rows(calories: int = 2000) -> list[dict]:
     return [
-        dict(calories=calories, protein_g=180, fat_g=70, carbs_g=200, restrictions=[])
-        for _ in range(7)
+        dict(weekday=_WEEKDAYS[i], calories=calories, protein_g=180, fat_g=70, carbs_g=200, restrictions=[], protein_floor_g=180, fat_ceiling_g=70)
+        for i in range(7)
     ]
 
 
@@ -212,7 +215,7 @@ def test_dose_offset_zero_on_dose_weekday(tmp_path):
     # dose_weekday=1 (Tuesday). Query on a Tuesday: 2026-04-28 (Tuesday).
     # Offset should be 0 → macro_table[0].
     rows = [
-        dict(calories=1000 + i * 100, protein_g=180, fat_g=70, carbs_g=200, restrictions=[])
+        dict(weekday=_WEEKDAYS[i], calories=1000 + i * 100, protein_g=180, fat_g=70, carbs_g=200, restrictions=[], protein_floor_g=180, fat_ceiling_g=70)
         for i in range(7)
     ]
     inp = LockInput(
@@ -230,7 +233,7 @@ def test_dose_offset_zero_on_dose_weekday(tmp_path):
 def test_dose_offset_one_day_after(tmp_path):
     # dose_weekday=1 (Tuesday). Wednesday = offset 1 → macro_table[1].
     rows = [
-        dict(calories=1000 + i * 100, protein_g=180, fat_g=70, carbs_g=200, restrictions=[])
+        dict(weekday=_WEEKDAYS[i], calories=1000 + i * 100, protein_g=180, fat_g=70, carbs_g=200, restrictions=[], protein_floor_g=180, fat_ceiling_g=70)
         for i in range(7)
     ]
     inp = LockInput(
@@ -248,7 +251,7 @@ def test_dose_offset_one_day_after(tmp_path):
 def test_dose_offset_six_days_after(tmp_path):
     # dose_weekday=1 (Tuesday). Monday = offset 6 → macro_table[6].
     rows = [
-        dict(calories=1000 + i * 100, protein_g=180, fat_g=70, carbs_g=200, restrictions=[])
+        dict(weekday=_WEEKDAYS[i], calories=1000 + i * 100, protein_g=180, fat_g=70, carbs_g=200, restrictions=[], protein_floor_g=180, fat_ceiling_g=70)
         for i in range(7)
     ]
     inp = LockInput(
@@ -266,7 +269,7 @@ def test_dose_offset_six_days_after(tmp_path):
 def test_dose_offset_wraps_correctly_across_weeks(tmp_path):
     # dose_weekday=1 (Tuesday). Two Tuesdays should both be offset 0.
     rows = [
-        dict(calories=1000 + i * 100, protein_g=180, fat_g=70, carbs_g=200, restrictions=[])
+        dict(weekday=_WEEKDAYS[i], calories=1000 + i * 100, protein_g=180, fat_g=70, carbs_g=200, restrictions=[], protein_floor_g=180, fat_ceiling_g=70)
         for i in range(7)
     ]
     inp = LockInput(

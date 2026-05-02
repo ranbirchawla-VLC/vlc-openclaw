@@ -198,10 +198,14 @@
           },
           "macro_table": {
             "type": "array",
-            "description": "Exactly 7 macro rows, one per day starting from dose day",
+            "description": "Exactly 7 macro rows ordered Sunday through Saturday",
             "items": {
               "type": "object",
               "properties": {
+                "weekday": {
+                  "type": "string",
+                  "enum": ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+                },
                 "calories": {
                   "type": "integer"
                 },
@@ -219,14 +223,23 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "protein_floor_g": {
+                  "type": "integer"
+                },
+                "fat_ceiling_g": {
+                  "type": "integer"
                 }
               },
               "required": [
+                "weekday",
                 "calories",
                 "protein_g",
                 "fat_g",
                 "carbs_g",
-                "restrictions"
+                "restrictions",
+                "protein_floor_g",
+                "fat_ceiling_g"
               ]
             },
             "minItems": 7,

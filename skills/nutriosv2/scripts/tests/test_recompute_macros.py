@@ -20,6 +20,7 @@ def _recompute(**kwargs):
         protein_floor_g=175,
         fat_ceiling_g=65,
         overrides={},
+        dose_weekday=6,  # Sunday
     )
     return recompute(**{**defaults, **kwargs})
 
@@ -73,6 +74,7 @@ def test_multi_day_override_calories():
         protein_floor_g=180,
         fat_ceiling_g=60,
         overrides={0: {"calories": 2500}, 3: {"calories": 1500}},
+        dose_weekday=6,  # Sunday
     )
     assert rows[0].calories == 2500
     assert rows[3].calories == 1500

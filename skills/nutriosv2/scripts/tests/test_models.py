@@ -11,8 +11,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from models import Intent, MacroRow, MealLog, Macros, Mesocycle
 
 
+_WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+
+
 def _macro_row(**kwargs) -> MacroRow:
-    defaults = dict(calories=2000, protein_g=180, fat_g=70, carbs_g=200, restrictions=[])
+    defaults = dict(weekday="sunday", calories=2000, protein_g=180, fat_g=70, carbs_g=200, restrictions=[], protein_floor_g=175, fat_ceiling_g=65)
     return MacroRow(**{**defaults, **kwargs})
 
 
@@ -22,8 +25,8 @@ def _intent(**kwargs) -> Intent:
 
 def _seven_rows() -> list[dict]:
     return [
-        dict(calories=2000, protein_g=180, fat_g=70, carbs_g=200, restrictions=[])
-        for _ in range(7)
+        dict(weekday=_WEEKDAYS[i], calories=2000, protein_g=180, fat_g=70, carbs_g=200, restrictions=[], protein_floor_g=175, fat_ceiling_g=65)
+        for i in range(7)
     ]
 
 
@@ -60,12 +63,42 @@ def test_macro_row_with_restrictions():
 
 def test_macro_row_missing_field():
     with pytest.raises(ValidationError):
-        MacroRow(calories=2000, protein_g=180, fat_g=70)  # missing carbs_g, restrictions
+        MacroRow(weekday="sunday", calories=2000, protein_g=180, fat_g=70)  # missing carbs_g, restrictions, protein_floor_g, fat_ceiling_g
 
 
 def test_macro_row_strict_rejects_float_calories():
     with pytest.raises(ValidationError):
-        MacroRow(calories=2000.5, protein_g=180, fat_g=70, carbs_g=200, restrictions=[])
+        MacroRow(weekday="sunday", calories=2000.5, protein_g=180, fat_g=70, carbs_g=200, restrictions=[], protein_floor_g=175, fat_ceiling_g=65)
+
+
+def test_macro_row_weekday_invalid_literal():
+    with pytest.raises(ValidationError):
+        _macro_row(weekday="Sunday")  # uppercase rejected
+
+
+def test_macro_row_weekday_required():
+    with pytest.raises(ValidationError):
+        MacroRow(calories=2000, protein_g=180, fat_g=70, carbs_g=200, restrictions=[], protein_floor_g=175, fat_ceiling_g=65)
+
+
+def test_macro_row_protein_floor_g_required():
+    with pytest.raises(ValidationError):
+        MacroRow(weekday="sunday", calories=2000, protein_g=180, fat_g=70, carbs_g=200, restrictions=[], fat_ceiling_g=65)
+
+
+def test_macro_row_fat_ceiling_g_required():
+    with pytest.raises(ValidationError):
+        MacroRow(weekday="sunday", calories=2000, protein_g=180, fat_g=70, carbs_g=200, restrictions=[], protein_floor_g=175)
+
+
+def test_macro_row_protein_floor_g_strict_rejects_float():
+    with pytest.raises(ValidationError):
+        _macro_row(protein_floor_g=175.5)
+
+
+def test_macro_row_fat_ceiling_g_strict_rejects_float():
+    with pytest.raises(ValidationError):
+        _macro_row(fat_ceiling_g=65.5)
 
 
 # ── Intent ────────────────────────────────────────────────────────────────────
@@ -118,6 +151,14 @@ def test_mesocycle_status_invalid_literal():
 def test_mesocycle_ended_at_nullable():
     c = _mesocycle(status="ended", ended_at="2026-06-01T00:00:00Z")
     assert c.ended_at == "2026-06-01T00:00:00Z"
+
+
+def test_mesocycle_macro_table_wrong_order():
+    with pytest.raises(ValidationError):
+        _mesocycle(macro_table=[
+            dict(weekday=w, calories=2000, protein_g=180, fat_g=70, carbs_g=200, restrictions=[], protein_floor_g=175, fat_ceiling_g=65)
+            for w in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+        ])
 
 
 # ── Macros sub-model ──────────────────────────────────────────────────────────

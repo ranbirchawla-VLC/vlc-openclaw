@@ -93,17 +93,20 @@ export const TOOLS = [
         dose_weekday: { type: "integer", description: "Dose day as integer 0=Mon..6=Sun" },
         macro_table: {
           type: "array",
-          description: "Exactly 7 macro rows, one per day starting from dose day",
+          description: "Exactly 7 macro rows ordered Sunday through Saturday",
           items: {
             type: "object",
             properties: {
+              weekday: { type: "string", enum: ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] },
               calories: { type: "integer" },
               protein_g: { type: "integer" },
               fat_g: { type: "integer" },
               carbs_g: { type: "integer" },
               restrictions: { type: "array", items: { type: "string" } },
+              protein_floor_g: { type: "integer" },
+              fat_ceiling_g: { type: "integer" },
             },
-            required: ["calories", "protein_g", "fat_g", "carbs_g", "restrictions"],
+            required: ["weekday", "calories", "protein_g", "fat_g", "carbs_g", "restrictions", "protein_floor_g", "fat_ceiling_g"],
           },
           minItems: 7,
           maxItems: 7,
