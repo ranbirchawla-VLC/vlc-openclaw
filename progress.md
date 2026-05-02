@@ -1688,6 +1688,28 @@ Key changes:
 - NB-NEW-2: `estimate_macros_from_description` still in tool schemas — cleanup when v2 architecture fully locks
 - `_lock_input` helper's `rationale="cut"` default — cosmetic; Step 1 carry-forward
 
+### Session close — 2026-05-02
+
+Branch: `feature/nutriosv2-v2`
+Last commit: `cffd926` (progress.md update)
+Tests: 395 passing
+
+**Completed this session:**
+- ADR + addendum written and committed (`76e5f44`, `224a367`)
+- Step 1 (rationale optional): `08e292c` — gate 2 clean
+- Step 2 (weekday-named rows, Sun→Sat): `8c483ed` — gate 2 clean
+- Step 3 (recompute re-keyed by weekday name): `22a3d1d` — gate 2 clean
+
+**Next session — opening action:**
+Step 4: `build_macro_grid` new tool. Read ADR §2.1 and §5.4. The build prompt requires actual sample `per_weekday_targets` input shapes, sample output rows, and explicit constraint-violation examples before coding begins (postmortem rule).
+
+**Branch state for next session:**
+```
+git rev-parse --abbrev-ref HEAD   # feature/nutriosv2-v2
+git log --oneline | head -5
+.venv/bin/python -m pytest skills/nutriosv2/scripts/tests/ -q --ignore=skills/nutriosv2/scripts/tests/llm 2>&1 | tail -3   # expect 395
+```
+
 ### PE reminder
 
 Claude operates as Principal Engineer in this workspace: own build quality, push back when wrong, hold gate standards without being asked. Do not scaffold — deliver production-ready implementations. Surface spec-vs-precedent divergences before building, not after.
