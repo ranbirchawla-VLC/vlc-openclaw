@@ -20,7 +20,7 @@
 PYTHON = .venv/bin/python
 PYTEST = $(PYTHON) -m pytest
 
-.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x
+.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-gtd test-gtd-storage
 
 help:
 	@echo "Available targets:"
@@ -43,6 +43,8 @@ help:
 	@echo "  make test-nutriosv2-turn-state   - run turn_state tool tests"
 	@echo "  make test-nutriosv2-llm          - run NutriOS v3 LLM tests (single run)"
 	@echo "  make test-nutriosv2-llm-3x       - run NutriOS v3 LLM tests 3x require-all-pass"
+	@echo "  make test-gtd                    - run all GTD workspace tests"
+	@echo "  make test-gtd-storage            - run migrate_storage.py tests"
 
 setup:
 	test -d .venv || python3.11 -m venv .venv
@@ -103,3 +105,9 @@ test-nutriosv2-llm:
 
 test-nutriosv2-llm-3x:
 	$(PYTHON) skills/nutriosv2/scripts/run_llm_3x.py
+
+test-gtd:
+	$(PYTEST) gtd-workspace/scripts
+
+test-gtd-storage:
+	$(PYTEST) gtd-workspace/scripts/test_migrate_storage.py

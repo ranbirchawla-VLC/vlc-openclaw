@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "GTD agent pipeline tools for Vardalux Collections",
   "routing": "pipeline.md",
+  "env": ["GTD_STORAGE_ROOT"],
   "tools": [
     {
       "name": "gtd_normalize",
