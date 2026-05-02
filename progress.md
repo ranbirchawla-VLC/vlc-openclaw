@@ -1700,15 +1700,30 @@ Tests: 395 passing
 - Step 2 (weekday-named rows, Sun→Sat): `8c483ed` — gate 2 clean
 - Step 3 (recompute re-keyed by weekday name): `22a3d1d` — gate 2 clean
 
-**Next session — opening action:**
-Step 4: `build_macro_grid` new tool. Read ADR §2.1 and §5.4. The build prompt requires actual sample `per_weekday_targets` input shapes, sample output rows, and explicit constraint-violation examples before coding begins (postmortem rule).
+### Step 4 — `build_macro_grid` new tool
 
-**Branch state for next session:**
-```
-git rev-parse --abbrev-ref HEAD   # feature/nutriosv2-v2
-git log --oneline | head -5
-.venv/bin/python -m pytest skills/nutriosv2/scripts/tests/ -q --ignore=skills/nutriosv2/scripts/tests/llm 2>&1 | tail -3   # expect 395
-```
+Pre-review commit: `f4d685c` — 22 new Python tests (417 total)
+Post-review commit: `78192ce` — 27 tests (422 total); B-1 (or{} idiom), B-3 (deficit_unit validation), N-3/N-4/N-5 (missing boundary tests), N-6 (floor-div comment) fixed in-pass
+Gate 1: GREEN — 422 Python passed
+Gate 2: GREEN — code-reviewer subagent; 2 blockers + 6 non-blockers; all addressed in-pass
+Gate 3: PENDING — gateway restart required; run /newcycle end-to-end and verify build_macro_grid fires registered
+tools.allow: updated (12 entries; build_macro_grid added)
+
+KNOWN_ISSUES added:
+- N-2 (reviewer): dose_weekday accepted but unused in build_grid(); doc note added to docstring; behavior is intentional per ADR
+- N-10 (reviewer): _WEEKDAY_ORDER defined locally in build_macro_grid.py, recompute_macros_with_overrides.py, and models.py; cross-file refactor deferred
+
+**Phase 1 complete — all 4 steps gated:**
+- Step 1: `08e292c`
+- Step 2: `8c483ed`
+- Step 3: `22a3d1d`
+- Step 4: `78192ce`
+Tests: 422 Python passing
+
+**Next session — opening action:**
+Phase 1 gate 3: restart gateway, run /newcycle end-to-end. Verify `build_macro_grid` fires as a registered tool call (audit_session.py should show it in registered, not exec). Confirm 7-row grid returned and flows to lock_mesocycle.
+
+After gate 3: Phase 2 — `mesocycle_setup.md` rewrite per coach-shape ADR. Read `capability-shape-execution-plan.md` §4.
 
 ### PE reminder
 
