@@ -98,15 +98,28 @@ Gmail read/modify deferred to Phase 2 inbound relay. Service account rejected �
 
 ---
 
-## 5. Hybrid model fallback chain
+## 5. Model routing — role-based
 
-Per inner-LLM-call file:
+Routing is a property of the call site's role, not a per-call config flag.
+
+**Outer (Sonnet only, no fallback).** User-facing dialogue, capability dispatch, response composition, judgment that draws on relationship context. If Sonnet fails, surface the error. No fallback to Qwen; the role assignment forbids it.
 
 ```python
-_MODEL_CHAIN = [
+_OUTER_MODEL = {"provider": "claude", "model": "claude-sonnet-4-6", "endpoint": "https://api.anthropic.com"}
+```
+
+**Inner (Qwen primary, Sonnet fallback).** Extraction, classification, semantic matching, structured transformation inside Python plugin scripts. Schema validation gates the fallback.
+
+```python
+_INNER_CHAIN = [
     {"provider": "qwen",   "model": "qwen3:latest",     "endpoint": "http://localhost:11434"},
     {"provider": "claude", "model": "claude-sonnet-4-6", "endpoint": "https://api.anthropic.com"},
 ]
+```
+
+Common to both:
+
+```python
 _TEMPERATURE = 0
 _MAX_TOKENS = 1024
 _MAX_RETRIES = 3
@@ -117,9 +130,11 @@ Validation failure on Qwen → fall through to Sonnet (don't raise). Distinguish
 - `qwen_validation_failed` — fell through, expected, informational
 - `chain_exhausted` — Sonnet also failed, surface to user
 
-**Endpoint health cache:** 30-second TTL on Qwen endpoint check. If Qwen has been down for 30s, skip straight to Sonnet without per-request timeout penalty.
+**Endpoint health cache:** 30-second TTL on Qwen endpoint check. If Qwen has been down for 30s, inner calls skip straight to Sonnet without per-request timeout penalty.
 
 **Cost tracking query (build early):** "cumulative cost saved this month = qwen_success_count × estimated_sonnet_cost_per_call." That number is the ROI argument.
+
+**`@traced_llm_call` decorator** takes a `role` parameter (`"inner"` | `"outer"`); outer calls bypass chain logic entirely.
 
 ---
 
