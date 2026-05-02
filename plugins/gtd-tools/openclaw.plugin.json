@@ -1,0 +1,9 @@
+{
+  "id": "gtd-tools",
+  "name": "GTD Tools",
+  "description": "Custom tools for the GTD agent",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}

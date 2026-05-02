@@ -32,16 +32,16 @@ locked decisions._
 
 ## 3. Credential model
 
-OAuth 2.0 user flow (3-legged). Two files:
+OAuth 2.0 user flow (3-legged). One credential file at runtime:
 
-- `client_secrets.json` — OAuth client identity from Google Cloud Console. One-time download.
-- `token.json` — authorized user token (access + refresh + scopes). Generated once via `InstalledAppFlow`. Plugin reads at runtime; refresh handled by `google.auth.transport.requests`.
+- `trina-google-creds.json` — carries `client_id`, `client_secret`, and `refresh_token`. Generated once via `InstalledAppFlow`. Plugin reads at runtime; refresh handled by `google.auth.transport.requests`.
+
+`client_secrets.json` is setup-time only (used to run the initial auth flow); it is not read by plugin scripts and is not required in the gateway env.
 
 **Env vars (gateway process):**
 
 ```
-GOOGLE_OAUTH_CLIENT_SECRETS_PATH=/Users/ranbirchawla/.openclaw/secrets/google_client_secrets.json
-GOOGLE_OAUTH_TOKEN_PATH=/Users/ranbirchawla/.openclaw/secrets/google_token.json
+GOOGLE_OAUTH_CREDENTIALS=/Users/ranbirchawla/.openclaw/credentials/trina-google-creds.json
 GTD_STORAGE_ROOT=/Users/ranbirchawla/agent_data/gtd/ranbir
 GTD_TZ=America/Denver
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318

@@ -16,6 +16,7 @@ from typing import Any, Callable, Literal, Protocol
 
 import anthropic
 import httpx
+from googleapiclient.errors import HttpError as _GoogleHttpError
 from opentelemetry import context, trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME
@@ -97,7 +98,9 @@ def configure_tracer_provider(exporter: SpanExporter | None = None) -> None:
         real_exporter = OTLPSpanExporter(
             endpoint=f"{_OTEL_ENDPOINT}/v1/traces"
         )
-        provider.add_span_processor(BatchSpanProcessor(real_exporter))
+        # SimpleSpanProcessor ships spans synchronously; required for short-lived plugin scripts
+        # that exit before BatchSpanProcessor's default 5s flush window.
+        provider.add_span_processor(SimpleSpanProcessor(real_exporter))
     else:
         provider.add_span_processor(SimpleSpanProcessor(exporter))
 
@@ -372,3 +375,9 @@ def _is_transient(exc: Exception) -> bool:
         or isinstance(exc, (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError))
         or (isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code >= 500)
     )
+
+
+def _is_transient_google(exc: Exception) -> bool:
+    return (
+        isinstance(exc, _GoogleHttpError) and exc.resp.status >= 500
+    ) or isinstance(exc, (ConnectionError, TimeoutError, OSError))

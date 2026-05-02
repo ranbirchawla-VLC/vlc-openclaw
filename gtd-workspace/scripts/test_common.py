@@ -69,12 +69,9 @@ def _make_valid_creds(
 def test_happy_path_returns_credentials(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    token_path = tmp_path / "token.json"
-    secrets_path = tmp_path / "secrets.json"
+    token_path = tmp_path / "trina-google-creds.json"
     _write_token(token_path, {"type": "authorized_user"})
-    secrets_path.write_text("{}")
-    monkeypatch.setenv("GOOGLE_OAUTH_TOKEN_PATH", str(token_path))
-    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRETS_PATH", str(secrets_path))
+    monkeypatch.setenv("GOOGLE_OAUTH_CREDENTIALS", str(token_path))
 
     mock_creds = _make_valid_creds()
 
@@ -86,39 +83,22 @@ def test_happy_path_returns_credentials(
 
 
 # Case 2: Missing env var — names the missing variable
-# Guards against: "auth failed" error that doesn't identify which of the two env vars is absent.
-def test_missing_token_path_env_var_names_var(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("GOOGLE_OAUTH_TOKEN_PATH", raising=False)
-    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_SECRETS_PATH", raising=False)
+# Guards against: "auth failed" error that doesn't identify which env var is absent.
+def test_missing_credentials_env_var_names_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GOOGLE_OAUTH_CREDENTIALS", raising=False)
 
     from common import get_google_credentials
-    with pytest.raises(EnvironmentError, match="GOOGLE_OAUTH_TOKEN_PATH"):
+    with pytest.raises(EnvironmentError, match="GOOGLE_OAUTH_CREDENTIALS"):
         get_google_credentials(["https://www.googleapis.com/auth/calendar"])
 
 
-def test_missing_secrets_path_env_var_names_var(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    token_path = tmp_path / "token.json"
-    token_path.write_text("{}")
-    monkeypatch.setenv("GOOGLE_OAUTH_TOKEN_PATH", str(token_path))
-    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_SECRETS_PATH", raising=False)
-
-    from common import get_google_credentials
-    with pytest.raises(EnvironmentError, match="GOOGLE_OAUTH_CLIENT_SECRETS_PATH"):
-        get_google_credentials(["https://www.googleapis.com/auth/calendar"])
-
-
-# Case 3: Missing token file — names the path
+# Case 3: Missing credentials file — names the path
 # Guards against: raw FileNotFoundError traceback leaking to operator instead of structured error.
 def test_missing_token_file_names_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    token_path = tmp_path / "token.json"  # does not exist
-    secrets_path = tmp_path / "secrets.json"
-    secrets_path.write_text("{}")
-    monkeypatch.setenv("GOOGLE_OAUTH_TOKEN_PATH", str(token_path))
-    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRETS_PATH", str(secrets_path))
+    token_path = tmp_path / "trina-google-creds.json"  # does not exist
+    monkeypatch.setenv("GOOGLE_OAUTH_CREDENTIALS", str(token_path))
 
     from common import get_google_credentials
     with pytest.raises(FileNotFoundError, match=str(token_path)):
@@ -130,12 +110,9 @@ def test_missing_token_file_names_path(
 def test_insufficient_scopes_names_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    token_path = tmp_path / "token.json"
-    secrets_path = tmp_path / "secrets.json"
+    token_path = tmp_path / "trina-google-creds.json"
     _write_token(token_path, {"type": "authorized_user"})
-    secrets_path.write_text("{}")
-    monkeypatch.setenv("GOOGLE_OAUTH_TOKEN_PATH", str(token_path))
-    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRETS_PATH", str(secrets_path))
+    monkeypatch.setenv("GOOGLE_OAUTH_CREDENTIALS", str(token_path))
 
     mock_creds = _make_valid_creds(scopes={"https://www.googleapis.com/auth/calendar"})
 
@@ -153,17 +130,14 @@ def test_insufficient_scopes_names_missing(
 def test_expired_token_calls_refresh(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    token_path = tmp_path / "token.json"
-    secrets_path = tmp_path / "secrets.json"
+    token_path = tmp_path / "trina-google-creds.json"
     _write_token(token_path, {"type": "authorized_user"})
-    secrets_path.write_text("{}")
-    monkeypatch.setenv("GOOGLE_OAUTH_TOKEN_PATH", str(token_path))
-    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRETS_PATH", str(secrets_path))
+    monkeypatch.setenv("GOOGLE_OAUTH_CREDENTIALS", str(token_path))
 
     mock_creds = _make_valid_creds(expired=True, refresh_token="rt")
 
     with patch("google.oauth2.credentials.Credentials.from_authorized_user_file", return_value=mock_creds), \
-         patch("google.auth.transport.requests.Request") as mock_request_cls:
+         patch("google.auth.transport.requests.Request"):
         from common import get_google_credentials
         result = get_google_credentials(["https://www.googleapis.com/auth/calendar"])
 
@@ -178,12 +152,9 @@ def test_refresh_failure_names_token_path(
 ) -> None:
     import google.auth.exceptions
 
-    token_path = tmp_path / "token.json"
-    secrets_path = tmp_path / "secrets.json"
+    token_path = tmp_path / "trina-google-creds.json"
     _write_token(token_path, {"type": "authorized_user"})
-    secrets_path.write_text("{}")
-    monkeypatch.setenv("GOOGLE_OAUTH_TOKEN_PATH", str(token_path))
-    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRETS_PATH", str(secrets_path))
+    monkeypatch.setenv("GOOGLE_OAUTH_CREDENTIALS", str(token_path))
 
     mock_creds = _make_valid_creds(expired=True, refresh_token="rt")
     mock_creds.refresh.side_effect = google.auth.exceptions.RefreshError("token expired")
@@ -195,17 +166,14 @@ def test_refresh_failure_names_token_path(
             get_google_credentials(["https://www.googleapis.com/auth/calendar"])
 
 
-# Case 7: Malformed token JSON — names the file path
+# Case 7: Malformed credentials JSON — names the file path
 # Guards against: json.JSONDecodeError surfacing as unstructured traceback.
 def test_malformed_token_json_names_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    token_path = tmp_path / "token.json"
-    secrets_path = tmp_path / "secrets.json"
+    token_path = tmp_path / "trina-google-creds.json"
     token_path.write_text("{ not valid json }")
-    secrets_path.write_text("{}")
-    monkeypatch.setenv("GOOGLE_OAUTH_TOKEN_PATH", str(token_path))
-    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRETS_PATH", str(secrets_path))
+    monkeypatch.setenv("GOOGLE_OAUTH_CREDENTIALS", str(token_path))
 
     from common import get_google_credentials
     with pytest.raises(ValueError, match=str(token_path)):
@@ -234,12 +202,9 @@ def test_require_env_returns_value_when_set(monkeypatch: pytest.MonkeyPatch) -> 
 def test_scopes_none_returns_creds_without_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    token_path = tmp_path / "token.json"
-    secrets_path = tmp_path / "secrets.json"
+    token_path = tmp_path / "trina-google-creds.json"
     _write_token(token_path, {"type": "authorized_user"})
-    secrets_path.write_text("{}")
-    monkeypatch.setenv("GOOGLE_OAUTH_TOKEN_PATH", str(token_path))
-    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRETS_PATH", str(secrets_path))
+    monkeypatch.setenv("GOOGLE_OAUTH_CREDENTIALS", str(token_path))
 
     mock_creds = MagicMock()
     mock_creds.expired = False

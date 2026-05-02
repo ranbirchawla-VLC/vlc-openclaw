@@ -399,6 +399,49 @@ def test_retry_sleep_is_mocked_and_test_runs_fast() -> None:
 
 
 # ---------------------------------------------------------------------------
+# _is_transient_google: direct unit tests
+# Guards: Google API 5xx must advance the retry loop; 4xx must not.
+# httpx._is_transient handles LLM/httpx errors; _is_transient_google handles
+# Google API client errors. Both live in otel_common for cohesion.
+# ---------------------------------------------------------------------------
+
+def test_is_transient_google_true_for_5xx_http_error() -> None:
+    from googleapiclient.errors import HttpError
+    from otel_common import _is_transient_google
+
+    for status in (500, 503):
+        resp = MagicMock()
+        resp.status = status
+        assert _is_transient_google(HttpError(resp=resp, content=b"error"))
+
+
+def test_is_transient_google_false_for_4xx_http_error() -> None:
+    from googleapiclient.errors import HttpError
+    from otel_common import _is_transient_google
+
+    for status in (400, 403, 404):
+        resp = MagicMock()
+        resp.status = status
+        assert not _is_transient_google(HttpError(resp=resp, content=b"error"))
+
+
+def test_is_transient_google_true_for_connection_errors() -> None:
+    from otel_common import _is_transient_google
+
+    assert _is_transient_google(ConnectionError("refused"))
+    assert _is_transient_google(TimeoutError("timeout"))
+    assert _is_transient_google(OSError("os error"))
+
+
+def test_is_transient_google_false_for_non_network() -> None:
+    from otel_common import _is_transient_google
+
+    assert not _is_transient_google(Exception("generic"))
+    assert not _is_transient_google(ValueError("val"))
+    assert not _is_transient_google(KeyError("key"))
+
+
+# ---------------------------------------------------------------------------
 # _is_transient: direct unit tests — B-1 review finding
 # Guards: any future regression in transient-error exception coverage is
 # immediately visible without running the full chain integration tests.

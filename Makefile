@@ -20,7 +20,7 @@
 PYTHON = .venv/bin/python
 PYTEST = $(PYTHON) -m pytest
 
-.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-gtd test-gtd-storage test-gtd-helpers test-gtd-common test-gtd-otel
+.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-gtd test-gtd-storage test-gtd-helpers test-gtd-common test-gtd-otel test-gtd-calendar
 
 help:
 	@echo "Available targets:"
@@ -48,6 +48,7 @@ help:
 	@echo "  make test-gtd-helpers            - run common.py + otel_common.py tests"
 	@echo "  make test-gtd-common             - run scripts/common.py tests only"
 	@echo "  make test-gtd-otel               - run otel_common.py tests only"
+	@echo "  make test-gtd-calendar           - run calendar tool tests only"
 
 setup:
 	test -d .venv || python3.11 -m venv .venv
@@ -124,3 +125,6 @@ test-gtd-common:
 
 test-gtd-otel:
 	$(PYTEST) gtd-workspace/scripts/test_otel_common.py
+
+test-gtd-calendar:
+	$(PYTEST) gtd-workspace/scripts/calendar

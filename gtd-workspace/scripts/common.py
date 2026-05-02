@@ -58,15 +58,9 @@ def get_google_credentials(scopes: list[str]) -> google.oauth2.credentials.Crede
     Raises structured errors naming the specific resource that is missing or
     misconfigured — not generic "auth failed" messages.
     """
-    token_path_str = os.environ.get("GOOGLE_OAUTH_TOKEN_PATH")
+    token_path_str = os.environ.get("GOOGLE_OAUTH_CREDENTIALS")
     if not token_path_str:
-        raise EnvironmentError("Required environment variable not set: GOOGLE_OAUTH_TOKEN_PATH")
-
-    secrets_path_str = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRETS_PATH")
-    if not secrets_path_str:
-        raise EnvironmentError(
-            "Required environment variable not set: GOOGLE_OAUTH_CLIENT_SECRETS_PATH"
-        )
+        raise EnvironmentError("Required environment variable not set: GOOGLE_OAUTH_CREDENTIALS")
 
     token_path = Path(token_path_str)
     if not token_path.exists():
