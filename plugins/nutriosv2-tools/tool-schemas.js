@@ -143,30 +143,35 @@ export const TOOLS = [
     _script: "recompute_macros_with_overrides.py",
     _spawn: "argv",
     name: "recompute_macros_with_overrides",
-    description: "Redistribute a weekly kcal budget across 7 days given per-day calorie overrides. Call when the user proposes changing a specific day's calories during table negotiation. Returns {weekly_kcal_target, rows} where rows is 7 MacroRow objects (calories, protein_g, fat_g, carbs_g, restrictions) with redistributed values. Does not persist anything.",
+    description: "Redistribute a weekly kcal budget across 7 days given per-day overrides. Call when the user proposes changing a specific day's macros during table negotiation. Returns {weekly_kcal_target, rows} where rows is 7 MacroRow objects in Sun→Sat order (weekday, calories, protein_g, fat_g, carbs_g, restrictions, protein_floor_g, fat_ceiling_g) with redistributed values. Override entries accept any subset of macro fields plus optional per-day protein_floor_g / fat_ceiling_g. Does not persist anything.",
     parameters: {
       type: "object",
       properties: {
         estimated_tdee_kcal: { type: "integer", description: "User's estimated total daily energy expenditure in kcal; verbatim from confirmed intent" },
         target_deficit_kcal: { type: "integer", description: "Weekly deficit in kcal; verbatim from confirmed intent" },
-        dose_weekday: { type: "integer", description: "Dose day as integer 0=Mon..6=Sun" },
         protein_floor_g: { type: "integer", description: "Minimum daily protein in grams for non-overridden rows" },
         fat_ceiling_g: { type: "integer", description: "Maximum daily fat in grams for non-overridden rows" },
         overrides: {
           type: "object",
-          description: "Map of plan-position string key ('0'..'6') to row override.",
+          description: "Map of weekday name to row override. Keys: one or more of 'sunday'..'saturday'. All fields optional.",
+          propertyNames: {
+            enum: ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"],
+          },
           additionalProperties: {
             type: "object",
             properties: {
-              calories:  { type: "integer" },
-              protein_g: { type: "integer" },
-              fat_g:     { type: "integer" },
+              calories:       { type: "integer" },
+              protein_g:      { type: "integer" },
+              fat_g:          { type: "integer" },
+              carbs_g:        { type: "integer" },
+              restrictions:   { type: "array", items: { type: "string" } },
+              protein_floor_g: { type: "integer", description: "Per-day protein floor; overrides baseline for this day only" },
+              fat_ceiling_g:  { type: "integer", description: "Per-day fat ceiling; overrides baseline for this day only" },
             },
-            required: ["calories"],
           },
         },
       },
-      required: ["estimated_tdee_kcal", "target_deficit_kcal", "dose_weekday", "protein_floor_g", "fat_ceiling_g", "overrides"],
+      required: ["estimated_tdee_kcal", "target_deficit_kcal", "protein_floor_g", "fat_ceiling_g", "overrides"],
     },
   },
   {

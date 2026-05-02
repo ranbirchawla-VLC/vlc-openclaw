@@ -1501,3 +1501,192 @@ Status: **OPEN**. Inner skill calls (`batch_estimate.py`, `semantic_match.py`, `
 ### When Bug 2 is fixed
 
 Three-line change: swap `base_url` back to `http://127.0.0.1:9999` in `batch_estimate.py`, `semantic_match.py`, and `estimate_macros.py`. Inner skills get mnemo caching for repeated food estimates.
+
+---
+
+## Wispr Spike — CLOSED (2026-05-01)
+
+Branch: `feature/nutriosv2-v2`
+Commits: `b715317` (pre-review), `8a73dca` (post-review)
+Python tests: 378 passed
+
+### Spike results
+
+| # | Scenario | Result | Notes |
+|---|---|---|---|
+| 1 | All exact match | PASS | `get_today_date` + `log_meal_items` (recipe) + `write_meal_log` + `get_daily_reconciled_view`. 0 forbidden, 0 exec. |
+| 2 | Mixed (recipe + estimation) | PASS | Coach deduped from session context; only new items written. |
+| 3 | All estimation | PASS | "Oatmeal and ham" — no recipe match, both estimated; date correct from `get_today_date`. |
+| 4 | Semantic match | PASS | "Strawberries and Yogurt" matched to recipe "Strawberries with Yogurt" (`recipe_id: 2`); `write_meal_log` called with `source="recipe"`; `log_id: 3`. |
+
+### Fixes landed (pre-spike)
+
+- `batch_estimate.py` + `semantic_match.py`: retry count 1 -> 3, 1s pause between attempts. `_MAX_RETRIES = 3` exported. Loop replaces nested try/except. Symmetric.
+- `audit_session.py`: `get_today_date`, `log_meal_items`, `calculate_macros`, `write_recipe` added to `REGISTERED_TOOLS["nutriosv2"]`.
+- `meal_log.md`: `### Estimation failure` section added per coach-shape ADR.
+- `test_plugin_registration.py`: `estimate_macros_from_description_remains_in_tools_allow` flipped to assert removal (operator-actioned per spike F-2).
+
+### Gate audit — session eb3b4bf6 (all four scenarios)
+
+```
+Total tool calls:     8
+Registered:           8  ✅
+Forbidden:            0  ✅
+Exec bypasses:        0  ✅
+```
+
+### Known issues logged this session
+
+- NB-NEW-1: Coach asked for clarification on "strawberry and yogurt snack" (portions ambiguous) before calling `log_meal_items`. Capability allows this via "Partial information" flow. Expected behavior; not a blocker. If the desired behavior is to assume a default portion and log without asking, the "Partial information" example needs tightening.
+- NB-NEW-2 (carry from F-3): `estimate_macros_from_description` still registered in plugin `tool-schemas.js` and `tools.schema.json` even though it has been removed from `tools.allow`. Dual-surface inconsistency; cleanup when v2 architecture is fully locked.
+
+### Next session
+
+Execution plan §4: `mesocycle_setup.md` rewrite per coach-shape ADR. Spike confirms the compute path is correct; the capability shape is the remaining gap for cycle setup.
+
+- Claude operates as Principal Engineer in this workspace: own build quality, push back when wrong, hold gate standards without being asked.
+
+---
+
+## NB-NEW-1: meal_log.md portion-vagueness tightening (2026-05-01)
+
+Branch: `feature/nutriosv2-v2`
+Commits: `bf9ad31` (pre-review), `f2aa98d` (post-review)
+Python tests: 378 passed (no regression; markdown-only change)
+
+### What was changed
+
+- **Edit 1:** `### Partial information` opening sentence broadened. Trigger now covers items without any portion info, not only explicit uncertainty flags. "Strawberries and yogurt for a snack" named as a canonical example. Block-quote example updated to drop the "not sure on portions" flag so the worked example matches the no-flag trigger path (NB-2 fix).
+- **Edit 2:** `### Punting on portions` anti-pattern added to `## What good does not look like`, between `### Ceremonial confirmation` and `### Balance-sheet readback`. No-clarification-before-computing rule; assume typical serving and surface with assumption stated.
+
+### Gate status
+
+- Gate 1: GREEN — 378 Python passed
+- Gate 2: GREEN — code-reviewer subagent; 0 blockers; NB-1 (forward reference "surface-and-confirm step") and NB-2 (block-quote example only covered explicit-flag path) fixed in post-review commit
+- Gate 3: GREEN — fresh session post-restart; "log my strawberries and yogurt for a snack" triggered semantic match to "Strawberries with Yogurt" recipe (201 cal | 12P | 1F | 40C); coach surfaced the match and confirmed before logging; no portion-clarification question; user confirmed and log written
+
+### Notes
+
+- Motivation: spike scenario 4 showed the coach asking for portion clarification before computing on "strawberry and yogurt snack." These two edits close that behavioral gap at the capability layer.
+- Claude operates as Principal Engineer in this workspace: own build quality, push back when wrong, hold gate standards without being asked.
+
+---
+
+## Session close — 2026-05-01
+
+### Branch state
+
+Branch: `feature/nutriosv2-v2`
+Last commit: `ddd24f6` (SKILL_LESSONS.md update, cherry-picked to main)
+Python tests: 378 passing
+
+### Commits this session (in order)
+
+| SHA | Description |
+|---|---|
+| `b715317` | wispr-spike-fixes: retry policy + audit list + estimation failure mode [pre-review] |
+| `8a73dca` | wispr-spike-fixes: address review findings (NB-2 dead _patch helper) |
+| `bf9ad31` | nb-new-1: meal_log.md portion-vagueness tightening [pre-review] |
+| `f2aa98d` | nb-new-1: address review findings (NB-1 forward ref, NB-2 example) |
+| `3536624` | docs: add inner LLM call pattern to agent_api_integration_pattern.md |
+| `ddd24f6` | docs: update SKILL_LESSONS.md — remove pre-plugin-era exec patterns |
+
+`3536624` and `ddd24f6` cherry-picked to `main`.
+
+### Closed this session
+
+- Wispr spike: all 4 scenarios PASS (session eb3b4bf6; 8/8 registered, 0 forbidden, 0 exec)
+- NB-NEW-1: portion-vagueness tightening — all gates green
+- `batch_estimate.py` + `semantic_match.py`: 3-retry loop with 1s pause
+- `audit_session.py`: get_today_date, log_meal_items, calculate_macros, write_recipe added
+- `estimate_macros_from_description` removed from `tools.allow` (operator-actioned)
+
+### Open known issues
+
+- NB-NEW-2: `estimate_macros_from_description` still in `tool-schemas.js` and `tools.schema.json` — cleanup when v2 architecture fully locks
+- Pre-existing LLM test flakes: `test_meal_log_donut_change_calories`, `test_omitted_deficit_prompts_question` — v1 capability drift, not blocking v2
+
+### Next session — opening action
+
+**Execution plan §4: `mesocycle_setup.md` rewrite per coach-shape ADR.**
+
+The meal_log capability is shipped and gate-3 verified. mesocycle_setup is the next capability in the rollout sequence. The compute path (all 8 plugin tools registered, exec locked) is proven. The capability shape is the remaining gap.
+
+Start by reading:
+1. `skills/nutriosv2/docs/capability-shape-execution-plan.md` — §4 scope
+2. `skills/nutriosv2/docs/architecture-decision-capability-shape.md` — the shape rules
+3. `skills/nutriosv2/capabilities/mesocycle_setup.md` — current HEAD state (v1 shape to be replaced)
+
+### PE reminder
+
+Claude operates as Principal Engineer in this workspace: own build quality, push back when wrong, hold gate standards without being asked. Do not scaffold — deliver production-ready implementations. Surface spec-vs-precedent divergences before building, not after.
+
+---
+
+## Phase 1 — Mesocycle Tool Surface (2026-05-02)
+
+Branch: `feature/nutriosv2-v2`
+ADR: `skills/nutriosv2/docs/architecture-decision-mesocycle-tool-surface.md` + addendum `architecture-decision-mesocycle-tool-surface-addendum-2026-05-02.md`
+Goal: four tool surface changes that make the ADR's capability hard rules structurally enforceable before the capability prompt rewrite (Phase 2).
+
+### ADR summary for code reviewers
+
+The core problem: the old tool surface forced the LLM to do arithmetic the capability rules forbid — replicating a 7-row macro grid, holding integer offset keys in working memory, and never being able to express per-day floor/ceiling constraints. Phase 1 fixes the surface so the rules become truthful rather than aspirational.
+
+Four changes (§2 of the ADR):
+1. **`lock_mesocycle.intent.rationale` → optional** (was required, forced LLM to invent text)
+2. **`lock_mesocycle.macro_table` → weekday-named rows, Sun→Sat** (was positional, dose-day-relative)
+3. **`recompute_macros_with_overrides` re-keyed by weekday name** (was integer offset keys "0".."6")
+4. **`build_macro_grid` — new tool** (Step 4, not yet built; assembles the full 7-row grid from intent)
+
+Addendum locks Sun→Sat ordering (base ADR had Mon→Sun).
+
+### Step 1 — `lock_mesocycle.intent.rationale` → optional
+
+Pre-review commit: `08e292c`
+Post-review commit: none (no blockers)
+Files: `tool-schemas.js`, `tools.schema.json`, `test_mesocycle.py`
+Tests: 379 passed (378 baseline + 1 new)
+Gate 2 (code-reviewer subagent): 8/8 PASS, no blockers
+Notes: pydantic model was already `rationale: str = ""` from a prior partial change; Step 1 completed via schema required-list removal and a new locking test.
+
+### Step 2 — `macro_table` → weekday-named rows, Sun→Sat
+
+Pre-review commit: `8c483ed`
+Post-review commit: none (no blockers)
+Files: `models.py`, `lock_mesocycle.py`, `recompute_macros_with_overrides.py`, `tool-schemas.js`, `tools.schema.json`, `test_mesocycle.py`, `test_models.py`, `test_recompute_macros.py`, `test_get_daily_reconciled_view.py`, `test_context_builder.py`
+Tests: 390 passed
+Gate 2 (code-reviewer subagent): 17/17 PASS, no blockers
+Notes:
+- `test_context_builder.py` required updating — pre-build analysis incorrectly assumed it bypassed pydantic; `context_builder.py` calls `run_get_active_mesocycle()` which validates via `Mesocycle(**data)`.
+- `context_builder.py` and `get_daily_reconciled_view.py` positional reads left unchanged per ADR §3.2 (Phase 2 follow-on).
+- Step 2 N1 (flagged by subagent): `recompute` produced rows in dose-offset order, not Sun→Sat. Fixed in Step 3.
+- Step 2 N2 (flagged by subagent): `recompute_macros_with_overrides` tool description stale (four-field row). Fixed in Step 3.
+
+### Step 3 — `recompute_macros_with_overrides` re-keyed by weekday name
+
+Pre-review commit: (staged, not yet committed at time of this progress.md update)
+Files: `recompute_macros_with_overrides.py`, `tool-schemas.js`, `tools.schema.json`, `test_recompute_macros.py`
+Tests: 395 passed
+Gate 2 (code-reviewer subagent): in progress
+
+Key changes:
+- Override keys: integer offsets `"0".."6"` → weekday names `"sunday".."saturday"`
+- Override entries: gain optional `protein_floor_g` and `fat_ceiling_g` per-day fields
+- `dose_weekday` parameter: **dropped** (Q4 audit confirmed translation-only; loop now iterates `_WEEKDAY_ORDER` directly)
+- Output row ordering: sorted Sun→Sat (closes Step 2 N1)
+- Tool description: rewritten to reference full Step 2 MacroRow shape (closes Step 2 N2)
+- New pydantic model `_OverrideEntry` for input validation in `_Input`; `recompute()` itself accepts `dict[str, dict[str, Any]]` so tests can pass plain dicts directly
+
+### Open carry-forward items (to Step 4)
+
+- `build_macro_grid` — new tool, Step 4 scope
+- `context_builder.py` / `get_daily_reconciled_view.py` positional reads — Phase 2 follow-on per ADR §3.2
+- Step 2 N4: `test_get_daily_reconciled_view.py` dose-offset tests are semantically transitional (assert Sunday's calories for what was Tuesday's dose-day row); rewrite when downstream positional reads are fixed
+- Step 2 N3: `Mesocycle` model lacks explicit uniqueness check (ordering check implies it; non-blocking)
+- NB-NEW-2: `estimate_macros_from_description` still in tool schemas — cleanup when v2 architecture fully locks
+- `_lock_input` helper's `rationale="cut"` default — cosmetic; Step 1 carry-forward
+
+### PE reminder
+
+Claude operates as Principal Engineer in this workspace: own build quality, push back when wrong, hold gate standards without being asked. Do not scaffold — deliver production-ready implementations. Surface spec-vs-precedent divergences before building, not after.
