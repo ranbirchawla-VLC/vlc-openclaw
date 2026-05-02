@@ -1665,10 +1665,11 @@ Notes:
 
 ### Step 3 — `recompute_macros_with_overrides` re-keyed by weekday name
 
-Pre-review commit: (staged, not yet committed at time of this progress.md update)
+Pre-review commit: `22a3d1d`
+Post-review commit: none (no blockers)
 Files: `recompute_macros_with_overrides.py`, `tool-schemas.js`, `tools.schema.json`, `test_recompute_macros.py`
 Tests: 395 passed
-Gate 2 (code-reviewer subagent): in progress
+Gate 2 (code-reviewer subagent): 15/15 PASS, no blockers
 
 Key changes:
 - Override keys: integer offsets `"0".."6"` → weekday names `"sunday".."saturday"`
