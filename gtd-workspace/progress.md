@@ -80,21 +80,107 @@
    - Case 8 (temperature): direct `AnthropicLLMClient`/`OllamaLLMClient` unit test; fails if `temperature` param is omitted or wrong in the mock call.
 3. **Model and temperature?** N/A — no live LLM calls. All SDK calls mocked. LLM tests deferred to Sub-step 2 when capability prompts are introduced.
 
-### Gate 2 — PENDING
+### Review findings (Gate 2)
 
-Run code-reviewer subagent in fresh context. Diff to review: commit `ffb4b76` on `feature/gtd-trina-substep-1-shared-helpers`. Key areas for reviewer:
-- `otel_common.py` decorator logic (outer vs inner error handling, retry loop, health cache)
-- `common.py` credential loader error handling (all 5 failure modes)
-- Test assertions match the behavior they claim to cover
-- No dead code; no YAGNI additions
+- 1 blocker (B-1: `_is_transient` missed httpx exception hierarchy — health cache never set in production; test was decorative using builtin `ConnectionError` instead of `httpx.ConnectError`)
+- 2 majors (M-1: `OllamaLLMClient.complete()` missing `raise_for_status()` — Qwen 5xx silently broke chain; M-2: `DATA_ROOT` had `/tmp/gtd-missing` sentinel — replaced with `_require_env`)
+- 3 minors (m-1: unused `TextMapPropagator` import; m-2: `creds.scopes=None` path untested; m-3: unreachable return after `_run_outer` loop)
 
-### Gate 3 — PENDING
+**Post-review commit:** `770e7ae` — 37 Python tests (+7: `_is_transient` unit tests, Qwen 5xx chain test, `_require_env` tests, `creds.scopes=None` test).
 
-Light smoke test: confirm `make test-gtd` passes and both modules import cleanly. Real OTLP span verification deferred to Sub-step 2 (first live Google API call).
+M-1 RED confirmed: without `raise_for_status()`, mock 503 body (`{"error": "..."}`) causes `KeyError` → non-transient → chain dies. Fixed code: `httpx.HTTPStatusError` raised → transient → health cache set → Sonnet fallback.
+
+**Gate 2:** GREEN — 2026-05-02
+
+### Gate 3
+
+- `make test-gtd`: 37/37 GREEN
+- Import check: `from scripts.common import ...; from scripts.otel_common import ...; print('imports clean')` — GREEN (requires `GTD_STORAGE_ROOT` set; M-2 makes it required at import time)
+
+**Gate 3:** GREEN — 2026-05-02
+
+### Squash and merge
+
+**Squash commit:** `ed9f892` — `1: shared helpers foundation` on `main`
+Feature branch `feature/gtd-trina-substep-1-shared-helpers` deleted.
+
+**KNOWN_ISSUES added:** OAuth user-flow doc pointer gap (low priority, sub-step 6).
+
+---
+
+## Sub-step 2 — Calendar Read
+
+**Started:** 2026-05-02
+
+**Branch:** `feature/sub-step-2-calendar-read`
+
+**Pre-review commit:** `9e0e45b` — 57 Python tests, 0 LLM tests (no capability prompts this sub-step).
+
+### Files delivered
+
+| File | Purpose |
+|---|---|
+| `scripts/calendar/get_events.py` | `list_events` tool; Google Calendar events.list(); OTEL span `gtd.calendar.list_events` |
+| `scripts/calendar/get_event.py` | `get_event` tool; events.get(); OTEL span `gtd.calendar.get_event` |
+| `scripts/calendar/test_get_events.py` | 10 tests (happy path, empty, defaults, explicit args, OAuth fail, 4xx, 5xx retry, exhaustion, span attrs, invalid JSON) |
+| `scripts/calendar/test_get_event.py` | 8 tests (same coverage + exhaustion) |
+| `scripts/calendar/conftest.py` | sys.path injection for calendar subdirectory |
+| `plugins/gtd-tools/index.js` | Plugin wiring; SCRIPTS points to `gtd-workspace/scripts/calendar/` |
+| `plugins/gtd-tools/tool-schemas.js` | Two tool definitions (`list_events`, `get_event`) |
+| `plugins/gtd-tools/tools.schema.json` | Generated artifact; committed alongside tool-schemas.js |
+| `plugins/gtd-tools/package.json` | Plugin metadata with `build:schemas` script |
+| `plugins/gtd-tools/openclaw.plugin.json` | Plugin id/name/description |
+| `plugins/gtd-tools/scripts/emit-schemas.js` | Schema build script |
+| `gtd-workspace/docs/KNOWN_ISSUES.md` | Created; KI-001 through KI-009 |
+
+### Key changes to sub-step 1 files
+
+- `common.py`: `GOOGLE_OAUTH_CREDENTIALS` replaces `GOOGLE_OAUTH_TOKEN_PATH`; `GOOGLE_OAUTH_CLIENT_SECRETS_PATH` removed (setup-time only, not runtime).
+- `otel_common.py`: `_is_transient_google` added; `BatchSpanProcessor` replaced with `SimpleSpanProcessor` for production — batch processor's 5s flush window outlives short-lived plugin scripts, causing spans to be silently dropped.
+- `conftest.py`: `isolate_tracer_provider` autouse fixture added — prevents test spans from reaching real OTLP collector (Gate 3 finding).
+- `test_common.py`: env var rename applied throughout; `test_missing_secrets_path_env_var` removed.
+- `test_otel_common.py`: 4 `_is_transient_google` unit tests added.
+
+### Review findings (Gate 2)
+
+- 3 blockers (B-1: request built outside retry loop; B-2: exhaustion test missing execute call_count assertion; B-3: hardcoded .venv path in index.js), all fixed in-pass
+- 1 observation promoted to in-pass (Obs-2: `span.record_exception` + `Status` for Honeycomb trace exploration)
+- 6 non-blockers routed to KNOWN_ISSUES.md (KI-001 through KI-009)
+
+**Post-review commit:** `bb4145a` — 58 Python tests (+1 exhaustion test for get_event).
+
+**Gate 2:** GREEN — 2026-05-02
+
+### Gate 3 — PARTIAL
+
+OAuth, Google Calendar API, and plugin registration all work. Two infrastructure issues found and fixed during Gate 3:
+
+1. **BatchSpanProcessor flush window** — spans silently dropped (script exits before 5s flush). Fixed: `SimpleSpanProcessor`.
+2. **Plist missing env vars** — `GOOGLE_OAUTH_CREDENTIALS`, `GTD_TZ`, `OTEL_EXPORTER_OTLP_ENDPOINT` added manually. `OTEL_SERVICE_NAME` intentionally not added globally (scripts default to `"gtd"`).
+
+**Gate 3 blocker:** `google-calendar` MCP server in `~/.openclaw/openclaw.json` intercepts calendar requests before our plugin tools are reached. Agent (even with Sonnet) has no SKILL.md instruction to prefer our tools over MCP. Real Honeycomb span from our scripts not confirmed.
+
+**Gate 3 deferred to Sub-step 6** — unblocked when SKILL.md capability prompts are written with explicit dispatch rules. Full Gate 3 re-run required after Sub-step 6.
+
+**Additional Gate 3 finding:** Test spans were contaminating Honeycomb — `otel_common.py` sets up real OTLP on import; tests without `_make_exporter()` emit real spans. Fixed by `isolate_tracer_provider` fixture.
+
+### Squash and merge
+
+**Squash commit:** `c16b5ed` — `sub-step-2: calendar read` on `main`
+Feature branch `feature/sub-step-2-calendar-read` deleted.
+
+**KNOWN_ISSUES added:** KI-001 through KI-009 (see `gtd-workspace/docs/KNOWN_ISSUES.md`).
 
 ### Notes for next session
 
-- After Gate 2/3 clear: squash `ffb4b76` + post-review commit into one, merge to main.
+- Sub-step 2b required before Sub-step 6: migrate 7 legacy `tools/*.py` to plugin pattern + OTEL + exec lockdown. See `trina-scope-2026-05-02-v1.md` for full scope.
+- MCP server decision (D-1) needed before writing SKILL.md — keep or remove `google-calendar` MCP server.
+- Model confirmed: `mnemo/claude-sonnet-4-6` on gtd agent in `~/.openclaw/openclaw.json`.
+- Plist patched: `GOOGLE_OAUTH_CREDENTIALS`, `GTD_TZ`, `OTEL_EXPORTER_OTLP_ENDPOINT` in gateway env.
+
+### Notes for Sub-step 2
+
 - Sub-step 2 starts `gtd-workspace/scripts/calendar/get_events.py` + plugin wiring + LLM tests + OTEL span verification in Honeycomb.
 - Read `trina-build.md` §2 (plugin pattern) and `agent_api_integration_pattern.md` before Sub-step 2.
 - `plugins/gtd-tools/` directory does not exist yet — Sub-step 2 creates it.
+- `GTD_STORAGE_ROOT` must be set in the gateway plist (already done in sub-step Z) and in any shell running scripts directly.
