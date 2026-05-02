@@ -261,8 +261,7 @@
             "required": [
               "target_deficit_kcal",
               "protein_floor_g",
-              "fat_ceiling_g",
-              "rationale"
+              "fat_ceiling_g"
             ]
           }
         },

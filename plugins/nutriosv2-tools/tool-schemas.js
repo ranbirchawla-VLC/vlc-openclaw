@@ -117,7 +117,7 @@ export const TOOLS = [
             fat_ceiling_g: { type: ["integer", "null"] },
             rationale: { type: "string" },
           },
-          required: ["target_deficit_kcal", "protein_floor_g", "fat_ceiling_g", "rationale"],
+          required: ["target_deficit_kcal", "protein_floor_g", "fat_ceiling_g"],
         },
       },
       required: ["user_id", "name", "weeks", "start_date", "dose_weekday", "macro_table", "intent"],

@@ -271,3 +271,11 @@ def test_recovery_active_txt_missing_but_files_exist(tmp_path):
     (tmp_path / "1001" / "mesocycles" / "active.txt").unlink()
     result = run_get_active_mesocycle(1001, data_root=str(tmp_path))
     assert result is None
+
+
+def test_lock_intent_rationale_optional(tmp_path):
+    inp = _lock_input(intent=dict(target_deficit_kcal=3500, protein_floor_g=180))
+    result = run_lock_mesocycle(inp, data_root=str(tmp_path))
+    assert result["mesocycle_id"] == 1
+    data = json.loads((tmp_path / "1001" / "mesocycles" / "1.json").read_text())
+    assert data["intent"]["rationale"] == ""
