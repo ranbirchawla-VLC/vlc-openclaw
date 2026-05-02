@@ -149,6 +149,38 @@ def test_per_day_ceiling_stored_only_on_override_day():
             assert row["fat_ceiling_g"] == 65
 
 
+# ── per-day floor/ceiling only (no explicit macro value) ─────────────────────
+
+def test_per_day_floor_only_sets_protein_to_floor():
+    # protein_floor_g=120 without protein_g: day_protein defaults to the per-day floor
+    result = _grid(per_weekday_targets={"tuesday": {"protein_floor_g": 120}})
+    tue = _row(result, "tuesday")
+    assert tue["protein_g"] == 120
+    assert tue["protein_floor_g"] == 120
+
+
+def test_per_day_ceiling_only_sets_fat_to_ceiling():
+    # fat_ceiling_g=90 without fat_g: day_fat defaults to the per-day ceiling
+    result = _grid(per_weekday_targets={"thursday": {"fat_ceiling_g": 90}})
+    thu = _row(result, "thursday")
+    assert thu["fat_g"] == 90
+    assert thu["fat_ceiling_g"] == 90
+
+
+# ── floor/ceiling boundary (equality is valid) ───────────────────────────────
+
+def test_protein_at_per_day_floor_boundary_is_valid():
+    # protein_g == effective floor is valid; constraint check uses strict <
+    result = _grid(per_weekday_targets={"monday": {"protein_floor_g": 140, "protein_g": 140}})
+    assert _row(result, "monday")["protein_g"] == 140
+
+
+def test_fat_at_per_day_ceiling_boundary_is_valid():
+    # fat_g == effective ceiling is valid; constraint check uses strict >
+    result = _grid(per_weekday_targets={"monday": {"fat_ceiling_g": 80, "fat_g": 80}})
+    assert _row(result, "monday")["fat_g"] == 80
+
+
 # ── constraint violations ─────────────────────────────────────────────────────
 
 def test_protein_below_cycle_floor_without_per_day_floor_raises():
@@ -176,6 +208,18 @@ def test_per_day_floor_violation_raises():
     # explicit per-day floor=150, protein_g=120 < 150 is still an error
     with pytest.raises(ValueError, match="protein"):
         _grid(per_weekday_targets={"tuesday": {"protein_floor_g": 150, "protein_g": 120}})
+
+
+def test_invalid_deficit_unit_raises():
+    with pytest.raises(ValueError, match="deficit_unit"):
+        build_grid(
+            estimated_tdee_kcal=2350,
+            target_deficit_kcal=3500,
+            protein_floor_g=175,
+            fat_ceiling_g=65,
+            dose_weekday="sunday",
+            deficit_unit="bad_unit",
+        )
 
 
 def test_invalid_weekday_key_raises():

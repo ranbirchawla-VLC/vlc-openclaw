@@ -66,7 +66,12 @@ def build_grid(
     Non-overridden days use baseline computation: TDEE - weekly_deficit/7.
     Per-day targets are sparse; absent fields use the baseline.
     Per-day protein_floor_g/fat_ceiling_g override the cycle baseline for that day only.
+    dose_weekday is accepted for caller consistency with _Input but does not affect grid values.
     """
+    if deficit_unit not in ("weekly_kcal", "daily_kcal"):
+        raise ValueError(
+            f"invalid deficit_unit {deficit_unit!r}: must be 'weekly_kcal' or 'daily_kcal'"
+        )
     if per_weekday_targets is None:
         per_weekday_targets = {}
 
@@ -82,7 +87,7 @@ def build_grid(
 
     rows: list[MacroRow] = []
     for weekday in _WEEKDAY_ORDER:
-        tgt = per_weekday_targets.get(weekday) or {}
+        tgt = per_weekday_targets.get(weekday, {})
 
         pf = tgt.get("protein_floor_g")
         effective_protein_floor = pf if pf is not None else protein_floor_g
@@ -112,6 +117,7 @@ def build_grid(
                 f"for {weekday}, lower fat_g, or change the cycle fat_ceiling_g."
             )
 
+        # Floor division: up to 3 kcal/day not distributed (same pattern as recompute tool).
         carbs_kcal = day_calories - (day_protein * 4) - (day_fat * 9)
         if carbs_kcal < 0:
             raise ValueError(
