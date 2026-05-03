@@ -18,9 +18,9 @@
 #   4. Allowlist the new Bash(make test-<skill-name>*) patterns in .claude/settings.json.
 
 PYTHON = .venv/bin/python
-PYTEST = $(PYTHON) -m pytest
+PYTEST = python3.12 -m pytest
 
-.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-cowork
+.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-cowork test-grailzee-ledger test-grailzee-ledger-schema test-grailzee-ledger-transform test-grailzee-ledger-lock test-grailzee-ledger-merge test-grailzee-ledger-prune test-grailzee-ledger-archive test-grailzee-ledger-read test-grailzee-ledger-orchestrator test-grailzee-ledger-integration
 
 help:
 	@echo "Available targets:"
@@ -34,6 +34,16 @@ help:
 	@echo "  make test-grailzee-eval-run-analysis    - run run_analysis tests"
 	@echo "  make test-grailzee-eval-evaluate-deal   - run evaluate_deal tests"
 	@echo "  make test-grailzee-cowork          - run all grailzee-cowork tests"
+	@echo "  make test-grailzee-ledger          - run all grailzee ledger redo tests"
+	@echo "  make test-grailzee-ledger-schema   - run sub-step 1.1 schema tests only"
+	@echo "  make test-grailzee-ledger-transform - run sub-step 1.2 transform tests only"
+	@echo "  make test-grailzee-ledger-lock      - run sub-step 1.3 lock/atomic write tests only"
+	@echo "  make test-grailzee-ledger-merge     - run sub-step 1.4 merge/Rule Y tests only"
+	@echo "  make test-grailzee-ledger-prune     - run sub-step 1.5 prune tests only"
+	@echo "  make test-grailzee-ledger-archive   - run sub-step 1.6 archive move tests only"
+	@echo "  make test-grailzee-ledger-read      - run sub-step 1.7 read_ledger_csv tests only"
+	@echo "  make test-grailzee-ledger-orchestrator - run sub-step 1.7 orchestrator tests only"
+	@echo "  make test-grailzee-ledger-integration  - run sub-step 1.7 integration tests only"
 	@echo "  make test-nutrios                - run all NutriOS v1 tests"
 	@echo "  make test-nutrios-time           - run nutrios_time tests"
 	@echo "  make test-nutrios-store          - run nutrios_store tests"
@@ -80,6 +90,36 @@ test-grailzee-eval-evaluate-deal:
 
 test-grailzee-cowork:
 	$(PYTEST) grailzee-cowork/tests
+
+test-grailzee-ledger:
+	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_schema.py skills/grailzee-eval/tests/test_ingest_sales_transform.py skills/grailzee-eval/tests/test_ingest_sales_lock.py skills/grailzee-eval/tests/test_ingest_sales_merge.py skills/grailzee-eval/tests/test_ingest_sales_prune.py skills/grailzee-eval/tests/test_ingest_sales_archive.py skills/grailzee-eval/tests/test_ingest_sales_read.py skills/grailzee-eval/tests/test_ingest_sales_orchestrator.py skills/grailzee-eval/tests/test_ingest_sales_integration.py
+
+test-grailzee-ledger-schema:
+	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_schema.py
+
+test-grailzee-ledger-transform:
+	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_transform.py
+
+test-grailzee-ledger-lock:
+	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_lock.py
+
+test-grailzee-ledger-merge:
+	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_merge.py
+
+test-grailzee-ledger-prune:
+	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_prune.py
+
+test-grailzee-ledger-archive:
+	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_archive.py
+
+test-grailzee-ledger-read:
+	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_read.py
+
+test-grailzee-ledger-orchestrator:
+	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_orchestrator.py
+
+test-grailzee-ledger-integration:
+	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_integration.py
 
 test-nutrios:
 	$(PYTEST) skills/nutrios/tests
