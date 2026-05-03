@@ -82,5 +82,18 @@ export default definePluginEntry({
         return toToolResult(spawnArgv("evaluate_deal.py", params));
       },
     });
+
+    api.registerTool({
+      name: "report_pipeline",
+      description: "Ingest the latest Grailzee Pro .xlsx report, run analysis, and write the analysis cache. Takes no required inputs; all path overrides are optional test hooks.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+      async execute(_id, params) {
+        return toToolResult(spawnArgv("report_pipeline.py", params));
+      },
+    });
   },
 });

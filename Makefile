@@ -20,7 +20,7 @@
 PYTHON = .venv/bin/python
 PYTEST = python3.12 -m pytest
 
-.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-cowork test-grailzee-ledger test-grailzee-ledger-schema test-grailzee-ledger-transform test-grailzee-ledger-lock test-grailzee-ledger-merge test-grailzee-ledger-prune test-grailzee-ledger-archive test-grailzee-ledger-read test-grailzee-ledger-orchestrator test-grailzee-ledger-integration
+.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-eval-report-pipeline test-grailzee-cowork test-grailzee-ledger test-grailzee-ledger-schema test-grailzee-ledger-transform test-grailzee-ledger-lock test-grailzee-ledger-merge test-grailzee-ledger-prune test-grailzee-ledger-archive test-grailzee-ledger-read test-grailzee-ledger-orchestrator test-grailzee-ledger-integration
 
 help:
 	@echo "Available targets:"
@@ -87,6 +87,9 @@ test-grailzee-eval-run-analysis:
 
 test-grailzee-eval-evaluate-deal:
 	$(PYTEST) skills/grailzee-eval/tests/test_evaluate_deal.py
+
+test-grailzee-eval-report-pipeline:
+	$(PYTEST) skills/grailzee-eval/tests/test_report_pipeline.py
 
 test-grailzee-cowork:
 	$(PYTEST) grailzee-cowork/tests
