@@ -6,7 +6,6 @@ Returns ValidationResult (Pydantic model); never raises.
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import sys
 from dataclasses import dataclass, field
@@ -16,24 +15,13 @@ from pydantic import BaseModel
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # scripts/
 from otel_common import get_tracer
+from opentelemetry.trace import Status, StatusCode
 
-# Load tools/common.py by path to avoid conflict with scripts/common.py
-_spec = importlib.util.spec_from_file_location(
-    "_gtd_tools",
-    Path(__file__).parent.parent.parent / "tools" / "common.py",
+sys.path.insert(0, os.path.dirname(__file__))  # scripts/gtd/
+from _tools_common import (
+    Energy, IdeaStatus, ParkingLotReason, Priority, ProfileStatus,
+    PromotionState, ReviewCadence, Source, TaskStatus,
 )
-_tools = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
-_spec.loader.exec_module(_tools)  # type: ignore[union-attr]
-
-Energy            = _tools.Energy
-IdeaStatus        = _tools.IdeaStatus
-ParkingLotReason  = _tools.ParkingLotReason
-Priority          = _tools.Priority
-ProfileStatus     = _tools.ProfileStatus
-PromotionState    = _tools.PromotionState
-ReviewCadence     = _tools.ReviewCadence
-Source            = _tools.Source
-TaskStatus        = _tools.TaskStatus
 
 
 # ---------------------------------------------------------------------------
@@ -52,21 +40,21 @@ class ValidationResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Field specification (identical to legacy gtd_validate.py)
+# Field specification
 # ---------------------------------------------------------------------------
 
 @dataclass
 class _F:
-    required:    bool = True
-    nullable:    bool = False
-    types:       tuple = (str,)
-    enum:        frozenset | None = None
-    min_length:  int | None = None
+    required:     bool = True
+    nullable:     bool = False
+    types:        tuple = (str,)
+    enum:         frozenset | None = None
+    min_length:   int | None = None
     _allowed_str: str = field(default="", init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.enum is not None:
-            object.__setattr__(self, "_allowed_str", ", ".join(sorted(self.enum)))
+            self._allowed_str = ", ".join(sorted(self.enum))
 
 
 def _str(required: bool = True, nullable: bool = False,
@@ -239,13 +227,16 @@ def validate(record_type: str, record: dict) -> ValidationResult:
                 errors=[FieldError(field="record_type", message=f"Unknown record_type: {record_type}")],
             )
         else:
+            # Collect schema errors and ownership errors unconditionally; business
+            # rules (task_rules) only run when schema passes so error messages stay unambiguous.
             errors = _validate_fields(record, spec)
-            if not errors:
-                errors.extend(_ownership_rules(record))
-                if record_type == "task":
-                    errors.extend(_task_rules(record))
+            errors.extend(_ownership_rules(record))
+            if not errors and record_type == "task":
+                errors.extend(_task_rules(record))
             result = ValidationResult(valid=not errors, record_type=record_type, errors=errors)
 
         span.set_attribute("validate.valid", result.valid)
         span.set_attribute("validate.error_count", len(result.errors))
+        if not result.valid:
+            span.set_status(Status(StatusCode.ERROR, f"{len(result.errors)} validation error(s)"))
         return result

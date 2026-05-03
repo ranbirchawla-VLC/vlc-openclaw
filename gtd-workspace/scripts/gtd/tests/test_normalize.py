@@ -206,7 +206,7 @@ def test_capture_with_body_classifies() -> None:
 
 def test_capture_ambiguous_body() -> None:
     r = normalize("/capture this could be interesting")
-    assert r.needs_llm is True or r.confidence < 0.7
+    assert r.needs_llm is True
 
 
 # ---------------------------------------------------------------------------
@@ -355,3 +355,25 @@ def test_normalize_span_is_root_standalone() -> None:
     normalize_span = next((s for s in spans if "normalize" in s.name), None)
     assert normalize_span is not None
     assert normalize_span.parent is None or normalize_span.parent.span_id == INVALID_SPAN_ID
+
+
+# ---------------------------------------------------------------------------
+# 32 (new). normalize span is a CHILD when invoked inside an active span
+# ---------------------------------------------------------------------------
+
+def test_normalize_span_is_child_when_parent_active() -> None:
+    import otel_common
+
+    exporter = InMemorySpanExporter()
+    otel_common.configure_tracer_provider(exporter)
+
+    tracer = otel_common.get_tracer("test.parent")
+    with tracer.start_as_current_span("test.parent") as parent:
+        parent_span_id = parent.get_span_context().span_id
+        normalize("/task Call the broker")
+
+    spans = exporter.get_finished_spans()
+    normalize_span = next((s for s in spans if "gtd.normalize" in s.name), None)
+    assert normalize_span is not None, f"no gtd.normalize span in {[s.name for s in spans]}"
+    assert normalize_span.parent is not None, "expected normalize span to be a child"
+    assert normalize_span.parent.span_id == parent_span_id

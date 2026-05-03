@@ -8,9 +8,11 @@
 import json
 import re
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import StatusCode
 
 from common import GTDError
 from write import write
@@ -273,9 +275,10 @@ def test_write_span_no_record_id_on_failure(storage: Path) -> None:
         write(_task(priority="bad"), "user1")
 
     spans = exporter.get_finished_spans()
-    span = next((s for s in spans if "write" in s.name), None)
+    span = next((s for s in spans if "gtd.write" in s.name), None)
     assert span is not None
     assert "write.record_id" not in dict(span.attributes)
+    assert span.status.status_code == StatusCode.ERROR
 
 
 # ---------------------------------------------------------------------------
@@ -300,3 +303,39 @@ def test_record_type_from_record_dict(storage: Path) -> None:
     records = _read_jsonl(tasks_file)
     assert records[0]["record_type"] == "task"
     assert records[0]["id"] == record_id
+
+
+# ---------------------------------------------------------------------------
+# 18 (new, B1). OSError from append_jsonl raises GTDError(storage_io_failed)
+# ---------------------------------------------------------------------------
+
+def test_storage_io_failure_raises_gtd_error(storage: Path) -> None:
+    with patch("write.append_jsonl", side_effect=OSError("disk full")):
+        with pytest.raises(GTDError) as exc_info:
+            write(_task(), "user1")
+    exc = exc_info.value
+    assert exc.code == "storage_io_failed"
+    assert "path" in exc.fields
+    assert exc.fields.get("error_type") == "OSError"
+
+
+# ---------------------------------------------------------------------------
+# 19 (new, §3.2). write span is a CHILD when invoked inside an active span
+# ---------------------------------------------------------------------------
+
+def test_write_span_is_child_when_parent_active(storage: Path) -> None:
+    import otel_common
+
+    exporter = InMemorySpanExporter()
+    otel_common.configure_tracer_provider(exporter)
+
+    tracer = otel_common.get_tracer("test.parent")
+    with tracer.start_as_current_span("test.parent") as parent:
+        parent_span_id = parent.get_span_context().span_id
+        write(_task(), "user1")
+
+    spans = exporter.get_finished_spans()
+    write_span = next((s for s in spans if s.name == "gtd.write"), None)
+    assert write_span is not None, f"no gtd.write span in {[s.name for s in spans]}"
+    assert write_span.parent is not None, "expected write span to be a child"
+    assert write_span.parent.span_id == parent_span_id

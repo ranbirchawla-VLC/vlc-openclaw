@@ -7,6 +7,7 @@
 
 import pytest
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import StatusCode
 
 from validate import FieldError, ValidationResult, validate
 
@@ -327,3 +328,38 @@ def test_validate_span_on_failure() -> None:
     attrs = dict(span.attributes)
     assert attrs.get("validate.valid") is False
     assert attrs.get("validate.error_count", 0) >= 1
+    assert span.status.status_code == StatusCode.ERROR
+
+
+# ---------------------------------------------------------------------------
+# 24 (new). validate span is a CHILD when invoked inside an active span
+# ---------------------------------------------------------------------------
+
+def test_validate_span_is_child_when_parent_active() -> None:
+    import otel_common
+
+    exporter = InMemorySpanExporter()
+    otel_common.configure_tracer_provider(exporter)
+
+    tracer = otel_common.get_tracer("test.parent")
+    with tracer.start_as_current_span("test.parent") as parent:
+        parent_span_id = parent.get_span_context().span_id
+        validate("task", _task())
+
+    spans = exporter.get_finished_spans()
+    validate_span = next((s for s in spans if "gtd.validate" in s.name), None)
+    assert validate_span is not None, f"no gtd.validate span in {[s.name for s in spans]}"
+    assert validate_span.parent is not None, "expected validate span to be a child"
+    assert validate_span.parent.span_id == parent_span_id
+
+
+# ---------------------------------------------------------------------------
+# 25 (new). whitespace user_id is caught even when other field errors also present
+# ---------------------------------------------------------------------------
+
+def test_whitespace_user_id_caught_with_other_errors() -> None:
+    r = validate("task", _task(user_id="   ", priority="bad"))
+    assert r.valid is False
+    fields = [e.field for e in r.errors]
+    assert "user_id" in fields
+    assert "priority" in fields

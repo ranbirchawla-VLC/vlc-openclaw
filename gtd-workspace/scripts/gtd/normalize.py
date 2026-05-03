@@ -16,7 +16,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # scripts/
-from otel_common import extract_parent_context, get_tracer
+from otel_common import get_tracer
 
 
 # ---------------------------------------------------------------------------
@@ -24,7 +24,13 @@ from otel_common import extract_parent_context, get_tracer
 # ---------------------------------------------------------------------------
 
 _TAXONOMY_PATH = Path(__file__).parent.parent.parent / "references" / "taxonomy.json"
-_taxonomy = json.loads(_TAXONOMY_PATH.read_text(encoding="utf-8"))
+try:
+    _taxonomy = json.loads(_TAXONOMY_PATH.read_text(encoding="utf-8"))
+except (FileNotFoundError, json.JSONDecodeError) as _tax_exc:
+    raise RuntimeError(
+        f"Failed to load GTD taxonomy from {_TAXONOMY_PATH}: {_tax_exc}. "
+        "Ensure gtd-workspace/references/taxonomy.json exists."
+    ) from _tax_exc
 
 KNOWN_CONTEXTS: frozenset[str] = frozenset(_taxonomy["contexts"])
 KNOWN_DOMAINS: frozenset[str] = frozenset(_taxonomy["idea_domains"])
