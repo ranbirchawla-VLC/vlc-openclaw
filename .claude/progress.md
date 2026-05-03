@@ -9,15 +9,63 @@ Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
 
 ## Active tracks
 
-### Track 1 — Shape K (PAUSED)
+### Track 1 — Shape K (ACTIVE — Mac Studio runtime gates, 2026-05-03)
 
 **Branch**: `feature/grailzee-eval-v2`
-**Remote**: pushed `994cda3` (2026-04-28; rebase onto origin/main complete)
-**Rebase note**: 2026-04-28 laptop rebase completed. Conflicts in `pytest.ini` (×2), `claude.md` (delete-accept), `CLAUDE.md` (rebase artifact — restored from ORIG_HEAD), `.claude/settings.json`, `Makefile` (×2). All resolved. Post-rebase counts: 1117/76/235.
+**Tip**: `254b6e7` (Phase 1 ledger merge commit; pushed)
+**Remote**: origin/main has 3 new commits since branch diverged (not merged in yet)
+**Pytest baseline (per ShapeK Resume 2026-05-02)**: ledger 332 / eval 1366 / 71 skipped / cowork 235
 
-**Carry-forward**: `PYTEST = python3.12 -m pytest` was applied in the working tree to fix missing `opentelemetry`/`openpyxl` on the laptop venv, but not committed before the branch was paused. One-line Makefile fix needed on next open.
+**Resume doc**: `~/Downloads/aBuilds-5-2/Grailzee_ShapeK_Resume_2026-05-02.md` (supersedes 04-28 doc)
 
-**Next up on resume**: Shape K 1b.5 (stdin dispatch for report_pipeline + ledger_manager). See full scope below.
+#### Session 2026-05-03 — what happened
+
+**evaluate_deal runtime gate (1c+1c.5 post-rebase): NOT CLEARED**
+
+Gateway restart: clean (PID 11285 post-probe restart). Plugin `grailzee-eval-tools` loaded from
+`~/ai-code/vlc-openclaw/plugins/grailzee-eval-tools/index.js`. Correct path. Load pattern confirmed
+as `openclaw.json plugins.load.paths` (not plugins install).
+
+Audit counts (session `016b53d5`): 2 total / 2 registered / 0 forbidden / 0 exec bypass. Architecture
+held at the tool invocation layer.
+
+Gate not cleared because rendering surface failed on both turns:
+- Turn 1 (M7941A1A0RU-0003, ambiguous, off plan): LLM said "the script flagged..." (tech leak);
+  hallucinated blue dial not in tool output; did not use Branch B verbatim template.
+- Turn 2 (79830RB, ambiguous, on plan): same "script" tech leak; synthesized own math from
+  cycle_reason prose; concluded "should be a strong buy signal" directly overriding tool's `decision: no`.
+
+Full analysis in `skills/grailzee-eval/evaluate_deal_gate_failure_2026-05-03.md`.
+
+Root cause candidates: (A) `capabilities/deal.md` not in LLM context (no file-read tool in
+tools.allow; OpenClaw may not auto-inject capability files); (B) qwen3.5:latest instruction-following
+fidelity breaks on strict negative constraints ("do not override tool decision"). Evidence slightly
+favors B: Turn 2 LLM passed `dial_color: "black"` per deal.md Step 1 parsing rule, suggesting
+deal.md IS partially in context. Both A and B may be true together.
+
+**Capability injection probe: INCONCLUSIVE — capabilities rebuild in separate session**
+
+Probe did not produce a usable result. Sentinel reverted from deal.md (never committed).
+Supervisor decision: rebuild capabilities surface in a dedicated session. deal.md is clean (no sentinel).
+
+**AGENT_ARCHITECTURE.md update**
+
+Root copy (`AGENT_ARCHITECTURE.md`, 760 lines) and new `docs/AGENT_ARCHITECTURE.md` (712 lines)
+copied from `~/Downloads/` and `~/Downloads/docs/`. Not yet committed (pending operator confirm).
+
+**Pending commit (staged when operator confirms)**
+
+Files to commit together (not deal.md):
+- `AGENT_ARCHITECTURE.md` (root, updated)
+- `docs/AGENT_ARCHITECTURE.md` (new file)
+- `skills/grailzee-eval/evaluate_deal_gate_failure_2026-05-03.md` (new gate capture doc)
+
+**Next actions (in order)**
+
+1. Capabilities rebuild session (separate) — supervisor and operator redesign the surface.
+2. 1c.7 commit (AGENTS.md + SKILL.md hard rules hardening) once capabilities direction is locked.
+3. Re-run evaluate_deal gate after 1c.7 + capabilities rebuild.
+4. Continue Shape K commit chain (1d, 1e, 1e.5) per ShapeK Resume 2026-05-02 §5.
 
 ---
 
