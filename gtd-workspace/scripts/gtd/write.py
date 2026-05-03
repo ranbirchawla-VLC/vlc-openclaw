@@ -13,7 +13,7 @@ _here = Path(__file__).parent
 sys.path.insert(0, str(_here))          # scripts/gtd/
 sys.path.insert(0, str(_here.parent))   # scripts/
 
-from common import GTDError
+from common import GTDError, err
 from otel_common import get_tracer
 from opentelemetry.trace import Status, StatusCode
 from validate import validate
@@ -117,5 +117,4 @@ if __name__ == "__main__":
         _record_id = write(_record, _requesting_user_id)
         print(json.dumps({"ok": True, "id": _record_id}))
     except GTDError as _exc:
-        print(json.dumps({"ok": False, "error": {"code": _exc.code, "message": _exc.message, **_exc.fields}}))
-        sys.exit(1)
+        err(_exc)
