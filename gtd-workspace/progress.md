@@ -267,4 +267,107 @@ None. All findings resolved in-pass.
 - Error code `storage_io_failed` (B1 fix slug) is proposed; supervisor locks or renames before 2b.2 references it.
 - 2b.2 scope: `capture.py` plugin entry point + `query_tasks.py`, `query_ideas.py`, `query_parking_lot.py`, `review.py`, `delegation.py` + `tool-schemas.js` wiring + OTEL spans per attribute table.
 - `docs/` in this repo missing: `trina-handoff-2026-05-02-v4.md`, `sub-step-2b-api-surface-proposal-2026-05-02-v1.md`, `trina-build-amendment-2026-05-02-v1.md`. All three live in `~/Downloads/aCode-5-2/`. Commit or copy before starting 2b.2 so build agent can read them from the repo.
+
+---
+
+## Sub-step 2b.2 — Capability Tools
+
+**Started:** 2026-05-03
+
+**Branch:** `feature/sub-step-2b-api-surface` (continued from 2b.1)
+
+**Squash commit:** `19cd92c` — 171 Python tests, 0 LLM tests.
+
+### Files delivered
+
+| File | Purpose |
+|---|---|
+| `scripts/gtd/capture.py` | `capture_gtd` plugin entry point; `_Input(record: dict)`; calls `write()`; OTEL root span `gtd.capture` |
+| `scripts/gtd/query_tasks.py` | `query_tasks` plugin entry point; filters context/due_date/waiting_for/limit; Lock 6 envelope |
+| `scripts/gtd/query_ideas.py` | `query_ideas` plugin entry point; limit only; Lock 6 envelope |
+| `scripts/gtd/query_parking_lot.py` | `query_parking_lot` plugin entry point; limit only; Lock 6 envelope |
+| `scripts/gtd/delegation.py` | `delegation` plugin entry point; groups by `waiting_for`; grouped envelope (documented exception to Lock 6) |
+| `scripts/gtd/review.py` | `review_gtd` plugin entry point; scaffold only; `review_design_pending` note; design loop deferred |
+| `scripts/gtd/migrate_to_simplified_shape.py` | Operator migration script; `--apply`/dry-run; dated backup; idempotent |
+| `gtd-workspace/config/gtd.json` | `{"default_query_limit": 10, "max_query_limit": 25}`; operator-tunable |
+| `scripts/common.py` | Added `GTDConfig` Pydantic model; `get_gtd_config()` loader; workspace-relative path |
+| `scripts/gtd/validate.py` | Simplified to locked shapes (7/4/4 fields for task/idea/parking_lot); removed dropped rules and enums |
+| `scripts/gtd/write.py` | Empty-guard replaces `assert_user_match`; no `user_id` or `updated_at` in storage |
+| `scripts/gtd/_tools_common.py` | Added `read_jsonl` export; removed dead `assert_user_match` re-export (post-review) |
+| `scripts/gtd/tests/test_capture.py` | 15 tests |
+| `scripts/gtd/tests/test_query_tasks.py` | 16 tests (14 + 2 null due_date regression tests added post-review) |
+| `scripts/gtd/tests/test_query_ideas.py` | 8 tests |
+| `scripts/gtd/tests/test_query_parking_lot.py` | 8 tests |
+| `scripts/gtd/tests/test_delegation.py` | 10 tests |
+| `scripts/gtd/tests/test_review.py` | 5 tests |
+| `scripts/gtd/tests/test_migrate_to_simplified_shape.py` | 8 tests (7 + 1 both-fields regression added post-review) |
+| `scripts/gtd/tests/test_validate.py` | Scrubbed to 14 tests (was 25); 2 new due_date tests |
+| `scripts/gtd/tests/test_write.py` | Scrubbed to 18 tests (was 19); fixtures updated to simplified shapes |
+| `scripts/test_common.py` | +5 GTDConfig tests |
+| `plugins/gtd-tools/tool-schemas.js` | 6 GTD tool entries added; calendar tools namespaced |
+| `plugins/gtd-tools/index.js` | `SCRIPTS` base updated to `gtd-workspace/scripts/` |
+| `plugins/gtd-tools/tools.schema.json` | Regenerated; 8 tools (2 calendar + 6 GTD) |
+| `Makefile` | 5 new narrow test targets (`test-gtd-capture`, `test-gtd-queries`, etc.) |
+| `scripts/gtd/normalize.py` | **Deleted** (D1 lock; LLM does classification natively) |
+| `scripts/gtd/tests/test_normalize.py` | **Deleted** (-32 tests) |
+
+### Key design decisions
+
+**D2d — validate.py simplified to locked shapes.** Storage contract and LLM submission contract are now identical. No defaults injection at the capture layer. Fields supporting deferred features (status, priority, energy, updated_at, etc.) removed; return in 2d when update semantics land.
+
+**Q2 — user_id not in stored records.** Directory scoping (`~/agent_data/gtd/{user_id}/...`) is the sole user boundary. No per-record user_id stamping.
+
+**Q1 — empty-guard replaces isolation check.** `write()` raises `GTDError("internal_error", "OPENCLAW_USER_ID not set")` on empty `requesting_user_id`. `isolation_violation` exits the vocabulary for 2b.2; returns in 2d for cross-record identity checks.
+
+**requesting_user_id from env.** All plugin entry points read `OPENCLAW_USER_ID` from env; no LLM-supplied user identity. Aligns with 2c identity model (deferred).
+
+**delegation return shape.** `{groups, total_items, truncated}` — documented exception to Lock 6 standard query envelope. `limit` applies per group, not globally.
+
+**review.py scaffold.** Work function returns `{review_available: false, note: "review_design_pending"}`. Capability prompt design loop deferred to Sub-step 6.
+
+**query.status retired.** Status filter dropped from `query_tasks` (status not in simplified task shape); `query.status` OTEL attribute retired. Inline comment in source documents the decision.
+
+### Gate 2 findings (Gate 2 — 2026-05-03)
+
+Code reviewer: fresh context subagent.
+
+- 1 blocker: B-1 `query.status` OTEL attribute missing from span (resolved as inline comment per supervisor; attribute retired)
+- 4 non-blockers: N-1 dead `assert_user_match` re-export (fixed); N-2 null due_date filter behavior undocumented (fixed: docstring + 2 tests); N-3 OTEL exporter test fragility under autouse fixture (scoped to 2b.3); N-4 migrate_parking_lot no test for both-fields edge case (fixed: 1 test)
+- 4 observations (no action required)
+
+**Pre-review commit:** `e0745af` — 168 tests.
+**Post-review commit:** `a316782` — 171 tests.
+**Squash commit:** `19cd92c` — 171 tests.
+
+### Gate 1
+
+- **171 Python tests passing** (`make test-gtd`)
+- 0 LLM tests (no capability prompts in 2b.2; plugin entry points only)
+
+**Gate 1:** GREEN — 2026-05-03
+
+### Gate 2
+
+**Gate 2:** GREEN — 2026-05-03
+
+### Gate 3
+
+- Migration run: `GTD_STORAGE_ROOT=/Users/ranbirchawla/agent_data/gtd/ranbir python migrate_to_simplified_shape.py --user-id 8712103657 --apply`
+- Result: 9 tasks + 1 idea migrated; backups at `.bak-2026-05-03`; parking-lot absent (skipped)
+- Release smoke: PENDING operator
+
+**Gate 3:** PENDING operator release smoke.
+
+### KNOWN_ISSUES added
+
+- N-3 (OTEL exporter test fragility): scoped to 2b.3.
+- Operator runbook note: migration user-id is `8712103657` (Telegram chat ID), not `ranbir`.
+
+### Notes for next session (2b.3)
+
+- 2b.3 scope: exec lockdown (`tools.allow` / `tools.deny` on GTD agent), AGENTS.md edits, `isolate_tracer_provider` fixture design revisit (N-3 from this gate), `test-gtd` Makefile expansion if needed.
+- Storage root confirmed: `GTD_STORAGE_ROOT=/Users/ranbirchawla/agent_data/gtd/ranbir`; verify in plist before Gate 3 smoke.
+- Migration user-id: `8712103657`. The `--user-id ranbir` form is incorrect; `ranbir` is the storage root segment, not the user ID.
+- `AGENT_ARCHITECTURE.md` updated to current version (`47635c1`) after squash.
+- `docs/` still missing `trina-handoff-2026-05-02-v4.md`, `sub-step-2b-api-surface-proposal-2026-05-02-v1.md`, `trina-build-amendment-2026-05-02-v1.md`; supervisor to commit from `~/Downloads` before 2b.3 if build agent needs them.
 - Start 2b.2 in a fresh session; this session is at context depth.
