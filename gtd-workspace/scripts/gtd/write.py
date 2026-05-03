@@ -6,11 +6,12 @@ Returns the generated record id (str) on success; raises GTDError on failure.
 
 from __future__ import annotations
 
-import os
 import sys
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(__file__))           # scripts/gtd/
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # scripts/
+_here = Path(__file__).parent
+sys.path.insert(0, str(_here))          # scripts/gtd/
+sys.path.insert(0, str(_here.parent))   # scripts/
 
 from common import GTDError
 from otel_common import get_tracer
@@ -103,3 +104,18 @@ def write(record: dict, requesting_user_id: str) -> str:
             span.record_exception(exc)
             span.set_status(Status(StatusCode.ERROR, exc.message))
             raise
+
+
+if __name__ == "__main__":
+    import json
+    if len(sys.argv) < 2:
+        print("Usage: python write.py <file.json>", file=sys.stderr)
+        sys.exit(1)
+    _record = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+    _requesting_user_id = _record.get("user_id", "")
+    try:
+        _record_id = write(_record, _requesting_user_id)
+        print(json.dumps({"ok": True, "id": _record_id}))
+    except GTDError as _exc:
+        print(json.dumps({"ok": False, "error": {"code": _exc.code, "message": _exc.message, **_exc.fields}}))
+        sys.exit(1)

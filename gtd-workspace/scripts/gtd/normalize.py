@@ -423,3 +423,10 @@ def normalize(raw_input: str) -> Classification:
         span.set_attribute("normalize.confidence", result.confidence)
         span.set_attribute("normalize.needs_llm", result.needs_llm)
         return result
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python normalize.py '<raw_input>'", file=sys.stderr)
+        sys.exit(1)
+    print(normalize(sys.argv[1]).model_dump_json(indent=2))

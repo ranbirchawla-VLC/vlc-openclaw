@@ -6,18 +6,17 @@ Returns ValidationResult (Pydantic model); never raises.
 
 from __future__ import annotations
 
-import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from pydantic import BaseModel
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # scripts/
+sys.path.insert(0, str(Path(__file__).parent.parent))  # scripts/
 from otel_common import get_tracer
 from opentelemetry.trace import Status, StatusCode
 
-sys.path.insert(0, os.path.dirname(__file__))  # scripts/gtd/
+sys.path.insert(0, str(Path(__file__).parent))  # scripts/gtd/
 from _tools_common import (
     Energy, IdeaStatus, ParkingLotReason, Priority, ProfileStatus,
     PromotionState, ReviewCadence, Source, TaskStatus,
@@ -227,11 +226,12 @@ def validate(record_type: str, record: dict) -> ValidationResult:
                 errors=[FieldError(field="record_type", message=f"Unknown record_type: {record_type}")],
             )
         else:
-            # Collect schema errors and ownership errors unconditionally; business
-            # rules (task_rules) only run when schema passes so error messages stay unambiguous.
+            # All three rule sets run unconditionally so every violation on a
+            # multi-error record surfaces in a single pass; callers do not need
+            # to resubmit to discover subsequent errors.
             errors = _validate_fields(record, spec)
             errors.extend(_ownership_rules(record))
-            if not errors and record_type == "task":
+            if record_type == "task":
                 errors.extend(_task_rules(record))
             result = ValidationResult(valid=not errors, record_type=record_type, errors=errors)
 
@@ -240,3 +240,15 @@ def validate(record_type: str, record: dict) -> ValidationResult:
         if not result.valid:
             span.set_status(Status(StatusCode.ERROR, f"{len(result.errors)} validation error(s)"))
         return result
+
+
+if __name__ == "__main__":
+    import json
+    if len(sys.argv) < 3:
+        print("Usage: python validate.py <record_type> <file.json>", file=sys.stderr)
+        sys.exit(1)
+    _record_type = sys.argv[1]
+    _record = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+    _result = validate(_record_type, _record)
+    print(_result.model_dump_json(indent=2))
+    sys.exit(0 if _result.valid else 1)

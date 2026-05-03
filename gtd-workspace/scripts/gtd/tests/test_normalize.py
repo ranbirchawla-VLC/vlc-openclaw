@@ -39,6 +39,8 @@ def test_idea_command_with_text() -> None:
 # ---------------------------------------------------------------------------
 
 def test_idea_command_extracts_domain() -> None:
+    # "automate" scores ai-automation; "listing" scores watch-business.
+    # Both keywords fire; disjunction covers tie-breaking in keyword count.
     r = normalize("/idea automate the listing workflow with an agent")
     assert r.intent == "idea_capture"
     assert r.candidate.area_hint in ("ai-automation", "watch-business")

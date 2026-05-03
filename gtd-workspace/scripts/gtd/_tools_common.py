@@ -13,8 +13,15 @@ _spec = importlib.util.spec_from_file_location(
     "gtd._tools_common",
     Path(__file__).parent.parent.parent / "tools" / "common.py",
 )
+import sys as _sys
+
 _mod = importlib.util.module_from_spec(_spec)   # type: ignore[arg-type]
 _spec.loader.exec_module(_mod)                   # type: ignore[union-attr]
+# Pin to sys.modules so re-entrant or indirect imports resolve to the same object.
+# Without this, any code that loads tools/common.py via a different mechanism gets
+# a separate module with distinct enum class objects; frozenset membership and
+# isinstance checks across the boundary then silently fail.
+_sys.modules["gtd._tools_common"] = _mod
 
 # Enums
 Energy:           type = _mod.Energy
