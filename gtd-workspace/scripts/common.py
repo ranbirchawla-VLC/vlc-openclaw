@@ -32,6 +32,23 @@ TZ: str = os.environ.get("GTD_TZ", "America/Denver")
 
 
 # ---------------------------------------------------------------------------
+# Structured error (Lock 5 envelope)
+# ---------------------------------------------------------------------------
+
+class GTDError(Exception):
+    """Structured error for the Lock 5 envelope.
+
+    Raised by internal modules; caught by plugin entry points and translated
+    to err() output.
+    """
+    def __init__(self, code: str, message: str, **fields) -> None:
+        self.code = code
+        self.message = message
+        self.fields = fields
+        super().__init__(message)
+
+
+# ---------------------------------------------------------------------------
 # Output helpers
 # ---------------------------------------------------------------------------
 
@@ -41,9 +58,17 @@ def ok(data: dict) -> None:
     sys.exit(0)
 
 
-def err(message: str) -> None:
-    """Print {"ok": false, "error": message} and exit 1."""
-    print(json.dumps({"ok": False, "error": message}))
+def err(error: str | GTDError) -> None:
+    """Print Lock 5 error envelope and exit 1.
+
+    str: wraps as {code: "internal_error", message: str}.
+    GTDError: emits {code, message, **fields}.
+    """
+    if isinstance(error, str):
+        payload: dict = {"code": "internal_error", "message": error}
+    else:
+        payload = {"code": error.code, "message": error.message, **error.fields}
+    print(json.dumps({"ok": False, "error": payload}))
     sys.exit(1)
 
 

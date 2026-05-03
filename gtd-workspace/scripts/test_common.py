@@ -27,13 +27,44 @@ def test_ok_prints_json_and_exits_0(capsys: pytest.CaptureFixture) -> None:
     assert json.loads(out) == {"ok": True, "data": {"key": "value"}}
 
 
-def test_err_prints_json_and_exits_1(capsys: pytest.CaptureFixture) -> None:
+def test_err_string_wraps_as_internal_error(capsys: pytest.CaptureFixture) -> None:
     from common import err
     with pytest.raises(SystemExit) as exc_info:
         err("something went wrong")
     assert exc_info.value.code == 1
-    out = capsys.readouterr().out.strip()
-    assert json.loads(out) == {"ok": False, "error": "something went wrong"}
+    out = json.loads(capsys.readouterr().out.strip())
+    assert out["ok"] is False
+    assert out["error"]["code"] == "internal_error"
+    assert out["error"]["message"] == "something went wrong"
+
+
+def test_err_gtd_error_emits_lock5_envelope(capsys: pytest.CaptureFixture) -> None:
+    from common import GTDError, err
+    with pytest.raises(SystemExit) as exc_info:
+        err(GTDError("validation_failed", "Priority is invalid", record_type="task"))
+    assert exc_info.value.code == 1
+    out = json.loads(capsys.readouterr().out.strip())
+    assert out["ok"] is False
+    assert out["error"]["code"] == "validation_failed"
+    assert out["error"]["message"] == "Priority is invalid"
+    assert out["error"]["record_type"] == "task"
+
+
+def test_err_gtd_error_with_no_extra_fields(capsys: pytest.CaptureFixture) -> None:
+    from common import GTDError, err
+    with pytest.raises(SystemExit):
+        err(GTDError("not_found", "Record not found"))
+    out = json.loads(capsys.readouterr().out.strip())
+    assert out["error"] == {"code": "not_found", "message": "Record not found"}
+
+
+def test_gtd_error_fields_accessible(capsys: pytest.CaptureFixture) -> None:
+    from common import GTDError
+    exc = GTDError("isolation_violation", "User mismatch", record_user_id="alice")
+    assert exc.code == "isolation_violation"
+    assert exc.message == "User mismatch"
+    assert exc.fields == {"record_user_id": "alice"}
+    assert str(exc) == "User mismatch"
 
 
 # ---------------------------------------------------------------------------
