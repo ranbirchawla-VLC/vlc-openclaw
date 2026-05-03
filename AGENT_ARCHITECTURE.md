@@ -229,6 +229,86 @@ if __name__ == "__main__":
 
 ---
 
+## Date Sourcing Pattern
+
+Every agent that reasons about "today" needs the date in user timezone, sourced consistently and on demand. This pattern composes the primitive in `common.py` with a plugin tool and a capability-prompt rule, anchored by a failure mode the rule exists to prevent.
+
+### The primitive
+
+`common.today_str(tz=AGENT_TZ)` returns today's date as `YYYY-MM-DD` in the agent timezone. See *scripts/common.py — Shared Constants Pattern* above. Every date-related tool calls this utility. No agent code calls `datetime.now()` or instantiates `ZoneInfo` directly outside `common.py`.
+
+### The plugin tool
+
+A no-input plugin tool wraps `today_str()`:
+
+```python
+#!/usr/bin/env python3
+"""get_today_date — today's date in agent timezone."""
+
+from __future__ import annotations
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(__file__))
+from common import ok, today_str
+
+def main():
+    ok({"date": today_str()})
+
+if __name__ == "__main__":
+    main()
+```
+
+Registration in `openclaw.json`:
+
+```json
+{
+  "name": "get_today_date",
+  "description": "Returns today's date as YYYY-MM-DD in the agent timezone.",
+  "command": "python3 /Users/ranbirchawla/.openclaw/workspace/skills/<agent>/scripts/get_today_date.py",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": []
+  }
+}
+```
+
+The tool takes no input (`required: []`) because the timezone is environment-driven, not user-supplied.
+
+Why a tool rather than per-turn injection: tool-call-on-demand IS the architecture (see *Tool Script Pattern* above). The LLM reaches for the date when the conversation needs one. There is no gateway injecting context every turn.
+
+### The rule for capability prompts
+
+Every capability that needs a date calls `get_today_date` every turn that needs one. The capability prompt makes this explicit:
+
+- Never cache a date across turns.
+- Never infer a date from message context, prior responses, or what the LLM remembers from earlier in the session.
+- Never compute a date by adding days to a known date.
+- Tool failure surfaces to the user as a tool failure. No inferred fallback, no estimation, no "best guess."
+
+In coach-shape capability prompts, this rule lives in the *Hard Rules* section as the lead no-fabrication entry.
+
+### The failure mode
+
+The rule exists because date fabrication is the most expensive single error a coach-shaped agent can make. If the agent writes Tuesday when the user is living Wednesday, every downstream macro, every reconciliation, every "what's left for the day" answers against the wrong day's target. The user eats against bad numbers and pays the cost in real food.
+
+The v1 NutriOS bug: the bot inferred date from stale session context. The user under-ate by roughly 500 calories before catching it. A coach who is wrong about the date is worse than no coach. The rule is absolute because the cost of being wrong is paid by the human, not by the agent.
+
+### Wiring into a new agent
+
+Checklist for any new agent that reasons about today:
+
+1. `today_str()` and `AGENT_TZ` in the agent's `common.py` (template above).
+2. `scripts/get_today_date.py` wrapping `today_str()` (template above).
+3. `openclaw.json` entry registering the tool (template above).
+4. Capability prompt rule: every date-needing capability includes the no-cache, no-infer, no-compute rule, and treats `get_today_date` as the only date source.
+5. Tests: clock-mocked unit tests on `today_str()` in `test_common.py`; functional plus registration tests on the plugin tool. See `test_common.py` and `test_get_today_date.py` in `skills/nutriosv2/scripts/tests/` for reference shape.
+
+If any of the above is missing, dates come from somewhere they shouldn't, and the failure mode lands at the user.
+
+---
+
 ## Root openclaw.json — Agent Registry
 
 Agents are registered in `~/.openclaw/openclaw.json`. Each agent needs:
