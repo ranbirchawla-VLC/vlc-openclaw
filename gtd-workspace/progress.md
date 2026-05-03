@@ -177,10 +177,4 @@ Feature branch `feature/sub-step-2-calendar-read` deleted.
 - MCP server decision (D-1) needed before writing SKILL.md — keep or remove `google-calendar` MCP server.
 - Model confirmed: `mnemo/claude-sonnet-4-6` on gtd agent in `~/.openclaw/openclaw.json`.
 - Plist patched: `GOOGLE_OAUTH_CREDENTIALS`, `GTD_TZ`, `OTEL_EXPORTER_OTLP_ENDPOINT` in gateway env.
-
-### Notes for Sub-step 2
-
-- Sub-step 2 starts `gtd-workspace/scripts/calendar/get_events.py` + plugin wiring + LLM tests + OTEL span verification in Honeycomb.
-- Read `trina-build.md` §2 (plugin pattern) and `agent_api_integration_pattern.md` before Sub-step 2.
-- `plugins/gtd-tools/` directory does not exist yet — Sub-step 2 creates it.
-- `GTD_STORAGE_ROOT` must be set in the gateway plist (already done in sub-step Z) and in any shell running scripts directly.
+- Scope and planning document: `gtd-workspace/docs/trina-scope-2026-05-02-v1.md` — revised sub-step sequence, legacy tool inventory, Gate 3 findings, open decisions for supervisor.
