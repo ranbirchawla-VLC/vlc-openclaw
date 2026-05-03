@@ -178,3 +178,93 @@ Feature branch `feature/sub-step-2-calendar-read` deleted.
 - Model confirmed: `mnemo/claude-sonnet-4-6` on gtd agent in `~/.openclaw/openclaw.json`.
 - Plist patched: `GOOGLE_OAUTH_CREDENTIALS`, `GTD_TZ`, `OTEL_EXPORTER_OTLP_ENDPOINT` in gateway env.
 - Scope and planning document: `gtd-workspace/docs/trina-scope-2026-05-02-v1.md` — revised sub-step sequence, legacy tool inventory, Gate 3 findings, open decisions for supervisor.
+
+---
+
+## Sub-step 2b.1 — Internal Modules (normalize, validate, write)
+
+**Started:** 2026-05-02
+
+**Branch:** `feature/sub-step-2b-api-surface` (single long-lived branch for all 2b phases)
+
+**Pre-review commit:** `4afe92d` — 86 Python tests, 0 LLM tests.
+
+### Files delivered
+
+| File | Purpose |
+|---|---|
+| `scripts/gtd/normalize.py` | `normalize(raw_input) -> Classification`; intent classification + field extraction; OTEL child span |
+| `scripts/gtd/validate.py` | `validate(record_type, record) -> ValidationResult`; full data contract enforcement; OTEL child span |
+| `scripts/gtd/write.py` | `write(record, requesting_user_id) -> str`; stamps + validates + persists; raises GTDError; OTEL child span |
+| `scripts/gtd/_tools_common.py` | Single canonical load of `tools/common.py`; pins to `sys.modules`; prevents enum double-load |
+| `scripts/gtd/tests/conftest.py` | sys.path setup for gtd module imports; `storage` fixture |
+| `scripts/gtd/tests/test_normalize.py` | 33 tests (25 ported behavioral + 6 typed contract/OTEL + 2 span tests) |
+| `scripts/gtd/tests/test_validate.py` | 25 tests (20 ported + 3 typed contract/OTEL + 2 new) |
+| `scripts/gtd/tests/test_write.py` | 19 tests (10 ported + 7 typed contract/OTEL + 2 new) |
+| `scripts/gtd/tests/test__tools_common.py` | 3 tests for sys.modules registration and double-load protection |
+| `scripts/common.py` | Added `GTDError(code, message, **fields)`; updated `err()` to Lock 5 envelope |
+| `scripts/test_common.py` | 4 new tests for GTDError and err() envelope shape |
+| `scripts/calendar/test_get_events.py` | 1-line fix: `out["error"]["message"]` for new err() envelope |
+| `scripts/calendar/test_get_event.py` | Same 1-line fix |
+| `Makefile` | `test-gtd-internal` target added |
+
+### Key design decisions
+
+**Lock 5 error envelope.** `{"ok": false, "error": {"code": "...", "message": "...", ...fields}}`. `err()` updated to accept `str | GTDError`; string callers get `code: "internal_error"` automatically. Calendar tool tests updated for the new shape.
+
+**Internal modules, not plugin tools.** `normalize`, `validate`, `write` are Python function imports; not registered with the gateway; not LLM-visible. `capture.py` (2b.2) imports and orchestrates them.
+
+**`_tools_common.py` canonical load.** `tools/common.py` loaded once via importlib; registered as `sys.modules["gtd._tools_common"]`. `validate.py` and `write.py` both import from `_tools_common`; enum class identity is preserved across both callers for normal import paths. Residual: raw `exec_module` calls bypass `sys.modules`; documented in `test__tools_common.py`; no production path uses raw exec_module.
+
+**OTEL spans as children.** Internal modules use `tracer.start_as_current_span()` with no explicit context arg; OTel context propagation via Python contextvars makes them children of `capture.py`'s root span automatically when called inside it. Standalone (tests, CLI) they are root spans.
+
+**`_task_rules` unconditional.** All three rule sets (`_validate_fields`, `_ownership_rules`, `_task_rules`) now run unconditionally; all violations on a multi-error record surface in a single pass.
+
+### Gate 2 — Round 1 (2026-05-02)
+
+Code reviewer: fresh context subagent.
+
+- 2 blockers: B1 `append_jsonl` bare OSError unhandled; B2 unused `extract_parent_context` import
+- 5 non-blockers: N1 OTEL ERROR status missing; N2 `_ownership_rules` conditional; N3 `object.__setattr__` in non-frozen dataclass; N4 `tools/common.py` double-loaded (distinct sys.modules names); N5 weak disjunctive test assertion; N6 taxonomy load no error message
+
+All eight fixed. Post-review commit: `0fa3098` — 109 tests.
+
+### Gate 2 — Round 2 (2026-05-02)
+
+Code reviewer: fresh context subagent. Additional question: `_tools_common.py` mechanism and N4 residual risk.
+
+- 2 blockers: B1 `_mod` not registered in `sys.modules` (routed around, not fixed); B2 `os.path` instead of Pathlib in validate/write
+- 3 non-blockers: N1 `_task_rules` still gated on clean schema; N2 missing `__main__` blocks; N3 test 3 disjunction undocumented
+
+All five fixed. Post-review commit: `41c73c3` — 112 tests.
+
+**Process note:** no Gate 2 round 3; supervisor reviewed final diff directly per resolution memo.
+
+### Gate 1 — Final
+
+- **112 Python tests passing** (`make test-gtd-internal` + calendar suite)
+- 0 LLM tests (no capability prompts in 2b.1; internal modules only)
+- All Gate 2 findings resolved across two rounds
+
+**Gate 1:** GREEN — 2026-05-02
+
+### Gate 2 — Final
+
+Cleared by supervisor diff review of commit `41c73c3`. No further subagent run.
+
+**Gate 2:** GREEN — 2026-05-02
+
+### Gate 3
+
+Batched to end of 2b.4 per plan. No per-phase Gate 3.
+
+### KNOWN_ISSUES added
+
+None. All findings resolved in-pass.
+
+### Notes for next session (2b.2)
+
+- Error code `storage_io_failed` (B1 fix slug) is proposed; supervisor locks or renames before 2b.2 references it.
+- 2b.2 scope: `capture.py` plugin entry point + `query_tasks.py`, `query_ideas.py`, `query_parking_lot.py`, `review.py`, `delegation.py` + `tool-schemas.js` wiring + OTEL spans per attribute table.
+- `docs/` in this repo missing: `trina-handoff-2026-05-02-v4.md`, `sub-step-2b-api-surface-proposal-2026-05-02-v1.md`, `trina-build-amendment-2026-05-02-v1.md`. All three live in `~/Downloads/aCode-5-2/`. Commit or copy before starting 2b.2 so build agent can read them from the repo.
+- Start 2b.2 in a fresh session; this session is at context depth.
