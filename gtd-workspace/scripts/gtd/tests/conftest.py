@@ -20,6 +20,12 @@ for _p in [_tools, _gtd, _scripts]:
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def set_openclaw_user_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provide a default OPENCLAW_USER_ID for plugin entry-point tests that read from env."""
+    monkeypatch.setenv("OPENCLAW_USER_ID", "test-user-1")
+
+
 @pytest.fixture
 def storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Redirect GTD_STORAGE_ROOT to a tmp directory for write-path isolation."""

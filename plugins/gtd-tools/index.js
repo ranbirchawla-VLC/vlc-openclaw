@@ -9,7 +9,7 @@ const __workspaceDir = dirname(dirname(__pluginDir));  // plugins/gtd-tools/ -> 
 
 // OPENCLAW_PYTHON_BIN overrides the workspace .venv default for non-standard installs.
 const PYTHON = process.env.OPENCLAW_PYTHON_BIN || join(__workspaceDir, ".venv", "bin", "python");
-const SCRIPTS = join(__workspaceDir, "gtd-workspace", "scripts", "calendar");
+const SCRIPTS = join(__workspaceDir, "gtd-workspace", "scripts");
 
 function spawnArgv(script, params) {
   return spawnSync(

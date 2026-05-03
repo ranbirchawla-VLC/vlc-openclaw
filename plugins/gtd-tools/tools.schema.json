@@ -45,6 +45,112 @@
           "event_id"
         ]
       }
+    },
+    {
+      "name": "capture_gtd",
+      "description": "Capture a GTD record (task, idea, or parking_lot). Returns {ok: true, data: {id, record_type}} on success.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "record": {
+            "type": "object",
+            "description": "The assembled GTD record. Must include record_type and required fields for that type."
+          }
+        },
+        "required": [
+          "record"
+        ]
+      }
+    },
+    {
+      "name": "query_tasks",
+      "description": "Query GTD tasks with optional filters. Returns {ok: true, data: {items, total_count, truncated}}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "context": {
+            "type": "string",
+            "description": "Filter by context (e.g. '@phone', '@computer')"
+          },
+          "due_date_before": {
+            "type": "string",
+            "description": "Return tasks with due_date <= this ISO date (YYYY-MM-DD)"
+          },
+          "due_date_after": {
+            "type": "string",
+            "description": "Return tasks with due_date >= this ISO date (YYYY-MM-DD)"
+          },
+          "has_waiting_for": {
+            "type": "boolean",
+            "description": "true: only tasks with waiting_for set; false: only tasks without"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of items to return (default: 10; max: 25)"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "query_ideas",
+      "description": "Query GTD ideas. Returns {ok: true, data: {items, total_count, truncated}}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of items to return (default: 10; max: 25)"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "query_parking_lot",
+      "description": "Query GTD parking lot items. Returns {ok: true, data: {items, total_count, truncated}}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of items to return (default: 10; max: 25)"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "review_gtd",
+      "description": "Run a structured GTD review scan. Returns {ok: true, data: {items, total_count, truncated, review_available, note}}. review_available is false until review semantics are fully designed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of items to return (default: 10; max: 25)"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "delegation",
+      "description": "Query waiting-for tasks grouped by person. Returns {ok: true, data: {groups: [{person, count, items}], total_items, truncated}}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "person": {
+            "type": "string",
+            "description": "Filter to a specific person's waiting-for items (omit for all persons)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum items per person group (default: 10; max: 25)"
+          }
+        },
+        "required": []
+      }
     }
   ]
 }

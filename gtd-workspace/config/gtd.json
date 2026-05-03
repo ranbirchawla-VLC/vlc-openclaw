@@ -1,0 +1,4 @@
+{
+  "default_query_limit": 10,
+  "max_query_limit": 25
+}

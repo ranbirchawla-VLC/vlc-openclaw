@@ -6,6 +6,7 @@ Returns the generated record id (str) on success; raises GTDError on failure.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from common import GTDError, err
 from otel_common import get_tracer
 from opentelemetry.trace import Status, StatusCode
 from validate import validate
-from _tools_common import append_jsonl, assert_user_match, new_id, now_iso, user_path
+from _tools_common import append_jsonl, new_id, now_iso, user_path
 
 
 # ---------------------------------------------------------------------------
@@ -38,12 +39,12 @@ _FILE_MAP: dict[str, str] = {
 def write(record: dict, requesting_user_id: str) -> str:
     """Validate, stamp, and persist a GTD record.
 
-    Generates id, created_at, and updated_at before validation.
+    Generates id and created_at before validation.
     Returns the generated record id (UUID4 string) on success.
 
     Raises GTDError with codes:
+      internal_error       -- requesting_user_id is empty (OPENCLAW_USER_ID not set)
       unknown_record_type  -- record_type not in writable set
-      isolation_violation  -- record["user_id"] != requesting_user_id
       validation_failed    -- validate() returns valid=False
       storage_io_failed    -- OSError from the underlying append_jsonl call
     """
@@ -54,6 +55,12 @@ def write(record: dict, requesting_user_id: str) -> str:
         span.set_attribute("write.record_type", record_type)
 
         try:
+            if not requesting_user_id:
+                raise GTDError(
+                    "internal_error",
+                    "OPENCLAW_USER_ID not set",
+                )
+
             filename = _FILE_MAP.get(record_type)
             if filename is None:
                 raise GTDError(
@@ -63,19 +70,9 @@ def write(record: dict, requesting_user_id: str) -> str:
                     allowed=list(_FILE_MAP.keys()),
                 )
 
-            record_user_id = record.get("user_id", "")
-            try:
-                assert_user_match(record_user_id, requesting_user_id)
-            except PermissionError:
-                raise GTDError(
-                    "isolation_violation",
-                    f"User isolation violation: record belongs to {record_user_id!r}, not {requesting_user_id!r}",
-                    record_user_id=record_user_id,
-                )
-
             record_id = new_id()
             ts = now_iso()
-            complete = {**record, "id": record_id, "created_at": ts, "updated_at": ts}
+            complete = {**record, "id": record_id, "created_at": ts}
 
             vr = validate(record_type, complete)
             if not vr.valid:
@@ -112,7 +109,7 @@ if __name__ == "__main__":
         print("Usage: python write.py <file.json>", file=sys.stderr)
         sys.exit(1)
     _record = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-    _requesting_user_id = _record.get("user_id", "")
+    _requesting_user_id = os.environ.get("OPENCLAW_USER_ID", "")
     try:
         _record_id = write(_record, _requesting_user_id)
         print(json.dumps({"ok": True, "id": _record_id}))

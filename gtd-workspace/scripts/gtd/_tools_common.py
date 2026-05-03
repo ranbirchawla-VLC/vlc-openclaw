@@ -35,8 +35,8 @@ Source:           type = _mod.Source
 TaskStatus:       type = _mod.TaskStatus
 
 # Storage helpers
-append_jsonl    = _mod.append_jsonl
-assert_user_match = _mod.assert_user_match
-new_id          = _mod.new_id
-now_iso         = _mod.now_iso
-user_path       = _mod.user_path
+append_jsonl = _mod.append_jsonl
+new_id       = _mod.new_id
+now_iso      = _mod.now_iso
+read_jsonl   = _mod.read_jsonl
+user_path    = _mod.user_path

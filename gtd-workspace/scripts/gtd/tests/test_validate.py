@@ -1,8 +1,8 @@
 """Tests for scripts/gtd/validate.py.
 
-20 behavioral tests ported from gtd-workspace/tests/test_validate.py
-(argument order swap + attribute access rewrite).
-3 new tests for the typed Pydantic contract and OTEL span.
+12 behavioral tests retained from 2b.1 (fixtures updated to simplified shapes).
+2 new tests for the due_date field added in 2b.2.
+Total: 14 tests.
 """
 
 import pytest
@@ -13,67 +13,36 @@ from validate import FieldError, ValidationResult, validate
 
 
 # ---------------------------------------------------------------------------
-# Fixtures — minimal valid records (same data as legacy tests)
+# Fixtures — minimal valid records matching the simplified 2b.2 locked shapes
 # ---------------------------------------------------------------------------
 
 def _task(**overrides) -> dict:
     base = {
-        "id":               "abc-123",
-        "record_type":      "task",
-        "user_id":          "user1",
-        "telegram_chat_id": "chat1",
-        "title":            "Call the customs broker",
-        "context":          "@phone",
-        "area":             "business",
-        "priority":         "normal",
-        "energy":           "medium",
-        "status":           "active",
-        "source":           "telegram_text",
-        "created_at":       "2026-04-12T10:00:00+00:00",
-        "updated_at":       "2026-04-12T10:00:00+00:00",
-        "duration_minutes": None,
-        "delegate_to":      None,
-        "waiting_for":      None,
-        "notes":            None,
-        "completed_at":     None,
+        "id":          "abc-123",
+        "record_type": "task",
+        "title":       "Call the customs broker",
+        "context":     "@phone",
+        "created_at":  "2026-04-12T10:00:00+00:00",
     }
     return {**base, **overrides}
 
 
 def _idea(**overrides) -> dict:
     base = {
-        "id":               "abc-456",
-        "record_type":      "idea",
-        "user_id":          "user1",
-        "telegram_chat_id": "chat1",
-        "title":            "Build a watch scanner agent",
-        "domain":           "ai-automation",
-        "context":          "@computer",
-        "review_cadence":   "monthly",
-        "promotion_state":  "incubating",
-        "status":           "active",
-        "source":           "telegram_text",
-        "created_at":       "2026-04-12T10:00:00+00:00",
-        "updated_at":       "2026-04-12T10:00:00+00:00",
-        "spark_note":       None,
-        "last_reviewed_at": None,
-        "promoted_task_id": None,
+        "id":          "abc-456",
+        "record_type": "idea",
+        "title":       "Build a watch scanner agent",
+        "created_at":  "2026-04-12T10:00:00+00:00",
     }
     return {**base, **overrides}
 
 
 def _parking_lot(**overrides) -> dict:
     base = {
-        "id":               "abc-789",
-        "record_type":      "parking_lot",
-        "user_id":          "user1",
-        "telegram_chat_id": "chat1",
-        "raw_text":         "some random thought",
-        "source":           "telegram_text",
-        "reason":           "ambiguous_capture",
-        "status":           "active",
-        "created_at":       "2026-04-12T10:00:00+00:00",
-        "updated_at":       "2026-04-12T10:00:00+00:00",
+        "id":          "abc-789",
+        "record_type": "parking_lot",
+        "title":       "some random thought",
+        "created_at":  "2026-04-12T10:00:00+00:00",
     }
     return {**base, **overrides}
 
@@ -100,7 +69,7 @@ def test_valid_idea_passes() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 3. Valid parking lot passes
+# 3. Valid parking lot passes (title field, not raw_text)
 # ---------------------------------------------------------------------------
 
 def test_valid_parking_lot_passes() -> None:
@@ -110,89 +79,17 @@ def test_valid_parking_lot_passes() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 4. Missing required field (user_id) fails
+# 4. Empty context fails (min_length=1 enforced at spec level)
 # ---------------------------------------------------------------------------
 
-def test_missing_user_id_fails() -> None:
-    record = _task()
-    del record["user_id"]
-    r = validate("task", record)
-    assert r.valid is False
-    assert any(e.field == "user_id" for e in r.errors)
-
-
-# ---------------------------------------------------------------------------
-# 5. Active task with empty context fails (business rule)
-# ---------------------------------------------------------------------------
-
-def test_active_task_empty_context_fails() -> None:
+def test_task_empty_context_fails() -> None:
     r = validate("task", _task(context=""))
     assert r.valid is False
     assert any(e.field == "context" for e in r.errors)
-    assert any("context" in e.message.lower() for e in r.errors)
 
 
 # ---------------------------------------------------------------------------
-# 6. Invalid priority enum fails
-# ---------------------------------------------------------------------------
-
-def test_invalid_priority_fails() -> None:
-    r = validate("task", _task(priority="super-urgent"))
-    assert r.valid is False
-    assert any(e.field == "priority" for e in r.errors)
-
-
-# ---------------------------------------------------------------------------
-# 7. Invalid status enum fails
-# ---------------------------------------------------------------------------
-
-def test_invalid_status_fails() -> None:
-    r = validate("task", _task(status="in_progress"))
-    assert r.valid is False
-    assert any(e.field == "status" for e in r.errors)
-
-
-# ---------------------------------------------------------------------------
-# 8. completed_at set on non-done task fails
-# ---------------------------------------------------------------------------
-
-def test_completed_at_on_active_task_fails() -> None:
-    r = validate("task", _task(completed_at="2026-04-12T11:00:00+00:00"))
-    assert r.valid is False
-    assert any(e.field == "completed_at" for e in r.errors)
-
-
-# ---------------------------------------------------------------------------
-# 9. completed_at set on done task passes
-# ---------------------------------------------------------------------------
-
-def test_completed_at_on_done_task_passes() -> None:
-    r = validate("task", _task(status="done", completed_at="2026-04-12T11:00:00+00:00"))
-    assert r.valid is True
-
-
-# ---------------------------------------------------------------------------
-# 10. delegated without delegate_to fails
-# ---------------------------------------------------------------------------
-
-def test_delegated_without_delegate_to_fails() -> None:
-    r = validate("task", _task(status="delegated", delegate_to=None))
-    assert r.valid is False
-    assert any(e.field == "delegate_to" for e in r.errors)
-
-
-# ---------------------------------------------------------------------------
-# 11. waiting without waiting_for fails
-# ---------------------------------------------------------------------------
-
-def test_waiting_without_waiting_for_fails() -> None:
-    r = validate("task", _task(status="waiting", waiting_for=None))
-    assert r.valid is False
-    assert any(e.field == "waiting_for" for e in r.errors)
-
-
-# ---------------------------------------------------------------------------
-# 12. Empty title fails
+# 5. Empty title fails
 # ---------------------------------------------------------------------------
 
 def test_empty_title_fails() -> None:
@@ -202,7 +99,7 @@ def test_empty_title_fails() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 13. Wrong record_type value in record fails
+# 6. Wrong record_type value in record fails
 # ---------------------------------------------------------------------------
 
 def test_wrong_record_type_value_fails() -> None:
@@ -212,7 +109,7 @@ def test_wrong_record_type_value_fails() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 14. Unknown record_type argument returns invalid result
+# 7. Unknown record_type argument returns invalid result
 # ---------------------------------------------------------------------------
 
 def test_unknown_record_type_returns_invalid() -> None:
@@ -221,76 +118,29 @@ def test_unknown_record_type_returns_invalid() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 15. Delegated with delegate_to passes
+# 8. Task with waiting_for value passes (nullable field with non-null value)
 # ---------------------------------------------------------------------------
 
-def test_delegated_with_delegate_to_passes() -> None:
-    r = validate("task", _task(status="delegated", delegate_to="Alex"))
+def test_task_with_waiting_for_passes() -> None:
+    r = validate("task", _task(waiting_for="Alex"))
     assert r.valid is True
 
 
 # ---------------------------------------------------------------------------
-# 16. Waiting with waiting_for passes
-# ---------------------------------------------------------------------------
-
-def test_waiting_with_waiting_for_passes() -> None:
-    r = validate("task", _task(status="waiting", waiting_for="Alex"))
-    assert r.valid is True
-
-
-# ---------------------------------------------------------------------------
-# 17. Done task with empty context passes (active rule not enforced)
-# ---------------------------------------------------------------------------
-
-def test_done_task_empty_context_passes() -> None:
-    r = validate("task", _task(status="done", context="", completed_at="2026-04-12T11:00:00+00:00"))
-    assert r.valid is True
-
-
-# ---------------------------------------------------------------------------
-# 18. Invalid source enum fails
-# ---------------------------------------------------------------------------
-
-def test_invalid_source_fails() -> None:
-    r = validate("task", _task(source="whatsapp"))
-    assert r.valid is False
-    assert any(e.field == "source" for e in r.errors)
-
-
-# ---------------------------------------------------------------------------
-# 19. Invalid idea review_cadence fails
-# ---------------------------------------------------------------------------
-
-def test_invalid_review_cadence_fails() -> None:
-    r = validate("idea", _idea(review_cadence="daily"))
-    assert r.valid is False
-    assert any(e.field == "review_cadence" for e in r.errors)
-
-
-# ---------------------------------------------------------------------------
-# 20. Idea with promoted_task_id passes
-# ---------------------------------------------------------------------------
-
-def test_idea_with_promoted_task_id_passes() -> None:
-    r = validate("idea", _idea(promotion_state="promoted_to_task", promoted_task_id="task-999"))
-    assert r.valid is True
-
-
-# ---------------------------------------------------------------------------
-# 21 (new). ValidationResult and FieldError are Pydantic model instances
+# 9. Returns Pydantic model instances
 # ---------------------------------------------------------------------------
 
 def test_returns_pydantic_models() -> None:
     r = validate("task", _task())
     assert isinstance(r, ValidationResult)
 
-    r_bad = validate("task", _task(priority="super-urgent"))
+    r_bad = validate("task", _task(title=""))
     assert isinstance(r_bad, ValidationResult)
     assert all(isinstance(e, FieldError) for e in r_bad.errors)
 
 
 # ---------------------------------------------------------------------------
-# 22 (new). OTEL span with validate.record_type, validate.valid, validate.error_count
+# 10. OTEL span with validate.record_type, validate.valid, validate.error_count
 # ---------------------------------------------------------------------------
 
 def test_validate_emits_otel_span() -> None:
@@ -311,7 +161,7 @@ def test_validate_emits_otel_span() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 23 (new). OTEL span with error attributes on validation failure
+# 11. OTEL span with error attributes on validation failure
 # ---------------------------------------------------------------------------
 
 def test_validate_span_on_failure() -> None:
@@ -320,7 +170,7 @@ def test_validate_span_on_failure() -> None:
     exporter = InMemorySpanExporter()
     otel_common.configure_tracer_provider(exporter)
 
-    validate("task", _task(priority="bad"))
+    validate("task", _task(title=""))
 
     spans = exporter.get_finished_spans()
     span = next((s for s in spans if "validate" in s.name), None)
@@ -332,7 +182,7 @@ def test_validate_span_on_failure() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 24 (new). validate span is a CHILD when invoked inside an active span
+# 12. validate span is a child when invoked inside an active span
 # ---------------------------------------------------------------------------
 
 def test_validate_span_is_child_when_parent_active() -> None:
@@ -354,12 +204,18 @@ def test_validate_span_is_child_when_parent_active() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 25 (new). whitespace user_id is caught even when other field errors also present
+# 13 (new). Task with due_date string passes
 # ---------------------------------------------------------------------------
 
-def test_whitespace_user_id_caught_with_other_errors() -> None:
-    r = validate("task", _task(user_id="   ", priority="bad"))
-    assert r.valid is False
-    fields = [e.field for e in r.errors]
-    assert "user_id" in fields
-    assert "priority" in fields
+def test_task_with_due_date_passes() -> None:
+    r = validate("task", _task(due_date="2026-06-01"))
+    assert r.valid is True
+
+
+# ---------------------------------------------------------------------------
+# 14 (new). Task with due_date null passes (nullable field)
+# ---------------------------------------------------------------------------
+
+def test_task_with_due_date_null_passes() -> None:
+    r = validate("task", _task(due_date=None))
+    assert r.valid is True

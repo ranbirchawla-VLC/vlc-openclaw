@@ -17,10 +17,7 @@ from otel_common import get_tracer
 from opentelemetry.trace import Status, StatusCode
 
 sys.path.insert(0, str(Path(__file__).parent))  # scripts/gtd/
-from _tools_common import (
-    Energy, IdeaStatus, ParkingLotReason, Priority, ProfileStatus,
-    PromotionState, ReviewCadence, Source, TaskStatus,
-)
+from _tools_common import ProfileStatus
 
 
 # ---------------------------------------------------------------------------
@@ -65,71 +62,30 @@ def _str_null(required: bool = False, min_length: int | None = None) -> _F:
     return _F(required=required, nullable=True, types=(str,), min_length=min_length)
 
 
-def _int_null(required: bool = False) -> _F:
-    return _F(required=required, nullable=True, types=(int,))
-
-
-_SOURCE_ENUM           = frozenset(Source)
-_TASK_STATUS_ENUM      = frozenset(TaskStatus)
-_IDEA_STATUS_ENUM      = frozenset(IdeaStatus)
-_PRIORITY_ENUM         = frozenset(Priority)
-_ENERGY_ENUM           = frozenset(Energy)
-_REVIEW_CADENCE_ENUM   = frozenset(ReviewCadence)
-_PROMOTION_STATE_ENUM  = frozenset(PromotionState)
-_PARKING_LOT_REASON_ENUM = frozenset(ParkingLotReason)
-_PROFILE_STATUS_ENUM   = frozenset(ProfileStatus)
+_PROFILE_STATUS_ENUM = frozenset(ProfileStatus)
 
 _TASK_SPEC: dict[str, _F] = {
-    "id":               _str(),
-    "record_type":      _str(enum=frozenset({"task"})),
-    "user_id":          _str(),
-    "telegram_chat_id": _str(),
-    "title":            _str(),
-    "context":          _str(min_length=0),
-    "area":             _str(min_length=0),
-    "priority":         _str(enum=_PRIORITY_ENUM),
-    "energy":           _str(enum=_ENERGY_ENUM),
-    "duration_minutes": _int_null(),
-    "status":           _str(enum=_TASK_STATUS_ENUM),
-    "delegate_to":      _str_null(),
-    "waiting_for":      _str_null(),
-    "notes":            _str_null(),
-    "source":           _str(enum=_SOURCE_ENUM),
-    "created_at":       _str(),
-    "updated_at":       _str(),
-    "completed_at":     _str_null(),
+    "id":          _str(),
+    "record_type": _str(enum=frozenset({"task"})),
+    "title":       _str(),
+    "context":     _str(),
+    "due_date":    _str_null(required=False),
+    "waiting_for": _str_null(required=False),
+    "created_at":  _str(),
 }
 
 _IDEA_SPEC: dict[str, _F] = {
-    "id":               _str(),
-    "record_type":      _str(enum=frozenset({"idea"})),
-    "user_id":          _str(),
-    "telegram_chat_id": _str(),
-    "title":            _str(),
-    "domain":           _str(),
-    "context":          _str(),
-    "review_cadence":   _str(enum=_REVIEW_CADENCE_ENUM),
-    "promotion_state":  _str(enum=_PROMOTION_STATE_ENUM),
-    "spark_note":       _str_null(),
-    "status":           _str(enum=_IDEA_STATUS_ENUM),
-    "source":           _str(enum=_SOURCE_ENUM),
-    "created_at":       _str(),
-    "updated_at":       _str(),
-    "last_reviewed_at": _str_null(),
-    "promoted_task_id": _str_null(),
+    "id":          _str(),
+    "record_type": _str(enum=frozenset({"idea"})),
+    "title":       _str(),
+    "created_at":  _str(),
 }
 
 _PARKING_LOT_SPEC: dict[str, _F] = {
-    "id":               _str(),
-    "record_type":      _str(enum=frozenset({"parking_lot"})),
-    "user_id":          _str(),
-    "telegram_chat_id": _str(),
-    "raw_text":         _str(),
-    "source":           _str(enum=_SOURCE_ENUM),
-    "reason":           _str(enum=_PARKING_LOT_REASON_ENUM),
-    "status":           _str(enum=_TASK_STATUS_ENUM),
-    "created_at":       _str(),
-    "updated_at":       _str(),
+    "id":          _str(),
+    "record_type": _str(enum=frozenset({"parking_lot"})),
+    "title":       _str(),
+    "created_at":  _str(),
 }
 
 _PROFILE_SPEC: dict[str, _F] = {
@@ -179,29 +135,6 @@ def _validate_fields(record: dict, spec: dict[str, _F]) -> list[FieldError]:
     return errors
 
 
-def _task_rules(record: dict) -> list[FieldError]:
-    errors: list[FieldError] = []
-    status = record.get("status")
-    if status == TaskStatus.active and not record.get("context", "").strip():
-        errors.append(FieldError(field="context", message="Actionable task requires context"))
-    if record.get("completed_at") is not None and status != TaskStatus.done:
-        errors.append(FieldError(field="completed_at", message="completed_at must be null unless status is done"))
-    if status == TaskStatus.delegated and not record.get("delegate_to"):
-        errors.append(FieldError(field="delegate_to", message="delegate_to is required when status is delegated"))
-    if status == TaskStatus.waiting and not record.get("waiting_for"):
-        errors.append(FieldError(field="waiting_for", message="waiting_for is required when status is waiting"))
-    return errors
-
-
-def _ownership_rules(record: dict) -> list[FieldError]:
-    errors: list[FieldError] = []
-    for fname in ("user_id", "telegram_chat_id"):
-        val = record.get(fname)
-        if isinstance(val, str) and not val.strip():
-            errors.append(FieldError(field=fname, message=f"{fname} must not be empty"))
-    return errors
-
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -226,13 +159,7 @@ def validate(record_type: str, record: dict) -> ValidationResult:
                 errors=[FieldError(field="record_type", message=f"Unknown record_type: {record_type}")],
             )
         else:
-            # All three rule sets run unconditionally so every violation on a
-            # multi-error record surfaces in a single pass; callers do not need
-            # to resubmit to discover subsequent errors.
             errors = _validate_fields(record, spec)
-            errors.extend(_ownership_rules(record))
-            if record_type == "task":
-                errors.extend(_task_rules(record))
             result = ValidationResult(valid=not errors, record_type=record_type, errors=errors)
 
         span.set_attribute("validate.valid", result.valid)

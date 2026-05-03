@@ -228,6 +228,53 @@ def test_require_env_returns_value_when_set(monkeypatch: pytest.MonkeyPatch) -> 
     assert _require_env("GTD_STORAGE_ROOT") == "/some/agent/path"
 
 
+# ---------------------------------------------------------------------------
+# get_gtd_config
+# ---------------------------------------------------------------------------
+
+def test_gtd_config_defaults() -> None:
+    """GTDConfig() with no args has hard-coded defaults (10, 25)."""
+    from common import GTDConfig
+    cfg = GTDConfig()
+    assert cfg.default_query_limit == 10
+    assert cfg.max_query_limit == 25
+
+
+def test_gtd_config_accepts_explicit_values() -> None:
+    """GTDConfig fields can be overridden at construction."""
+    from common import GTDConfig
+    cfg = GTDConfig(default_query_limit=5, max_query_limit=20)
+    assert cfg.default_query_limit == 5
+    assert cfg.max_query_limit == 20
+
+
+def test_gtd_config_partial_construction_fills_defaults() -> None:
+    """Providing only one field leaves the other at its default."""
+    from common import GTDConfig
+    cfg = GTDConfig(default_query_limit=7)
+    assert cfg.default_query_limit == 7
+    assert cfg.max_query_limit == 25
+
+
+def test_gtd_config_unknown_keys_filtered_before_construction() -> None:
+    """The known-key filter used by get_gtd_config drops unknown fields silently."""
+    from common import GTDConfig
+    raw = {"default_query_limit": 10, "future_flag": True}
+    known = {k: v for k, v in raw.items() if k in GTDConfig.model_fields}
+    cfg = GTDConfig(**known)
+    assert cfg.default_query_limit == 10
+    assert not hasattr(cfg, "future_flag")
+
+
+def test_get_gtd_config_returns_gtd_config_instance() -> None:
+    """get_gtd_config() returns a GTDConfig instance (reads from workspace config/gtd.json)."""
+    from common import GTDConfig, get_gtd_config
+    cfg = get_gtd_config()
+    assert isinstance(cfg, GTDConfig)
+    assert cfg.default_query_limit > 0
+    assert cfg.max_query_limit >= cfg.default_query_limit
+
+
 # m-2: creds.scopes = None — token issued without explicit scope recording, accepted without error.
 # Guards against: regression that rejects valid tokens from OAuth flows that don't record scopes.
 def test_scopes_none_returns_creds_without_error(

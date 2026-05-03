@@ -1,6 +1,7 @@
 """Shared helpers for GTD plugin scripts.
 
-Constants, ok/err output helpers, and Google OAuth credential loader.
+Constants, ok/err output helpers, Google OAuth credential loader, and
+operator-tunable config loader.
 Separate from tools/common.py (JSONL/enum layer for legacy pipeline tools).
 """
 
@@ -10,6 +11,8 @@ import json
 import os
 import sys
 from pathlib import Path
+
+from pydantic import BaseModel
 
 import google.auth.exceptions
 import google.auth.transport.requests
@@ -70,6 +73,30 @@ def err(error: str | GTDError) -> None:
         payload = {"code": error.code, "message": error.message, **error.fields}
     print(json.dumps({"ok": False, "error": payload}))
     sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Operator-tunable config
+# ---------------------------------------------------------------------------
+
+class GTDConfig(BaseModel):
+    default_query_limit: int = 10
+    max_query_limit: int = 25
+
+
+def get_gtd_config() -> GTDConfig:
+    """Load operator-tunable config from gtd-workspace/config/gtd.json.
+
+    File is optional; missing file or missing fields fall back to GTDConfig
+    defaults so the system runs out-of-the-box without any config file.
+    Unknown keys in the file are silently ignored.
+    """
+    config_path = Path(__file__).parent.parent / "config" / "gtd.json"
+    if not config_path.exists():
+        return GTDConfig()
+    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    known = {k: v for k, v in raw.items() if k in GTDConfig.model_fields}
+    return GTDConfig(**known)
 
 
 # ---------------------------------------------------------------------------
