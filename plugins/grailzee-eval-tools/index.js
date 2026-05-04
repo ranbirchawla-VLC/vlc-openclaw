@@ -6,12 +6,21 @@ const SCRIPTS = "/Users/ranbirchawla/ai-code/vlc-openclaw/skills/grailzee-eval/s
 
 // ingest_sales.py refuses to run without GRAILZEE_ROOT explicitly set.
 // The gateway process does not inherit shell env vars, so inject it here.
-// Override by setting GRAILZEE_ROOT in the system environment before
-// launching the gateway; the spread below will pick it up.
+// All values fall back to their defaults if already set in the gateway env.
 const GRAILZEE_ROOT = process.env.GRAILZEE_ROOT ||
   "/Users/ranbirchawla/Library/CloudStorage/GoogleDrive-ranbir.chawla@rnvillc.com/Shared drives/Vardalux Shared Drive/GrailzeeData";
 
-const SPAWN_ENV = { ...process.env, GRAILZEE_ROOT };
+const OTEL_EXPORTER_OTLP_ENDPOINT = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || "http://localhost:4318";
+const OTEL_EXPORTER_OTLP_PROTOCOL = process.env.OTEL_EXPORTER_OTLP_PROTOCOL || "http/protobuf";
+const OTEL_SERVICE_NAME = process.env.OTEL_SERVICE_NAME || "grailzee-eval-tools";
+
+const SPAWN_ENV = {
+  ...process.env,
+  GRAILZEE_ROOT,
+  OTEL_EXPORTER_OTLP_ENDPOINT,
+  OTEL_EXPORTER_OTLP_PROTOCOL,
+  OTEL_SERVICE_NAME,
+};
 
 function spawnArgv(script, params) {
   return spawnSync(
