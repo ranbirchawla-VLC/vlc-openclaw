@@ -15,10 +15,17 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 from typing import TypedDict
 
 _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 _SKILL_DIR = os.path.dirname(_SCRIPTS_DIR)
+_V2_ROOT = str(Path(_SCRIPTS_DIR).parent)
+sys.path.insert(0, _V2_ROOT)
+
+from scripts.grailzee_common import get_tracer
+
+tracer = get_tracer(__name__)
 _CAPABILITIES_DIR = os.path.join(_SKILL_DIR, "capabilities")
 
 _CAPABILITY_FILES: dict[str, str] = {
@@ -79,9 +86,14 @@ def compute_turn_state(
     *,
     capabilities_dir: str = _CAPABILITIES_DIR,
 ) -> TurnStateResult:
-    intent = _classify(user_message)
-    capability_prompt = _load_capability(intent, capabilities_dir)
-    return TurnStateResult(intent=intent, capability_prompt=capability_prompt)
+    with tracer.start_as_current_span("turn_state.run") as span:
+        intent = _classify(user_message)
+        capability_file = _CAPABILITY_FILES.get(intent)
+        capability_prompt = _load_capability(intent, capabilities_dir)
+        span.set_attribute("intent", intent)
+        span.set_attribute("capability_file", capability_file or "")
+        span.set_attribute("capability_loaded", len(capability_prompt) > 0)
+        return TurnStateResult(intent=intent, capability_prompt=capability_prompt)
 
 
 def _ok(data: dict) -> None:
