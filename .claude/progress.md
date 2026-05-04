@@ -9,6 +9,56 @@ Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
 
 ## Active tracks
 
+### Track 3 — OTEL Instrumentation (ACTIVE — 2026-05-05)
+
+**Branch**: `feature/grailzee-eval-otel` (off main, tip `acaf044`)
+**Tests**: 1447 passed / 71 skipped
+
+#### What was built
+
+**turn_state span**: `turn_state.run` span added with `intent`, `capability_file`,
+`capability_loaded` attributes. 5 new OTEL span tests (total 55 for turn_state).
+
+**OTEL env wiring**: `SPAWN_ENV` in `index.js` now injects
+`OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`,
+`OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`,
+`OTEL_SERVICE_NAME=grailzee-eval-tools`.
+Collector config confirmed at `~/.openclaw/otelcol/config.yaml` — receives on
+`localhost:4318`, exports to Honeycomb. Already receiving metrics.
+
+**W3C trace context propagation**: Node.js `newTraceparent()` (crypto built-in,
+no new deps) generates a traceparent per tool execute() call, injected as
+`TRACEPARENT` env var into subprocess. Python `attach_parent_trace_context()`
+context manager (added to `grailzee_common`) reads it and attaches before the
+top-level span. All four scripts updated (turn_state, evaluate_deal,
+ingest_sales, report_pipeline) using the comma-form multi-context-manager
+pattern — no re-indentation of existing span bodies.
+
+**End-to-end test**: PASSED. Spans arriving in Honeycomb. Honeycomb shows
+"missing parent span" — expected; Node generates traceparent but emits no
+span itself. Python spans are the effective trace roots.
+
+**Doc**: `docs/turn_state_architecture_2026-05-05.md` — second section added
+covering the subprocess trace propagation pattern, code recipe, and steps
+to apply to nutriosv2/gtd-tools.
+
+#### Morning investigation — gateway trace context
+
+`diagnostics-otel` built-in plugin is already enabled in `openclaw.json`.
+Gateway is already emitting metrics to Honeycomb via the local collector.
+Traces from the gateway layer not yet confirmed.
+
+**Question**: does `diagnostics-otel` propagate trace context into plugin
+`execute(_id, params)` calls? If yes, drop `newTraceparent()` and read the
+real gateway trace ID instead — full end-to-end trace from Telegram message
+in to tool result out. Investigate `_id` parameter and plugin SDK context API.
+
+#### Commit before closing
+
+Not yet pushed. Stage and push `feature/grailzee-eval-otel` then merge to main.
+
+---
+
 ### Track 1 — Shape K (ACTIVE — 2026-05-04)
 
 **Branch**: `feature/grailzee-eval-v2`
