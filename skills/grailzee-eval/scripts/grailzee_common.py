@@ -10,6 +10,7 @@ RISK_RESERVE_THRESHOLD comment).
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import json
 import math
@@ -1095,6 +1096,40 @@ def get_tracer(name: str) -> Any:
         return trace.get_tracer(name)
     except ImportError:
         return _NoOpTracer()
+
+
+@contextlib.contextmanager
+def attach_parent_trace_context():
+    """Read TRACEPARENT from the environment and attach it as the active OTel context.
+
+    Use as the outermost context manager wrapping a script's top-level span so
+    that span appears as a child of the plugin-layer parent in Honeycomb:
+
+        with attach_parent_trace_context():
+            with tracer.start_as_current_span("my_script.run") as span:
+                ...
+
+    No-op if TRACEPARENT is absent, malformed, or opentelemetry is not installed.
+    """
+    token = None
+    try:
+        traceparent = os.environ.get("TRACEPARENT", "").strip()
+        if traceparent:
+            from opentelemetry.propagate import extract
+            from opentelemetry import context as otel_context
+            ctx = extract({"traceparent": traceparent})
+            token = otel_context.attach(ctx)
+    except Exception:
+        pass
+    try:
+        yield
+    finally:
+        if token is not None:
+            try:
+                from opentelemetry import context as otel_context
+                otel_context.detach(token)
+            except Exception:
+                pass
 
 
 class _NoOpTracer:

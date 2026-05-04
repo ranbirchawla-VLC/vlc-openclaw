@@ -23,7 +23,7 @@ _SKILL_DIR = os.path.dirname(_SCRIPTS_DIR)
 _V2_ROOT = str(Path(_SCRIPTS_DIR).parent)
 sys.path.insert(0, _V2_ROOT)
 
-from scripts.grailzee_common import get_tracer
+from scripts.grailzee_common import attach_parent_trace_context, get_tracer
 
 tracer = get_tracer(__name__)
 _CAPABILITIES_DIR = os.path.join(_SKILL_DIR, "capabilities")
@@ -86,7 +86,7 @@ def compute_turn_state(
     *,
     capabilities_dir: str = _CAPABILITIES_DIR,
 ) -> TurnStateResult:
-    with tracer.start_as_current_span("turn_state.run") as span:
+    with attach_parent_trace_context(), tracer.start_as_current_span("turn_state.run") as span:
         intent = _classify(user_message)
         capability_file = _CAPABILITY_FILES.get(intent)
         capability_prompt = _load_capability(intent, capabilities_dir)

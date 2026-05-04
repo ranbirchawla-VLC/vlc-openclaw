@@ -1,5 +1,6 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { spawnSync } from "child_process";
+import { randomBytes } from "crypto";
 
 const PYTHON = "/Users/ranbirchawla/.pyenv/versions/3.12.10/bin/python3.12";
 const SCRIPTS = "/Users/ranbirchawla/ai-code/vlc-openclaw/skills/grailzee-eval/scripts";
@@ -22,19 +23,28 @@ const SPAWN_ENV = {
   OTEL_SERVICE_NAME,
 };
 
-function spawnArgv(script, params) {
+// Generate a W3C traceparent for each tool invocation so Python child spans
+// attach to a common trace root. The parent span lives in Node; its trace ID
+// ties all subprocess spans for one tool call together in Honeycomb.
+function newTraceparent() {
+  const traceId = randomBytes(16).toString("hex");
+  const parentId = randomBytes(8).toString("hex");
+  return `00-${traceId}-${parentId}-01`;
+}
+
+function spawnArgv(script, params, extraEnv = {}) {
   return spawnSync(
     PYTHON,
     [`${SCRIPTS}/${script}`, JSON.stringify(params)],
-    { encoding: "utf8", env: SPAWN_ENV }
+    { encoding: "utf8", env: { ...SPAWN_ENV, ...extraEnv } }
   );
 }
 
-function spawnStdin(script, params) {
+function spawnStdin(script, params, extraEnv = {}) {
   return spawnSync(
     PYTHON,
     [`${SCRIPTS}/${script}`],
-    { encoding: "utf8", input: JSON.stringify(params), env: SPAWN_ENV }
+    { encoding: "utf8", input: JSON.stringify(params), env: { ...SPAWN_ENV, ...extraEnv } }
   );
 }
 
@@ -97,7 +107,7 @@ export default definePluginEntry({
         required: ["brand", "reference", "listing_price"],
       },
       async execute(_id, params) {
-        return toToolResult(spawnArgv("evaluate_deal.py", params));
+        return toToolResult(spawnArgv("evaluate_deal.py", params, { TRACEPARENT: newTraceparent() }));
       },
     });
 
@@ -110,7 +120,7 @@ export default definePluginEntry({
         required: [],
       },
       async execute(_id, params) {
-        return toToolResult(spawnArgv("report_pipeline.py", params));
+        return toToolResult(spawnArgv("report_pipeline.py", params, { TRACEPARENT: newTraceparent() }));
       },
     });
 
@@ -123,7 +133,7 @@ export default definePluginEntry({
         required: [],
       },
       async execute(_id, params) {
-        return toToolResult(spawnArgv("ingest_sales.py", params));
+        return toToolResult(spawnArgv("ingest_sales.py", params, { TRACEPARENT: newTraceparent() }));
       },
     });
 
@@ -141,7 +151,7 @@ export default definePluginEntry({
         required: ["user_message"],
       },
       async execute(_id, params) {
-        return toToolResult(spawnStdin("turn_state.py", params));
+        return toToolResult(spawnStdin("turn_state.py", params, { TRACEPARENT: newTraceparent() }));
       },
     });
   },

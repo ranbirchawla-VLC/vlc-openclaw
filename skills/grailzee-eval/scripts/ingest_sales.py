@@ -32,7 +32,7 @@ sys.path.insert(0, str(V2_ROOT))
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from scripts.grailzee_common import cycle_id_from_date, get_tracer
+from scripts.grailzee_common import attach_parent_trace_context, cycle_id_from_date, get_tracer
 
 tracer = get_tracer(__name__)
 _logger = logging.getLogger(__name__)
@@ -1110,7 +1110,7 @@ def ingest_sales(
     if today is None:
         today = date.today()
 
-    with tracer.start_as_current_span("ingest_sales.ingest_sales") as span:
+    with attach_parent_trace_context(), tracer.start_as_current_span("ingest_sales.ingest_sales") as span:
         span.set_attribute("sales_data_dir", str(sales_data_dir))
         span.set_attribute("ledger_path", str(ledger_path))
 
