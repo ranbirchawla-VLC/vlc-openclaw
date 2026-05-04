@@ -20,7 +20,11 @@
 PYTHON = .venv/bin/python
 PYTEST = python3.12 -m pytest
 
-.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-eval-report-pipeline test-grailzee-eval-ingest-sales-plugin test-grailzee-eval-turn-state test-grailzee-eval-update-name-cache test-grailzee-cowork test-grailzee-ledger test-grailzee-ledger-schema test-grailzee-ledger-transform test-grailzee-ledger-lock test-grailzee-ledger-merge test-grailzee-ledger-prune test-grailzee-ledger-archive test-grailzee-ledger-read test-grailzee-ledger-orchestrator test-grailzee-ledger-integration test-gtd test-gtd-storage test-gtd-helpers test-gtd-common test-gtd-otel test-gtd-calendar
+<<<<<<< HEAD
+.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-eval-report-pipeline test-grailzee-eval-ingest-sales-plugin test-grailzee-eval-turn-state test-grailzee-cowork test-grailzee-ledger test-grailzee-ledger-schema test-grailzee-ledger-transform test-grailzee-ledger-lock test-grailzee-ledger-merge test-grailzee-ledger-prune test-grailzee-ledger-archive test-grailzee-ledger-read test-grailzee-ledger-orchestrator test-grailzee-ledger-integration test-gtd test-gtd-storage test-gtd-helpers test-gtd-common test-gtd-otel test-gtd-calendar
+=======
+.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-gtd test-gtd-storage test-gtd-helpers test-gtd-common test-gtd-otel test-gtd-calendar test-gtd-internal
+>>>>>>> e4499d2 (sub-step-2b.1: shared helpers foundation + internal modules)
 
 help:
 	@echo "Available targets:"
@@ -65,6 +69,7 @@ help:
 	@echo "  make test-gtd-common             - run scripts/common.py tests only"
 	@echo "  make test-gtd-otel               - run otel_common.py tests only"
 	@echo "  make test-gtd-calendar           - run calendar tool tests only"
+	@echo "  make test-gtd-internal           - run 2b.1 internal modules (normalize, validate, write)"
 
 setup:
 	test -d .venv || python3.11 -m venv .venv
@@ -104,9 +109,6 @@ test-grailzee-eval-ingest-sales-plugin:
 
 test-grailzee-eval-turn-state:
 	$(PYTEST) skills/grailzee-eval/tests/test_turn_state.py
-
-test-grailzee-eval-update-name-cache:
-	$(PYTEST) skills/grailzee-eval/tests/test_update_name_cache.py
 
 test-grailzee-eval-buying:
 	$(PYTEST) skills/grailzee-eval/tests/test_get_cycle_targets.py skills/grailzee-eval/tests/test_turn_state.py
@@ -189,6 +191,9 @@ test-nutriosv2-llm-3x:
 
 test-gtd:
 	$(PYTEST) gtd-workspace/scripts
+
+test-gtd-internal:
+	$(PYTEST) gtd-workspace/scripts/gtd/tests gtd-workspace/scripts/test_common.py
 
 test-gtd-storage:
 	$(PYTEST) gtd-workspace/scripts/test_migrate_storage.py

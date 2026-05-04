@@ -102,7 +102,7 @@ def test_oauth_credential_failure_calls_err(capsys: pytest.CaptureFixture) -> No
     assert exc_info.value.code == 1
     out = json.loads(capsys.readouterr().out)
     assert out["ok"] is False
-    assert "GOOGLE_OAUTH_CREDENTIALS" in out["error"]
+    assert "GOOGLE_OAUTH_CREDENTIALS" in out["error"]["message"]
 
 
 # ---------------------------------------------------------------------------
