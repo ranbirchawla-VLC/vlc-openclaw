@@ -22,11 +22,11 @@ def _write_pl(storage: Path, user_id: str, records: list[dict]) -> None:
             fh.write(json.dumps(r) + "\n")
 
 
-def _pl(title: str) -> dict:
+def _pl(content: str) -> dict:
     return {
-        "id": f"p-{title[:4]}",
+        "id": f"p-{content[:4]}",
         "record_type": "parking_lot",
-        "title": title,
+        "content": content,
         "created_at": "2026-04-01T00:00:00+00:00",
     }
 
@@ -97,13 +97,14 @@ def test_query_parking_lot_empty_user_id_raises(storage: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 7. Records use title field (post-migration shape)
+# 7. Records use content field (Z3 storage contract)
 # ---------------------------------------------------------------------------
 
-def test_query_parking_lot_title_field(storage: Path) -> None:
+def test_query_parking_lot_content_field(storage: Path) -> None:
     _write_pl(storage, "user1", [_pl("Stray thought about watches")])
     result = query_parking_lot(limit=25, requesting_user_id="user1")
-    assert result["items"][0]["title"] == "Stray thought about watches"
+    assert result["items"][0]["content"] == "Stray thought about watches"
+    assert "title" not in result["items"][0]
     assert "raw_text" not in result["items"][0]
 
 
@@ -126,3 +127,27 @@ def test_query_parking_lot_emits_otel_span(storage: Path) -> None:
     attrs = dict(span.attributes)
     assert attrs.get("result.total_count") == 3
     assert attrs.get("result.truncated") is True
+
+
+# ---------------------------------------------------------------------------
+# Z3: Read-projection test
+# ---------------------------------------------------------------------------
+
+def test_read_projection_omits_channel_parking_lot(storage: Path) -> None:
+    """query_parking_lot items must not contain source, telegram_chat_id, or record_type."""
+    _write_pl(storage, "user1", [
+        {
+            "id": "pl-proj", "record_type": "parking_lot", "content": "Parked",
+            "reason": None, "status": "open",
+            "created_at": "2026-05-03T10:00:00+00:00",
+            "updated_at": "2026-05-03T10:00:00+00:00",
+            "last_reviewed": None, "completed_at": None,
+            "source": "telegram_text", "telegram_chat_id": "8712103657",
+        }
+    ])
+    result = query_parking_lot(requesting_user_id="user1")
+    assert result["total_count"] == 1
+    item = result["items"][0]
+    assert "source" not in item
+    assert "telegram_chat_id" not in item
+    assert "record_type" not in item

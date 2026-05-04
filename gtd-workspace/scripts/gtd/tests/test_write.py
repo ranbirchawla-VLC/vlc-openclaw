@@ -1,10 +1,9 @@
-"""Tests for scripts/gtd/write.py.
+"""Tests for scripts/gtd/write.py -- Z3 version.
 
-Fixtures updated to the simplified 2b.2 record shapes (no user_id, no updated_at,
-no dropped fields). Tests 8 and 12 removed (isolation_mismatch / isolation_violation)
-as assert_user_match is replaced by the empty-requesting_user_id guard. One new test
-added for the empty-guard path.
-Total: 18 tests.
+write() now returns the full stamped storage dict (not just record_id).
+New args: source and telegram_chat_id (channel fields). System stamping
+covers id, created_at, updated_at, status, completed_at, last_reviewed.
+Atomic write via _append_jsonl_fsync (not append_jsonl).
 """
 
 import json
@@ -24,11 +23,9 @@ _UUID4_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
 
+_SOURCE = "telegram_text"
+_CHAT_ID = "8712103657"
 
-# ---------------------------------------------------------------------------
-# Fixtures — minimal records matching the simplified locked shapes.
-# write() stamps id and created_at; tests do not supply them.
-# ---------------------------------------------------------------------------
 
 def _task(**overrides) -> dict:
     base = {
@@ -43,6 +40,15 @@ def _idea(**overrides) -> dict:
     base = {
         "record_type": "idea",
         "title":       "Automate the listing workflow",
+        "content":     "Use n8n to pull invoice data automatically",
+    }
+    return {**base, **overrides}
+
+
+def _parking_lot(**overrides) -> dict:
+    base = {
+        "record_type": "parking_lot",
+        "content":     "Some parked item",
     }
     return {**base, **overrides}
 
@@ -52,40 +58,40 @@ def _read_jsonl(path: Path) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# 1. Successful task write returns UUID id
+# 1. Successful task write returns full dict with UUID id
 # ---------------------------------------------------------------------------
 
-def test_task_write_returns_id(storage: Path) -> None:
-    record_id = write(_task(), "user1")
-    assert isinstance(record_id, str)
-    assert _UUID4_RE.match(record_id)
-
-
-# ---------------------------------------------------------------------------
-# 2. Successful idea write returns UUID id
-# ---------------------------------------------------------------------------
-
-def test_idea_write_returns_id(storage: Path) -> None:
-    record_id = write(_idea(), "user1")
-    assert isinstance(record_id, str)
-    assert _UUID4_RE.match(record_id)
+def test_task_write_returns_full_dict(storage: Path) -> None:
+    result = write(_task(), "user1", _SOURCE, _CHAT_ID)
+    assert isinstance(result, dict)
+    assert _UUID4_RE.match(result["id"])
 
 
 # ---------------------------------------------------------------------------
-# 3. Write generates id and created_at in the stored record (no updated_at)
+# 2. Successful idea write returns full dict
+# ---------------------------------------------------------------------------
+
+def test_idea_write_returns_full_dict(storage: Path) -> None:
+    result = write(_idea(), "user1", _SOURCE, _CHAT_ID)
+    assert isinstance(result, dict)
+    assert _UUID4_RE.match(result["id"])
+
+
+# ---------------------------------------------------------------------------
+# 3. Write generates id, created_at, updated_at (== created_at at create)
 # ---------------------------------------------------------------------------
 
 def test_write_generates_id_and_timestamps(storage: Path) -> None:
-    record_id = write(_task(), "user1")
+    result = write(_task(), "user1", _SOURCE, _CHAT_ID)
     tasks_file = storage / "gtd-agent" / "users" / "user1" / "tasks.jsonl"
     assert tasks_file.exists()
     records = _read_jsonl(tasks_file)
     assert len(records) == 1
     stored = records[0]
-    assert stored["id"] == record_id
+    assert stored["id"] == result["id"]
     assert _UUID4_RE.match(stored["id"])
     assert stored["created_at"]
-    assert "updated_at" not in stored
+    assert stored["updated_at"] == stored["created_at"]
 
 
 # ---------------------------------------------------------------------------
@@ -94,36 +100,36 @@ def test_write_generates_id_and_timestamps(storage: Path) -> None:
 
 def test_write_creates_user_directory(storage: Path) -> None:
     new_user = "brand-new-user"
-    write(_task(), new_user)
+    write(_task(), new_user, _SOURCE, _CHAT_ID)
     assert (storage / "gtd-agent" / "users" / new_user).is_dir()
 
 
 # ---------------------------------------------------------------------------
-# 5. Invalid record raises GTDError(validation_failed)
+# 5. Invalid record (empty title) raises GTDError(validation_failed)
 # ---------------------------------------------------------------------------
 
 def test_write_invalid_record_raises(storage: Path) -> None:
     with pytest.raises(GTDError) as exc_info:
-        write(_task(title=""), "user1")
+        write(_task(title=""), "user1", _SOURCE, _CHAT_ID)
     assert exc_info.value.code == "validation_failed"
     tasks_file = storage / "gtd-agent" / "users" / "user1" / "tasks.jsonl"
     assert not tasks_file.exists()
 
 
 # ---------------------------------------------------------------------------
-# 6. Written record round-trips correctly (no user_id in storage per Q2)
+# 6. Written record round-trips; no user_id in storage (Q2)
 # ---------------------------------------------------------------------------
 
 def test_write_round_trip(storage: Path) -> None:
-    record_id = write(_task(title="Call the customs broker", context="@phone"), "user1")
+    result = write(_task(title="Call customs broker", context="@phone"),
+                   "user1", _SOURCE, _CHAT_ID)
     tasks_file = storage / "gtd-agent" / "users" / "user1" / "tasks.jsonl"
     records = _read_jsonl(tasks_file)
-    assert len(records) == 1
     stored = records[0]
-    assert stored["title"] == "Call the customs broker"
+    assert stored["title"] == "Call customs broker"
     assert stored["context"] == "@phone"
     assert stored["record_type"] == "task"
-    assert stored["id"] == record_id
+    assert stored["id"] == result["id"]
     assert "user_id" not in stored
 
 
@@ -132,8 +138,8 @@ def test_write_round_trip(storage: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_two_sequential_writes(storage: Path) -> None:
-    write(_task(title="Task one"), "user1")
-    write(_task(title="Task two"), "user1")
+    write(_task(title="Task one"), "user1", _SOURCE, _CHAT_ID)
+    write(_task(title="Task two"), "user1", _SOURCE, _CHAT_ID)
     tasks_file = storage / "gtd-agent" / "users" / "user1" / "tasks.jsonl"
     records = _read_jsonl(tasks_file)
     assert len(records) == 2
@@ -142,28 +148,24 @@ def test_two_sequential_writes(storage: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 8 (new). Empty requesting_user_id raises GTDError(internal_error)
+# 8. Empty requesting_user_id raises GTDError(internal_error)
 # ---------------------------------------------------------------------------
 
 def test_empty_requesting_user_id_raises_internal_error(storage: Path) -> None:
     with pytest.raises(GTDError) as exc_info:
-        write(_task(), "")
+        write(_task(), "", _SOURCE, _CHAT_ID)
     assert exc_info.value.code == "internal_error"
 
 
 # ---------------------------------------------------------------------------
-# 9. Parking lot write goes to parking-lot.jsonl (title field, not raw_text)
+# 9. Parking lot write goes to parking-lot.jsonl
 # ---------------------------------------------------------------------------
 
 def test_parking_lot_write(storage: Path) -> None:
-    record = {
-        "record_type": "parking_lot",
-        "title":       "some random thought I had",
-    }
-    record_id = write(record, "user1")
+    result = write(_parking_lot(), "user1", _SOURCE, _CHAT_ID)
     pl_file = storage / "gtd-agent" / "users" / "user1" / "parking-lot.jsonl"
     assert pl_file.exists()
-    assert isinstance(record_id, str)
+    assert isinstance(result, dict)
 
 
 # ---------------------------------------------------------------------------
@@ -172,17 +174,17 @@ def test_parking_lot_write(storage: Path) -> None:
 
 def test_unsupported_record_type_raises(storage: Path) -> None:
     with pytest.raises(GTDError) as exc_info:
-        write({"record_type": "profile"}, "user1")
+        write({"record_type": "profile"}, "user1", _SOURCE, _CHAT_ID)
     assert exc_info.value.code == "unknown_record_type"
 
 
 # ---------------------------------------------------------------------------
-# 11. GTDError(validation_failed) carries structured errors field
+# 11. GTDError(validation_failed) carries structured errors list
 # ---------------------------------------------------------------------------
 
 def test_validation_failed_carries_errors_field(storage: Path) -> None:
     with pytest.raises(GTDError) as exc_info:
-        write(_task(title=""), "user1")
+        write(_task(title=""), "user1", _SOURCE, _CHAT_ID)
     exc = exc_info.value
     assert "errors" in exc.fields
     assert isinstance(exc.fields["errors"], list)
@@ -198,14 +200,14 @@ def test_validation_failed_carries_errors_field(storage: Path) -> None:
 
 def test_unknown_record_type_carries_details(storage: Path) -> None:
     with pytest.raises(GTDError) as exc_info:
-        write({"record_type": "widget"}, "user1")
+        write({"record_type": "widget"}, "user1", _SOURCE, _CHAT_ID)
     exc = exc_info.value
     assert exc.fields.get("provided") == "widget"
     assert isinstance(exc.fields.get("allowed"), list)
 
 
 # ---------------------------------------------------------------------------
-# 13. OTEL span emitted on successful write with write.record_type and write.record_id
+# 13. OTEL span emitted on success with write.record_type and write.record_id
 # ---------------------------------------------------------------------------
 
 def test_write_emits_otel_span_on_success(storage: Path) -> None:
@@ -214,14 +216,14 @@ def test_write_emits_otel_span_on_success(storage: Path) -> None:
     exporter = InMemorySpanExporter()
     otel_common.configure_tracer_provider(exporter)
 
-    record_id = write(_task(), "user1")
+    result = write(_task(), "user1", _SOURCE, _CHAT_ID)
 
     spans = exporter.get_finished_spans()
     span = next((s for s in spans if "write" in s.name), None)
     assert span is not None, f"no write span in {[s.name for s in spans]}"
     attrs = dict(span.attributes)
     assert attrs.get("write.record_type") == "task"
-    assert attrs.get("write.record_id") == record_id
+    assert attrs.get("write.record_id") == result["id"]
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +237,7 @@ def test_write_span_no_record_id_on_failure(storage: Path) -> None:
     otel_common.configure_tracer_provider(exporter)
 
     with pytest.raises(GTDError):
-        write(_task(title=""), "user1")
+        write(_task(title=""), "user1", _SOURCE, _CHAT_ID)
 
     spans = exporter.get_finished_spans()
     span = next((s for s in spans if "gtd.write" in s.name), None)
@@ -245,37 +247,81 @@ def test_write_span_no_record_id_on_failure(storage: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 15. write() result is a UUID4 string (not a dict)
+# 15 (new). write() returns full stamped storage dict with all 16 task fields
 # ---------------------------------------------------------------------------
 
-def test_write_returns_str_not_dict(storage: Path) -> None:
-    result = write(_task(), "user1")
-    assert isinstance(result, str)
-    assert not isinstance(result, dict)
+def test_write_returns_full_record(storage: Path) -> None:
+    result = write(_task(), "user1", _SOURCE, _CHAT_ID)
+    assert isinstance(result, dict)
+    expected = {
+        "id", "record_type", "title", "context", "project", "priority",
+        "waiting_for", "due_date", "notes", "status", "created_at",
+        "updated_at", "last_reviewed", "completed_at", "source", "telegram_chat_id",
+    }
+    assert expected == result.keys()
 
 
 # ---------------------------------------------------------------------------
-# 16. record_type is read from record dict (no separate parameter)
+# 16. record_type is read from record dict
 # ---------------------------------------------------------------------------
 
 def test_record_type_from_record_dict(storage: Path) -> None:
-    record = _task()
-    record["record_type"] = "task"
-    record_id = write(record, "user1")
+    result = write(_task(), "user1", _SOURCE, _CHAT_ID)
     tasks_file = storage / "gtd-agent" / "users" / "user1" / "tasks.jsonl"
     records = _read_jsonl(tasks_file)
     assert records[0]["record_type"] == "task"
-    assert records[0]["id"] == record_id
+    assert records[0]["id"] == result["id"]
 
 
 # ---------------------------------------------------------------------------
-# 17. OSError from append_jsonl raises GTDError(storage_io_failed)
+# 17 (new). source and telegram_chat_id args persisted in JSONL record
+# ---------------------------------------------------------------------------
+
+def test_write_channel_fields_persisted(storage: Path) -> None:
+    write(_task(), "user1", source="telegram_text", telegram_chat_id="8712103657")
+    tasks_file = storage / "gtd-agent" / "users" / "user1" / "tasks.jsonl"
+    records = _read_jsonl(tasks_file)
+    stored = records[0]
+    assert stored["source"] == "telegram_text"
+    assert stored["telegram_chat_id"] == "8712103657"
+
+
+# ---------------------------------------------------------------------------
+# 18 (new). System fields stamped correctly at create
+# ---------------------------------------------------------------------------
+
+def test_write_stamps_system_fields(storage: Path) -> None:
+    result = write(_task(), "user1", _SOURCE, _CHAT_ID)
+    assert _UUID4_RE.match(result["id"])
+    assert result["created_at"] == result["updated_at"]
+    assert result["status"] == "open"
+    assert result["completed_at"] is None
+    assert result["last_reviewed"] is None
+
+
+# ---------------------------------------------------------------------------
+# 19 (new). Two writes via append-with-fsync: both records preserved
+# ---------------------------------------------------------------------------
+
+def test_write_fsync_two_records(storage: Path) -> None:
+    r1 = write(_task(title="First task"), "user1", _SOURCE, _CHAT_ID)
+    r2 = write(_task(title="Second task"), "user1", _SOURCE, _CHAT_ID)
+    tasks_file = storage / "gtd-agent" / "users" / "user1" / "tasks.jsonl"
+    records = _read_jsonl(tasks_file)
+    assert len(records) == 2
+    ids = {r["id"] for r in records}
+    assert r1["id"] in ids
+    assert r2["id"] in ids
+
+
+# ---------------------------------------------------------------------------
+# 20. OSError from _append_jsonl_fsync raises GTDError(storage_io_failed)
 # ---------------------------------------------------------------------------
 
 def test_storage_io_failure_raises_gtd_error(storage: Path) -> None:
-    with patch("write.append_jsonl", side_effect=OSError("disk full")):
+    with patch("write._append_jsonl_fsync", side_effect=OSError("disk full")):
         with pytest.raises(GTDError) as exc_info:
-            write(_task(), "user1")
+            write(_task(), "user1", _SOURCE, _CHAT_ID)
     exc = exc_info.value
     assert exc.code == "storage_io_failed"
     assert "path" in exc.fields
@@ -283,7 +329,7 @@ def test_storage_io_failure_raises_gtd_error(storage: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 18. write span is a child when invoked inside an active span
+# 21. write span is a child when invoked inside an active span
 # ---------------------------------------------------------------------------
 
 def test_write_span_is_child_when_parent_active(storage: Path) -> None:
@@ -295,10 +341,10 @@ def test_write_span_is_child_when_parent_active(storage: Path) -> None:
     tracer = otel_common.get_tracer("test.parent")
     with tracer.start_as_current_span("test.parent") as parent:
         parent_span_id = parent.get_span_context().span_id
-        write(_task(), "user1")
+        write(_task(), "user1", _SOURCE, _CHAT_ID)
 
     spans = exporter.get_finished_spans()
     write_span = next((s for s in spans if s.name == "gtd.write"), None)
     assert write_span is not None, f"no gtd.write span in {[s.name for s in spans]}"
-    assert write_span.parent is not None, "expected write span to be a child"
+    assert write_span.parent is not None
     assert write_span.parent.span_id == parent_span_id

@@ -24,9 +24,9 @@
       "Bash(mkdir:*)",
       "Bash(mv:*)",
       "Bash(cp:*)",
-      "Edit(~/ai-code/vlc-openclaw/**)",
-      "Write(~/ai-code/vlc-openclaw/**)",
-      "Read(~/ai-code/vlc-openclaw/**)",
+      "Edit(~/ai-code/vlc-openclaw-gtd/**)",
+      "Write(~/ai-code/vlc-openclaw-gtd/**)",
+      "Read(~/ai-code/vlc-openclaw-gtd/**)",
       "Bash(openclaw message read *)",
       "Bash(openclaw --help)",
       "Bash(openclaw channels logs *)",
@@ -53,7 +53,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ \"$(git -C ~/ai-code/vlc-openclaw branch --show-current)\" != \"main\" ] || { echo '{\"block\": true, \"message\": \"Cannot edit on main branch. Create a feature branch first: git checkout -b feature/step-N-description\"}' >&2; exit 2; }"
+            "command": "[ \"$(git -C ~/ai-code/vlc-openclaw-gtd branch --show-current)\" != \"main\" ] || { echo '{\"block\": true, \"message\": \"Cannot edit on main branch. Create a feature branch first: git checkout -b feature/step-N-description\"}' >&2; exit 2; }"
           }
         ]
       }
@@ -64,7 +64,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "FILE=\"$CLAUDE_FILE_PATH\"; if echo \"$FILE\" | grep -q 'test_\\|_test\\.py'; then cd ~/ai-code/vlc-openclaw && python -m pytest \"$FILE\" -v --tb=short 2>&1 | tail -20; elif echo \"$FILE\" | grep -q '\\.py$'; then python -m py_compile \"$FILE\" 2>&1 || echo 'Syntax error in $FILE'; fi"
+            "command": "FILE=\"$CLAUDE_FILE_PATH\"; if echo \"$FILE\" | grep -q 'test_\\|_test\\.py'; then cd ~/ai-code/vlc-openclaw-gtd && python -m pytest \"$FILE\" -v --tb=short 2>&1 | tail -20; elif echo \"$FILE\" | grep -q '\\.py$'; then python -m py_compile \"$FILE\" 2>&1 || echo 'Syntax error in $FILE'; fi"
           }
         ]
       }

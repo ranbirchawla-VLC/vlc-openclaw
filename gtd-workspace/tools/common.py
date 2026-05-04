@@ -130,17 +130,23 @@ def read_jsonl(path: Path) -> list[dict]:
     """Read a JSONL file and return a list of dicts.
 
     Returns an empty list if the file does not exist.
+    Skips partial/malformed lines silently (e.g. crash during append-with-fsync).
     """
     try:
         fh = path.open("r", encoding="utf-8")
     except FileNotFoundError:
         return []
+    result = []
     with fh:
-        return [
-            json.loads(stripped)
-            for line in fh
-            if (stripped := line.strip())
-        ]
+        for line in fh:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                result.append(json.loads(stripped))
+            except json.JSONDecodeError:
+                pass
+    return result
 
 
 def append_jsonl(path: Path, record: dict) -> None:

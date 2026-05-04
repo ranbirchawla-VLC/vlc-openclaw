@@ -22,6 +22,16 @@ from otel_common import get_tracer
 from opentelemetry.trace import Status, StatusCode
 from _tools_common import read_jsonl, user_path
 
+_TASK_KEYS = frozenset({
+    "id", "title", "context", "project", "priority", "waiting_for",
+    "due_date", "notes", "status", "created_at", "updated_at",
+    "last_reviewed", "completed_at",
+})
+
+
+def _project(record: dict) -> dict:
+    return {k: v for k, v in record.items() if k in _TASK_KEYS}
+
 
 # ---------------------------------------------------------------------------
 # Input model
@@ -106,7 +116,7 @@ def query_tasks(
                 filtered = [r for r in filtered if not r.get("waiting_for")]
 
             total = len(filtered)
-            items = filtered[:effective_limit]
+            items = [_project(r) for r in filtered[:effective_limit]]
             truncated = total > effective_limit
 
             span.set_attribute("result.total_count", total)

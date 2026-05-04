@@ -127,3 +127,27 @@ def test_query_ideas_emits_otel_span(storage: Path) -> None:
     assert attrs.get("result.total_count") == 2
     assert attrs.get("result.truncated") is True
     assert attrs.get("query.limit") == 1
+
+
+# ---------------------------------------------------------------------------
+# Z3: Read-projection test
+# ---------------------------------------------------------------------------
+
+def test_read_projection_omits_channel_idea(storage: Path) -> None:
+    """query_ideas items must not contain source, telegram_chat_id, or record_type."""
+    _write_ideas(storage, "user1", [
+        {
+            "id": "i-proj", "record_type": "idea", "title": "Proj idea",
+            "topic": None, "content": "The content", "status": "open",
+            "created_at": "2026-05-03T10:00:00+00:00",
+            "updated_at": "2026-05-03T10:00:00+00:00",
+            "last_reviewed": None, "completed_at": None,
+            "source": "telegram_text", "telegram_chat_id": "8712103657",
+        }
+    ])
+    result = query_ideas(requesting_user_id="user1")
+    assert result["total_count"] == 1
+    item = result["items"][0]
+    assert "source" not in item
+    assert "telegram_chat_id" not in item
+    assert "record_type" not in item
