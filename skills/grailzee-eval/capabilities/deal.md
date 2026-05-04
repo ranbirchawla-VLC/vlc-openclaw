@@ -38,10 +38,10 @@ Extract brand, reference, and listing_price (strip `$` and commas).
 Optionally extract any of the three keying axes when the operator
 names them in the message:
 - `dial_numerals`: Arabic, Roman, Stick, etc.
-- `auction_type`: NR (No Reserve) or RES (Reserve).
+- `auction_type`: NR (No Reserve) or RES (Reserve). Default to NR if not named.
 - `dial_color`: Black, Blue, Slate, Green, White, Silver, etc.
 
-Pass an axis only when the operator names it. Do not guess.
+Pass dial_numerals and dial_color only when the operator names them. Do not guess.
 
 ### Step 2: Call evaluate_deal
 
@@ -184,9 +184,10 @@ No raw stack traces.
 
 ## LLM Responsibilities
 
-- Parse brand, reference, listing_price, and optionally
-  dial_numerals / auction_type / dial_color from the operator's message.
-- Call `evaluate_deal` with parsed values; pass an axis only when named.
+- Parse brand, reference, listing_price, auction_type (default NR), and
+  optionally dial_numerals / dial_color from the operator's message.
+- Call `evaluate_deal` with parsed values; always pass auction_type (NR
+  unless operator named RES); pass dial_numerals and dial_color only when named.
 - Branch A: render `bucket_label` and `plan_status_label` verbatim;
   surface verbatim numbers from `math`; deliver framing in operator voice;
   no em-dashes.

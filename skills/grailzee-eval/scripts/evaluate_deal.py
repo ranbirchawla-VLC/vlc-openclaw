@@ -386,7 +386,8 @@ def _bucket_label(bucket: dict | None) -> str | None:
         if dial_color.lower() == "unknown"
         else f"{dial_color} dial"
     )
-    return f"{color_part}, {dial_numerals} numerals, {auction_type}"
+    numeral_part = dial_numerals if dial_numerals == "No Numerals" else f"{dial_numerals} numerals"
+    return f"{color_part}, {numeral_part}, {auction_type}"
 
 
 def _candidate_bucket_labels(candidates: list[dict]) -> list[str]:
