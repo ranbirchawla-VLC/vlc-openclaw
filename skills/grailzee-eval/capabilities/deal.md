@@ -124,12 +124,40 @@ Three rules govern Branch A composition. All three are hard constraints.
 
 Branch C inherits Branch A guardrails. All three rules apply identically to override-match render when that branch ships.
 
-On `decision: "no"` end the response with one line:
+On `decision: "no"` run the comp search below, then append the results
+after the framing paragraph.
 
-    Comp search not yet wired.
+### Comp search (decision: no)
 
-No button, no follow-up offer. Step 2 of the implementation sequence
-builds comp-search properly.
+Call `web_search` twice after rendering the math block.
+
+Call 1 — eBay US sold:
+```
+query: "{brand} {reference} sold eBay United States price"
+count: 5
+freshness: "month"
+```
+
+Call 2 — Chrono24 and international:
+```
+query: "{brand} {reference} sold price Chrono24 eBay international"
+count: 5
+freshness: "month"
+```
+
+Render results as:
+
+```
+Comps ({brand} {reference}):
+eBay US: {2-3 sold prices with approximate date, verbatim from results}
+International / Chrono24: {2-3 prices with source and approximate date}
+```
+
+Rules for comp render:
+- Prices verbatim from search results; do not round or restate.
+- Omit any result that does not include a clear sold price.
+- Do not editorialize. Surface the numbers; let the operator read the gap.
+- If both searches return no usable prices, write: "No recent comps found."
 
 ## Branch B: ambiguous
 
@@ -149,28 +177,34 @@ answers and you call `evaluate_deal` again with the named axis.
 
 ## Branch C: no_match
 
-Operator named axes that don't match any bucket for this reference. Use
-this template exactly:
+Operator named axes that don't match any bucket for this reference. Render:
 
 ```
 {Brand} {reference}: {match_resolution_label}
 Sent: {axes passed to the tool}.
-Comp search not yet wired.
 ```
 
-Do not substitute your own phrasing for `match_resolution_label`. The
-cache does not return available-bucket axes on no_match; do not invent them.
+Then run the comp search (same two calls as Branch A comp search above,
+same render rules). Preface the comp block with one line:
+
+```
+No bucket data for those axes. Market comps:
+```
 
 ## Branch D: reference_not_found
 
-The reference is not in the v3 cache. Use this template exactly:
+The reference is not in the v3 cache. Render:
 
 ```
 {Brand} {reference}: {match_resolution_label}
-Comp search not yet wired.
 ```
 
-Do not substitute your own phrasing for `match_resolution_label`.
+Then run the comp search (same two calls as Branch A comp search above,
+same render rules). Preface the comp block with one line:
+
+```
+Not in cache. Market comps:
+```
 
 ## Branch E: error
 
@@ -193,8 +227,10 @@ No raw stack traces.
   no em-dashes.
 - Branch B: use the template exactly; render `match_resolution_label`
   verbatim; render each `candidate_bucket_labels` entry verbatim.
-- Branch C / D: use the templates exactly; render `match_resolution_label`
-  verbatim; end with "Comp search not yet wired."
+- Branch A (decision: no): after framing, call `web_search` twice (eBay US,
+  Chrono24/international) and render the comp block verbatim from results.
+- Branch C / D: render `match_resolution_label` verbatim; call `web_search`
+  twice and render the comp block with the appropriate preface line.
 - Branch E: surface the error message cleanly.
 
 ## What the LLM Does NOT Do
@@ -211,6 +247,6 @@ No raw stack traces.
 - Override the tool's yes/no.
 - Force a recommendation when match_resolution is anything other than
   single_bucket.
-- Invent comp-search results. Comp search is not wired this cycle.
+- Invent comp-search results. Render prices verbatim from `web_search` output only.
 - Use em-dashes anywhere. Period. Use a period, comma, colon, or semicolon
   instead.
