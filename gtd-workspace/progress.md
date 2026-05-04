@@ -371,3 +371,60 @@ Code reviewer: fresh context subagent.
 - `AGENT_ARCHITECTURE.md` updated to current version (`47635c1`) after squash.
 - `docs/` still missing `trina-handoff-2026-05-02-v4.md`, `sub-step-2b-api-surface-proposal-2026-05-02-v1.md`, `trina-build-amendment-2026-05-02-v1.md`; supervisor to commit from `~/Downloads` before 2b.3 if build agent needs them.
 - Start 2b.2 in a fresh session; this session is at context depth.
+
+---
+
+## Sub-step Z3 — Storage Contract Correction
+
+**Started:** 2026-05-03
+**Closed:** 2026-05-04
+
+**Branch:** `feature/sub-step-2b-api-surface` — merged to main.
+
+**Pre-review commit:** `0a9692a` — 192 Python tests, 0 LLM tests.
+**Post-review commit:** `7ffbf83` — 194 Python tests (+2: B-2 parking_lot test, N-4 validate_storage assertion).
+**Squash commit:** `f915b4e` — `Z3: storage contract split` on main.
+**Migration scripts deleted:** `a048369`.
+
+### Review triage (2026-05-04)
+
+- B-1: dynamic `datetime.now(timezone.utc).isoformat()` in `test_review_stale_filter` — FIXED
+- B-2: `_migrate_parking_lot` always emits `status="open"`; `test_migrate_z3_parking_lot_done_to_open` added — FIXED
+- N-4: `test_migrate_z3_validate_storage_on_migrated_records` asserts all three record types pass `validate_storage` — FIXED
+- O-2: misleading comment in `review.py` auto-stamp block — FIXED
+- Deferred to 2b.3 cleanup: N-1, N-2, N-3, N-5, N-6, N-7
+- Deferred to 2c/2d: O-5 (priority/context enum constraint)
+
+### Gate 1 — FINAL
+
+- **194 Python tests passing** (`make test-gtd`)
+- 0 LLM tests (no capability prompts in Z3)
+
+**Gate 1:** GREEN — 2026-05-03
+
+### Gate 2
+
+**Gate 2:** GREEN — 2026-05-04
+
+### Gate 3
+
+**Blocker:** agent attempted capture but called `message` only — never invoked `capture_gtd`. Forensic audit (`10997d89` session): 10 tool calls, all `message`; 0 forbidden, 0 GTD tool calls.
+
+**Root cause:** no SKILL.md / capability prompt instructs the GTD agent to dispatch to plugin tools for specific intents. Agent falls back to conversational handling.
+
+**Gate 3:** PENDING — unblocked after 2b.3 SKILL.md and exec lockdown.
+
+### KNOWN_ISSUES added
+
+- N-3 (OTEL exporter test fragility under autouse fixture): scoped to 2b.3.
+- N-1, N-2, N-5, N-6, N-7: deferred to 2b.3 cleanup pass.
+
+### Notes for next session (2b.3)
+
+- **2b.3 primary deliverable:** `SKILL.md` for GTD agent with explicit dispatch rules (`capture this` → `capture_gtd`; `what are my tasks` → `query_tasks`; etc.) and `tools.allow`/`tools.deny` exec lockdown on GTD agent config.
+- After SKILL.md: full Gate 3 re-run — capture via Telegram, verify 16 fields on disk, query back, confirm no channel field leaks in response.
+- Deferred cleanup to bundle into 2b.3: N-1 (unused `os`/`stat` in test_review.py), N-2 (unused `os` in test_migrate_to_simplified_shape.py), N-3 (OTEL exporter test fragility), N-5 (sentinel encoding), N-6 (test name overclaims), N-7 (no OTEL span tests for validate_submission/validate_storage).
+- Storage root confirmed: `GTD_STORAGE_ROOT=/Users/ranbirchawla/agent_data/gtd/ranbir`.
+- Migration user-id: `8712103657` (Telegram chat ID).
+- Plist env vars: `GTD_STORAGE_ROOT`, `OPENCLAW_USER_ID`, `GTD_TZ`, `OTEL_EXPORTER_OTLP_ENDPOINT` — verify all present before Gate 3 smoke.
+- `.claude/settings.json` hook and permission paths corrected (vlc-openclaw → vlc-openclaw-gtd) in `7ffbf83`; takes effect on next session start.
