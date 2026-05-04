@@ -193,3 +193,136 @@ references.
 | `skills/grailzee-eval/tests/test_agent_surface.py` | turn_state added to tools allow pin |
 | `Makefile` | test-grailzee-eval-turn-state target |
 | `update_openclaw_config.py` | One-time script to add turn_state to tools.allow in openclaw.json |
+
+---
+
+# OTel Trace Context Propagation — Plugin to Python Subprocess
+
+**Date**: 2026-05-05
+**Branch**: feature/grailzee-eval-otel
+**Commits**: 073200f, e95af43, 0b4a10f
+
+---
+
+## The Problem
+
+Each Python script invocation creates its own root span. When the Node.js plugin
+calls `spawnSync`, the OTel context does not cross the process boundary
+automatically. `turn_state.run`, `evaluate_deal`, `ingest_sales.ingest_sales`,
+and `report_pipeline.run` all appear as disconnected traces in Honeycomb — you
+cannot see that they belong to the same tool invocation, and timing across the
+plugin-to-subprocess boundary is invisible.
+
+---
+
+## The Fix
+
+Two pieces, no new dependencies.
+
+### Node.js side — generate a traceparent per tool call
+
+`crypto` is a Node.js built-in. Generate a valid W3C traceparent and inject it
+into the subprocess environment alongside the other env vars:
+
+```javascript
+import { randomBytes } from "crypto";
+
+function newTraceparent() {
+  const traceId = randomBytes(16).toString("hex");
+  const parentId = randomBytes(8).toString("hex");
+  return `00-${traceId}-${parentId}-01`;
+}
+
+// Spawn functions accept optional extraEnv:
+function spawnArgv(script, params, extraEnv = {}) {
+  return spawnSync(PYTHON, [`${SCRIPTS}/${script}`, JSON.stringify(params)], {
+    encoding: "utf8",
+    env: { ...SPAWN_ENV, ...extraEnv },
+  });
+}
+
+// Per tool execute():
+async execute(_id, params) {
+  return toToolResult(spawnArgv("my_script.py", params, { TRACEPARENT: newTraceparent() }));
+}
+```
+
+### Python side — attach the parent context before starting the span
+
+Add `attach_parent_trace_context()` to `grailzee_common.py` (or the skill's
+shared module). Use the comma-form multi-context-manager to avoid re-indenting
+existing span bodies:
+
+```python
+# In grailzee_common.py:
+@contextlib.contextmanager
+def attach_parent_trace_context():
+    token = None
+    try:
+        traceparent = os.environ.get("TRACEPARENT", "").strip()
+        if traceparent:
+            from opentelemetry.propagate import extract
+            from opentelemetry import context as otel_context
+            ctx = extract({"traceparent": traceparent})
+            token = otel_context.attach(ctx)
+    except Exception:
+        pass
+    try:
+        yield
+    finally:
+        if token is not None:
+            try:
+                from opentelemetry import context as otel_context
+                otel_context.detach(token)
+            except Exception:
+                pass
+
+# In each script's top-level span:
+with attach_parent_trace_context(), tracer.start_as_current_span("my_script.run") as span:
+    span.set_attribute("key", value)
+    ...
+```
+
+The comma-form is key: `attach_parent_trace_context()` runs first and attaches
+the parent context; `tracer.start_as_current_span` then reads that context and
+creates the span as a child. No re-indentation of existing span bodies required.
+
+---
+
+## What This Looks Like in Honeycomb
+
+Each tool invocation produces one trace. The Python span is a child of the
+synthetic Node.js parent (which does not itself appear in Honeycomb — the parent
+span ID exists in the traceparent but no matching span is emitted from Node).
+Honeycomb promotes the Python span to root in the waterfall view, but the
+`trace_id` is stable across the invocation.
+
+If you later add a full Node.js OTel SDK (emitting spans from the plugin layer),
+the parent span will appear and the trace will be complete top-to-bottom.
+
+---
+
+## Applying to Other Plugins
+
+The pattern is identical for nutriosv2-tools and gtd-tools. Neither has been
+updated yet (as of 2026-05-05). Steps per plugin:
+
+1. Add `import { randomBytes } from "crypto"` to `index.js`
+2. Add `newTraceparent()` function
+3. Add `extraEnv = {}` parameter to `spawnArgv` / `spawnStdin`
+4. Pass `{ TRACEPARENT: newTraceparent() }` in each `execute()`
+5. Add `attach_parent_trace_context()` to the skill's shared common module
+6. Wrap each top-level span with the comma-form pattern
+
+---
+
+## Files Changed (OTEL branch)
+
+| File | Change |
+|---|---|
+| `skills/grailzee-eval/scripts/grailzee_common.py` | `attach_parent_trace_context()` context manager; `contextlib` import |
+| `skills/grailzee-eval/scripts/turn_state.py` | `get_tracer` + `turn_state.run` span + parent context attachment |
+| `skills/grailzee-eval/scripts/evaluate_deal.py` | Parent context attachment on `evaluate_deal` span |
+| `skills/grailzee-eval/scripts/ingest_sales.py` | Parent context attachment on `ingest_sales.ingest_sales` span |
+| `skills/grailzee-eval/scripts/report_pipeline.py` | Parent context attachment on `report_pipeline.run` span |
+| `plugins/grailzee-eval-tools/index.js` | `newTraceparent()`, `extraEnv` on spawn functions, TRACEPARENT per execute |
