@@ -54,6 +54,5 @@ from the envelope. No stack trace. Stop.
 - Propose next steps. No "You should review the pruned rows" or "Want me to run
   the report next?"
 - Ask follow-up questions. One trigger, one reply, stop.
-- Recompute counts. Row totals come from the envelope verbatim; the LLM does
-  not recalculate, round, or construct them.
+- Recompute counts. Row totals come from the envelope verbatim.
 - Call `ingest_sales` more than once per trigger.
