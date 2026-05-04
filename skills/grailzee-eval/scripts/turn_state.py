@@ -32,6 +32,7 @@ _CAPABILITY_FILES: dict[str, str] = {
     "evaluate_deal": "deal.md",
     "report": "report.md",
     "ledger": "ledger.md",
+    "buying": "buying.md",
 }
 
 _VALID_INTENTS: frozenset[str] = frozenset(set(_CAPABILITY_FILES) | {"default"})
@@ -57,6 +58,8 @@ def _classify(message: str) -> str:
         return "report"
     if lower.startswith("/ledger"):
         return "ledger"
+    if lower.startswith("/buying"):
+        return "buying"
 
     if re.search(r"\$\d", lower):
         return "evaluate_deal"
@@ -66,6 +69,9 @@ def _classify(message: str) -> str:
 
     if re.search(r"\b(?:ledger|ingest|watchtrack|extract|jsonl|fold in)\b", lower):
         return "ledger"
+
+    if re.search(r"\b(?:buying list|what.*buy|targets|this week)\b", lower):
+        return "buying"
 
     return "default"
 

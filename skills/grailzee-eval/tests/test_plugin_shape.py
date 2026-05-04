@@ -23,7 +23,7 @@ _ROOT_OPENCLAW = Path.home() / ".openclaw" / "openclaw.json"
 
 _AGENT_SURFACE_TEST = _SKILL_DIR / "tests" / "test_agent_surface.py"
 
-_1C_TOOLS_ALLOW = frozenset({"evaluate_deal", "report_pipeline", "ingest_sales", "message", "turn_state"})
+_1C_TOOLS_ALLOW = frozenset({"evaluate_deal", "report_pipeline", "ingest_sales", "message", "turn_state", "get_cycle_targets"})
 
 
 # ─── Plugin package shape ────────────────────────────────────────────
