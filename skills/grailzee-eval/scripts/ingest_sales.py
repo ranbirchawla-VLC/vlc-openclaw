@@ -26,6 +26,10 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import IO, Any, Generator
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+V2_ROOT = SCRIPT_DIR.parent
+sys.path.insert(0, str(V2_ROOT))
+
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from scripts.grailzee_common import cycle_id_from_date, get_tracer
