@@ -42,16 +42,38 @@ span itself. Python spans are the effective trace roots.
 covering the subprocess trace propagation pattern, code recipe, and steps
 to apply to nutriosv2/gtd-tools.
 
-#### Morning investigation — gateway trace context
+#### Gateway trace context investigation — COMPLETE (2026-05-06)
 
-`diagnostics-otel` built-in plugin is already enabled in `openclaw.json`.
-Gateway is already emitting metrics to Honeycomb via the local collector.
-Traces from the gateway layer not yet confirmed.
+**Answer: `diagnostics-otel` does NOT propagate trace context into `execute()` calls.**
 
-**Question**: does `diagnostics-otel` propagate trace context into plugin
-`execute(_id, params)` calls? If yes, drop `newTraceparent()` and read the
-real gateway trace ID instead — full end-to-end trace from Telegram message
-in to tool result out. Investigate `_id` parameter and plugin SDK context API.
+- `_id` is `toolCallId` (LLM correlation string), not trace context
+- `diagnostics-otel` uses `tracer.startSpan()` not `startActiveSpan()` — no
+  span is ever active on the call stack when `execute()` runs
+- No `tool.execute` event in the diagnostic event bus
+
+**Upgrade: real Node.js spans per tool call**
+
+`@opentelemetry/api` uses a `globalThis` singleton. Plugin imports its own
+copy, shares the same SDK that `diagnostics-otel` initialized. Each `execute()`
+now wraps in `startActiveSpan`; `activeTraceparent()` is called inside the
+callback to extract the live span's traceId/spanId via `propagation.inject()`.
+Fallback to random bytes when no SDK is active.
+
+**Gate PASSED — Honeycomb confirmed (2026-05-06)**
+
+Full parent-child tree visible:
+```
+grailzee.tool.evaluate_deal   (openclaw-gateway, 235.1ms)
+  └── evaluate_deal           (grailzee-eval-tools, 31.73ms)
+        ├── config_helper.read...   (0.232ms)
+        └── config_helper.sche...   (6µs)
+```
+4 spans, 0 errors. "Missing parent span" gone.
+
+**Files changed in this upgrade:**
+- `plugins/grailzee-eval-tools/index.js` — `activeTraceparent()`, `startActiveSpan` per tool
+- `plugins/grailzee-eval-tools/package.json` — added `@opentelemetry/api: ^1.9.0`
+- `docs/turn_state_architecture_2026-05-05.md` — investigation findings + updated recipe
 
 #### Commit before closing
 

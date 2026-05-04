@@ -198,9 +198,9 @@ references.
 
 # OTel Trace Context Propagation — Plugin to Python Subprocess
 
-**Date**: 2026-05-05
+**Date**: 2026-05-05 (initial), updated 2026-05-06 (real Node spans)
 **Branch**: feature/grailzee-eval-otel
-**Commits**: 073200f, e95af43, 0b4a10f
+**Commits**: 073200f, e95af43, 0b4a10f (initial); Node span upgrade TBD
 
 ---
 
@@ -215,37 +215,74 @@ plugin-to-subprocess boundary is invisible.
 
 ---
 
+## Gateway Investigation: Does diagnostics-otel Propagate Context?
+
+**Answer: No.** Investigated by reading the openclaw source at
+`/opt/homebrew/lib/node_modules/openclaw/dist/extensions/diagnostics-otel/index.js`.
+
+Key findings:
+
+- The `_id` parameter in `execute(_id, params)` is `toolCallId` — the LLM
+  correlation string, not trace context.
+- `diagnostics-otel` uses `tracer.startSpan()` (passive), not
+  `tracer.startActiveSpan()`. Spans are created with a backdated start time
+  and immediately `.end()`-ed. No span is ever active in the call stack when
+  `execute()` runs.
+- The diagnostic event bus has no `tool.execute` event type. Events it handles:
+  `model.usage`, `webhook.*`, `message.*`, `queue.lane.*`, `session.*`,
+  `run.attempt`, `diagnostic.heartbeat`.
+
+There is no OTel context to inherit from the gateway. The plugin must create
+its own spans.
+
+---
+
 ## The Fix
 
-Two pieces, no new dependencies.
+Two pieces.
 
-### Node.js side — generate a traceparent per tool call
+### Node.js side — real Node.js spans per tool call
 
-`crypto` is a Node.js built-in. Generate a valid W3C traceparent and inject it
-into the subprocess environment alongside the other env vars:
+`@opentelemetry/api` uses a `globalThis` singleton keyed on
+`Symbol.for('opentelemetry.js.api.1')`. Since `diagnostics-otel` initializes
+the SDK before any tool call, a plugin that imports its own copy of
+`@opentelemetry/api` shares the same registered SDK instance.
+
+Add `@opentelemetry/api` as a dependency in `package.json`, then:
 
 ```javascript
+import { trace, context, propagation } from "@opentelemetry/api";
 import { randomBytes } from "crypto";
 
-function newTraceparent() {
+// Extract traceparent from the active OTel context. Falls back to random
+// bytes if no SDK is registered (e.g. during tests or before SDK init).
+function activeTraceparent() {
+  const carrier = {};
+  propagation.inject(context.active(), carrier);
+  if (carrier.traceparent) return carrier.traceparent;
   const traceId = randomBytes(16).toString("hex");
   const parentId = randomBytes(8).toString("hex");
   return `00-${traceId}-${parentId}-01`;
 }
 
-// Spawn functions accept optional extraEnv:
-function spawnArgv(script, params, extraEnv = {}) {
-  return spawnSync(PYTHON, [`${SCRIPTS}/${script}`, JSON.stringify(params)], {
-    encoding: "utf8",
-    env: { ...SPAWN_ENV, ...extraEnv },
+const GRAILZEE_TRACER = "grailzee-eval-tools";
+
+// Per tool execute() — wraps in a real Node.js span:
+execute(_id, params) {
+  return trace.getTracer(GRAILZEE_TRACER).startActiveSpan("grailzee.tool.evaluate_deal", (span) => {
+    span.setAttributes({ "tool.name": "evaluate_deal", "grailzee.brand": params.brand ?? "" });
+    const result = toToolResult(spawnArgv("evaluate_deal.py", params, { TRACEPARENT: activeTraceparent() }));
+    span.end();
+    return result;
   });
 }
-
-// Per tool execute():
-async execute(_id, params) {
-  return toToolResult(spawnArgv("my_script.py", params, { TRACEPARENT: newTraceparent() }));
-}
 ```
+
+`startActiveSpan` makes the span active in the OTel context for the duration
+of the callback. `activeTraceparent()` is called inside the callback, so
+`propagation.inject()` sees the live span and returns its traceId + spanId as
+the W3C traceparent. Python's `attach_parent_trace_context()` attaches to that
+span, making Python spans true children of the Node.js span.
 
 ### Python side — attach the parent context before starting the span
 
@@ -291,28 +328,34 @@ creates the span as a child. No re-indentation of existing span bodies required.
 
 ## What This Looks Like in Honeycomb
 
-Each tool invocation produces one trace. The Python span is a child of the
-synthetic Node.js parent (which does not itself appear in Honeycomb — the parent
-span ID exists in the traceparent but no matching span is emitted from Node).
-Honeycomb promotes the Python span to root in the waterfall view, but the
-`trace_id` is stable across the invocation.
+Each tool invocation produces one trace with a complete parent-child hierarchy:
 
-If you later add a full Node.js OTel SDK (emitting spans from the plugin layer),
-the parent span will appear and the trace will be complete top-to-bottom.
+```
+grailzee.tool.evaluate_deal   (Node.js span, from plugin)
+  └── evaluate_deal           (Python span, from evaluate_deal.py)
+```
+
+The Node.js span carries `tool.name`, `grailzee.brand`, `grailzee.reference`
+attributes. The Python span carries `intent`, `listing_price`, `decision`, and
+the other domain attributes.
+
+Before this upgrade, the Node.js span did not exist in Honeycomb — Python spans
+appeared as trace roots with "missing parent span" shown in the waterfall.
 
 ---
 
 ## Applying to Other Plugins
 
 The pattern is identical for nutriosv2-tools and gtd-tools. Neither has been
-updated yet (as of 2026-05-05). Steps per plugin:
+updated yet (as of 2026-05-06). Steps per plugin:
 
-1. Add `import { randomBytes } from "crypto"` to `index.js`
-2. Add `newTraceparent()` function
-3. Add `extraEnv = {}` parameter to `spawnArgv` / `spawnStdin`
-4. Pass `{ TRACEPARENT: newTraceparent() }` in each `execute()`
-5. Add `attach_parent_trace_context()` to the skill's shared common module
-6. Wrap each top-level span with the comma-form pattern
+1. Add `"@opentelemetry/api": "^1.9.0"` to `package.json` `dependencies`; run `npm install`
+2. Add `import { trace, context, propagation } from "@opentelemetry/api"` to `index.js`
+3. Add `activeTraceparent()` function (with `randomBytes` fallback)
+4. Add `const PLUGIN_TRACER = "<plugin-name>"` constant
+5. Wrap each `execute()` in `trace.getTracer(PLUGIN_TRACER).startActiveSpan(...)`, call `activeTraceparent()` inside the callback, pass result as `TRACEPARENT` env var
+6. Add `attach_parent_trace_context()` to the skill's shared common module
+7. Wrap each top-level span with the comma-form pattern
 
 ---
 
@@ -325,4 +368,5 @@ updated yet (as of 2026-05-05). Steps per plugin:
 | `skills/grailzee-eval/scripts/evaluate_deal.py` | Parent context attachment on `evaluate_deal` span |
 | `skills/grailzee-eval/scripts/ingest_sales.py` | Parent context attachment on `ingest_sales.ingest_sales` span |
 | `skills/grailzee-eval/scripts/report_pipeline.py` | Parent context attachment on `report_pipeline.run` span |
-| `plugins/grailzee-eval-tools/index.js` | `newTraceparent()`, `extraEnv` on spawn functions, TRACEPARENT per execute |
+| `plugins/grailzee-eval-tools/index.js` | `activeTraceparent()` with OTel SDK + fallback; `startActiveSpan` per tool; `@opentelemetry/api` dep |
+| `plugins/grailzee-eval-tools/package.json` | Added `@opentelemetry/api: ^1.9.0` dependency |

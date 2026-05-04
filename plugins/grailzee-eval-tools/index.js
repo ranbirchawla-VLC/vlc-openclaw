@@ -1,6 +1,7 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { spawnSync } from "child_process";
 import { randomBytes } from "crypto";
+import { trace, context, propagation } from "@opentelemetry/api";
 
 const PYTHON = "/Users/ranbirchawla/.pyenv/versions/3.12.10/bin/python3.12";
 const SCRIPTS = "/Users/ranbirchawla/ai-code/vlc-openclaw/skills/grailzee-eval/scripts";
@@ -23,14 +24,18 @@ const SPAWN_ENV = {
   OTEL_SERVICE_NAME,
 };
 
-// Generate a W3C traceparent for each tool invocation so Python child spans
-// attach to a common trace root. The parent span lives in Node; its trace ID
-// ties all subprocess spans for one tool call together in Honeycomb.
-function newTraceparent() {
+// Extract W3C traceparent from the active OTel context. Falls back to a
+// randomly-generated root if no SDK is registered (e.g. during tests).
+function activeTraceparent() {
+  const carrier = {};
+  propagation.inject(context.active(), carrier);
+  if (carrier.traceparent) return carrier.traceparent;
   const traceId = randomBytes(16).toString("hex");
   const parentId = randomBytes(8).toString("hex");
   return `00-${traceId}-${parentId}-01`;
 }
+
+const GRAILZEE_TRACER = "grailzee-eval-tools";
 
 function spawnArgv(script, params, extraEnv = {}) {
   return spawnSync(
@@ -106,8 +111,17 @@ export default definePluginEntry({
         },
         required: ["brand", "reference", "listing_price"],
       },
-      async execute(_id, params) {
-        return toToolResult(spawnArgv("evaluate_deal.py", params, { TRACEPARENT: newTraceparent() }));
+      execute(_id, params) {
+        return trace.getTracer(GRAILZEE_TRACER).startActiveSpan("grailzee.tool.evaluate_deal", (span) => {
+          span.setAttributes({
+            "tool.name": "evaluate_deal",
+            "grailzee.brand": params.brand ?? "",
+            "grailzee.reference": params.reference ?? "",
+          });
+          const result = toToolResult(spawnArgv("evaluate_deal.py", params, { TRACEPARENT: activeTraceparent() }));
+          span.end();
+          return result;
+        });
       },
     });
 
@@ -119,8 +133,13 @@ export default definePluginEntry({
         properties: {},
         required: [],
       },
-      async execute(_id, params) {
-        return toToolResult(spawnArgv("report_pipeline.py", params, { TRACEPARENT: newTraceparent() }));
+      execute(_id, params) {
+        return trace.getTracer(GRAILZEE_TRACER).startActiveSpan("grailzee.tool.report_pipeline", (span) => {
+          span.setAttributes({ "tool.name": "report_pipeline" });
+          const result = toToolResult(spawnArgv("report_pipeline.py", params, { TRACEPARENT: activeTraceparent() }));
+          span.end();
+          return result;
+        });
       },
     });
 
@@ -132,8 +151,13 @@ export default definePluginEntry({
         properties: {},
         required: [],
       },
-      async execute(_id, params) {
-        return toToolResult(spawnArgv("ingest_sales.py", params, { TRACEPARENT: newTraceparent() }));
+      execute(_id, params) {
+        return trace.getTracer(GRAILZEE_TRACER).startActiveSpan("grailzee.tool.ingest_sales", (span) => {
+          span.setAttributes({ "tool.name": "ingest_sales" });
+          const result = toToolResult(spawnArgv("ingest_sales.py", params, { TRACEPARENT: activeTraceparent() }));
+          span.end();
+          return result;
+        });
       },
     });
 
@@ -150,8 +174,13 @@ export default definePluginEntry({
         },
         required: ["user_message"],
       },
-      async execute(_id, params) {
-        return toToolResult(spawnStdin("turn_state.py", params, { TRACEPARENT: newTraceparent() }));
+      execute(_id, params) {
+        return trace.getTracer(GRAILZEE_TRACER).startActiveSpan("grailzee.tool.turn_state", (span) => {
+          span.setAttributes({ "tool.name": "turn_state" });
+          const result = toToolResult(spawnStdin("turn_state.py", params, { TRACEPARENT: activeTraceparent() }));
+          span.end();
+          return result;
+        });
       },
     });
   },
