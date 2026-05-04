@@ -49,6 +49,7 @@ from scripts.grailzee_common import (
     CYCLE_FOCUS_PATH,
     NR_FIXED,
     RES_FIXED,
+    attach_parent_trace_context,
     get_tracer,
     load_analyzer_config,
     match_reference,
@@ -462,7 +463,7 @@ def evaluate(
     """Evaluate one deal. Returns the v3 / Step 1 response shape."""
     cache_path = cache_path or CACHE_PATH
 
-    with tracer.start_as_current_span("evaluate_deal") as span:
+    with attach_parent_trace_context(), tracer.start_as_current_span("evaluate_deal") as span:
         span.set_attribute("brand", brand)
         span.set_attribute("reference", reference)
         span.set_attribute("listing_price", listing_price)

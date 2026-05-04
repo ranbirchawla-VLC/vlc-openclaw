@@ -9,6 +9,78 @@ Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
 
 ## Active tracks
 
+### Track 3 — OTEL Instrumentation (ACTIVE — 2026-05-05)
+
+**Branch**: `feature/grailzee-eval-otel` (off main, tip `acaf044`)
+**Tests**: 1447 passed / 71 skipped
+
+#### What was built
+
+**turn_state span**: `turn_state.run` span added with `intent`, `capability_file`,
+`capability_loaded` attributes. 5 new OTEL span tests (total 55 for turn_state).
+
+**OTEL env wiring**: `SPAWN_ENV` in `index.js` now injects
+`OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`,
+`OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`,
+`OTEL_SERVICE_NAME=grailzee-eval-tools`.
+Collector config confirmed at `~/.openclaw/otelcol/config.yaml` — receives on
+`localhost:4318`, exports to Honeycomb. Already receiving metrics.
+
+**W3C trace context propagation**: Node.js `newTraceparent()` (crypto built-in,
+no new deps) generates a traceparent per tool execute() call, injected as
+`TRACEPARENT` env var into subprocess. Python `attach_parent_trace_context()`
+context manager (added to `grailzee_common`) reads it and attaches before the
+top-level span. All four scripts updated (turn_state, evaluate_deal,
+ingest_sales, report_pipeline) using the comma-form multi-context-manager
+pattern — no re-indentation of existing span bodies.
+
+**End-to-end test**: PASSED. Spans arriving in Honeycomb. Honeycomb shows
+"missing parent span" — expected; Node generates traceparent but emits no
+span itself. Python spans are the effective trace roots.
+
+**Doc**: `docs/turn_state_architecture_2026-05-05.md` — second section added
+covering the subprocess trace propagation pattern, code recipe, and steps
+to apply to nutriosv2/gtd-tools.
+
+#### Gateway trace context investigation — COMPLETE (2026-05-06)
+
+**Answer: `diagnostics-otel` does NOT propagate trace context into `execute()` calls.**
+
+- `_id` is `toolCallId` (LLM correlation string), not trace context
+- `diagnostics-otel` uses `tracer.startSpan()` not `startActiveSpan()` — no
+  span is ever active on the call stack when `execute()` runs
+- No `tool.execute` event in the diagnostic event bus
+
+**Upgrade: real Node.js spans per tool call**
+
+`@opentelemetry/api` uses a `globalThis` singleton. Plugin imports its own
+copy, shares the same SDK that `diagnostics-otel` initialized. Each `execute()`
+now wraps in `startActiveSpan`; `activeTraceparent()` is called inside the
+callback to extract the live span's traceId/spanId via `propagation.inject()`.
+Fallback to random bytes when no SDK is active.
+
+**Gate PASSED — Honeycomb confirmed (2026-05-06)**
+
+Full parent-child tree visible:
+```
+grailzee.tool.evaluate_deal   (openclaw-gateway, 235.1ms)
+  └── evaluate_deal           (grailzee-eval-tools, 31.73ms)
+        ├── config_helper.read...   (0.232ms)
+        └── config_helper.sche...   (6µs)
+```
+4 spans, 0 errors. "Missing parent span" gone.
+
+**Files changed in this upgrade:**
+- `plugins/grailzee-eval-tools/index.js` — `activeTraceparent()`, `startActiveSpan` per tool
+- `plugins/grailzee-eval-tools/package.json` — added `@opentelemetry/api: ^1.9.0`
+- `docs/turn_state_architecture_2026-05-05.md` — investigation findings + updated recipe
+
+#### Commit before closing
+
+Not yet pushed. Stage and push `feature/grailzee-eval-otel` then merge to main.
+
+---
+
 ### Track 1 — Shape K (ACTIVE — 2026-05-04)
 
 **Branch**: `feature/grailzee-eval-v2`

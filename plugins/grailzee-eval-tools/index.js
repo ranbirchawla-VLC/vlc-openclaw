@@ -1,31 +1,55 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { spawnSync } from "child_process";
+import { randomBytes } from "crypto";
+import { trace, context, propagation } from "@opentelemetry/api";
 
 const PYTHON = "/Users/ranbirchawla/.pyenv/versions/3.12.10/bin/python3.12";
 const SCRIPTS = "/Users/ranbirchawla/ai-code/vlc-openclaw/skills/grailzee-eval/scripts";
 
 // ingest_sales.py refuses to run without GRAILZEE_ROOT explicitly set.
 // The gateway process does not inherit shell env vars, so inject it here.
-// Override by setting GRAILZEE_ROOT in the system environment before
-// launching the gateway; the spread below will pick it up.
+// All values fall back to their defaults if already set in the gateway env.
 const GRAILZEE_ROOT = process.env.GRAILZEE_ROOT ||
   "/Users/ranbirchawla/Library/CloudStorage/GoogleDrive-ranbir.chawla@rnvillc.com/Shared drives/Vardalux Shared Drive/GrailzeeData";
 
-const SPAWN_ENV = { ...process.env, GRAILZEE_ROOT };
+const OTEL_EXPORTER_OTLP_ENDPOINT = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || "http://localhost:4318";
+const OTEL_EXPORTER_OTLP_PROTOCOL = process.env.OTEL_EXPORTER_OTLP_PROTOCOL || "http/protobuf";
+const OTEL_SERVICE_NAME = process.env.OTEL_SERVICE_NAME || "grailzee-eval-tools";
 
-function spawnArgv(script, params) {
+const SPAWN_ENV = {
+  ...process.env,
+  GRAILZEE_ROOT,
+  OTEL_EXPORTER_OTLP_ENDPOINT,
+  OTEL_EXPORTER_OTLP_PROTOCOL,
+  OTEL_SERVICE_NAME,
+};
+
+// Extract W3C traceparent from the active OTel context. Falls back to a
+// randomly-generated root if no SDK is registered (e.g. during tests).
+function activeTraceparent() {
+  const carrier = {};
+  propagation.inject(context.active(), carrier);
+  if (carrier.traceparent) return carrier.traceparent;
+  const traceId = randomBytes(16).toString("hex");
+  const parentId = randomBytes(8).toString("hex");
+  return `00-${traceId}-${parentId}-01`;
+}
+
+const GRAILZEE_TRACER = "grailzee-eval-tools";
+
+function spawnArgv(script, params, extraEnv = {}) {
   return spawnSync(
     PYTHON,
     [`${SCRIPTS}/${script}`, JSON.stringify(params)],
-    { encoding: "utf8", env: SPAWN_ENV }
+    { encoding: "utf8", env: { ...SPAWN_ENV, ...extraEnv } }
   );
 }
 
-function spawnStdin(script, params) {
+function spawnStdin(script, params, extraEnv = {}) {
   return spawnSync(
     PYTHON,
     [`${SCRIPTS}/${script}`],
-    { encoding: "utf8", input: JSON.stringify(params), env: SPAWN_ENV }
+    { encoding: "utf8", input: JSON.stringify(params), env: { ...SPAWN_ENV, ...extraEnv } }
   );
 }
 
@@ -87,8 +111,17 @@ export default definePluginEntry({
         },
         required: ["brand", "reference", "listing_price"],
       },
-      async execute(_id, params) {
-        return toToolResult(spawnArgv("evaluate_deal.py", params));
+      execute(_id, params) {
+        return trace.getTracer(GRAILZEE_TRACER).startActiveSpan("grailzee.tool.evaluate_deal", (span) => {
+          span.setAttributes({
+            "tool.name": "evaluate_deal",
+            "grailzee.brand": params.brand ?? "",
+            "grailzee.reference": params.reference ?? "",
+          });
+          const result = toToolResult(spawnArgv("evaluate_deal.py", params, { TRACEPARENT: activeTraceparent() }));
+          span.end();
+          return result;
+        });
       },
     });
 
@@ -100,8 +133,13 @@ export default definePluginEntry({
         properties: {},
         required: [],
       },
-      async execute(_id, params) {
-        return toToolResult(spawnArgv("report_pipeline.py", params));
+      execute(_id, params) {
+        return trace.getTracer(GRAILZEE_TRACER).startActiveSpan("grailzee.tool.report_pipeline", (span) => {
+          span.setAttributes({ "tool.name": "report_pipeline" });
+          const result = toToolResult(spawnArgv("report_pipeline.py", params, { TRACEPARENT: activeTraceparent() }));
+          span.end();
+          return result;
+        });
       },
     });
 
@@ -113,8 +151,13 @@ export default definePluginEntry({
         properties: {},
         required: [],
       },
-      async execute(_id, params) {
-        return toToolResult(spawnArgv("ingest_sales.py", params));
+      execute(_id, params) {
+        return trace.getTracer(GRAILZEE_TRACER).startActiveSpan("grailzee.tool.ingest_sales", (span) => {
+          span.setAttributes({ "tool.name": "ingest_sales" });
+          const result = toToolResult(spawnArgv("ingest_sales.py", params, { TRACEPARENT: activeTraceparent() }));
+          span.end();
+          return result;
+        });
       },
     });
 
@@ -131,8 +174,13 @@ export default definePluginEntry({
         },
         required: ["user_message"],
       },
-      async execute(_id, params) {
-        return toToolResult(spawnStdin("turn_state.py", params));
+      execute(_id, params) {
+        return trace.getTracer(GRAILZEE_TRACER).startActiveSpan("grailzee.tool.turn_state", (span) => {
+          span.setAttributes({ "tool.name": "turn_state" });
+          const result = toToolResult(spawnStdin("turn_state.py", params, { TRACEPARENT: activeTraceparent() }));
+          span.end();
+          return result;
+        });
       },
     });
   },

@@ -2,6 +2,9 @@
   "name": "grailzee-eval-tools",
   "version": "1.0.0",
   "type": "module",
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0"
+  },
   "openclaw": {
     "extensions": ["./index.js"],
     "compat": {

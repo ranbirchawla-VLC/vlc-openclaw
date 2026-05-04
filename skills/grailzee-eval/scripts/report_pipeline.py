@@ -36,6 +36,7 @@ from scripts.grailzee_common import (
     CSV_PATH,
     OUTPUT_PATH,
     REPORTS_PATH,
+    attach_parent_trace_context,
     get_tracer,
     load_analyzer_config,
 )
@@ -281,7 +282,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    with tracer.start_as_current_span("report_pipeline.run") as span:
+    with attach_parent_trace_context(), tracer.start_as_current_span("report_pipeline.run") as span:
         span.set_attribute("input_report", args.input_report)
         try:
             result = run_pipeline(

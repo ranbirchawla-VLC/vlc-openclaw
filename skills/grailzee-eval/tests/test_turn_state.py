@@ -16,6 +16,8 @@ from pathlib import Path
 import pytest
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
+_SKILL_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_SKILL_DIR.parent))
 sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from turn_state import _classify, _load_capability, compute_turn_state
@@ -264,3 +266,49 @@ class TestMain:
     def test_non_string_user_message_returns_error(self):
         result = self._run({"user_message": 42})
         assert result["ok"] is False
+
+
+# ─── OTEL span attributes ─────────────────────────────────────────────
+
+
+class TestOtelSpan:
+    def test_span_emits_intent_attribute(self, span_exporter, tmp_path):
+        caps = tmp_path / "capabilities"
+        caps.mkdir()
+        (caps / "deal.md").write_text("deal instructions")
+        compute_turn_state("/eval Tudor 79830RB $2,750", capabilities_dir=str(caps))
+        spans = span_exporter.get_finished_spans()
+        assert any(s.name == "turn_state.run" for s in spans)
+        span = next(s for s in spans if s.name == "turn_state.run")
+        assert span.attributes["intent"] == "evaluate_deal"
+
+    def test_span_emits_capability_file_attribute(self, span_exporter, tmp_path):
+        caps = tmp_path / "capabilities"
+        caps.mkdir()
+        (caps / "ledger.md").write_text("ledger instructions")
+        compute_turn_state("/ledger", capabilities_dir=str(caps))
+        span = next(s for s in span_exporter.get_finished_spans() if s.name == "turn_state.run")
+        assert span.attributes["capability_file"] == "ledger.md"
+
+    def test_span_capability_loaded_true_when_file_present(self, span_exporter, tmp_path):
+        caps = tmp_path / "capabilities"
+        caps.mkdir()
+        (caps / "deal.md").write_text("deal instructions")
+        compute_turn_state("/eval", capabilities_dir=str(caps))
+        span = next(s for s in span_exporter.get_finished_spans() if s.name == "turn_state.run")
+        assert span.attributes["capability_loaded"] is True
+
+    def test_span_capability_loaded_false_on_default(self, span_exporter, tmp_path):
+        caps = tmp_path / "capabilities"
+        caps.mkdir()
+        compute_turn_state("hello", capabilities_dir=str(caps))
+        span = next(s for s in span_exporter.get_finished_spans() if s.name == "turn_state.run")
+        assert span.attributes["intent"] == "default"
+        assert span.attributes["capability_loaded"] is False
+
+    def test_span_capability_file_empty_on_default(self, span_exporter, tmp_path):
+        caps = tmp_path / "capabilities"
+        caps.mkdir()
+        compute_turn_state("hello", capabilities_dir=str(caps))
+        span = next(s for s in span_exporter.get_finished_spans() if s.name == "turn_state.run")
+        assert span.attributes["capability_file"] == ""
