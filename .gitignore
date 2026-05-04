@@ -36,6 +36,11 @@ htmlcov/
 !.claude/settings.json
 !.claude/progress.md
 
+# Runtime artifacts
+.fastembed_cache/
+nutrios-screenshot
+skills/nutrios/logs/
+
 # Environment
 .env
 .env.local

@@ -1,0 +1,15 @@
+{
+  "name": "gtd-tools",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build:schemas": "node scripts/emit-schemas.js"
+  },
+  "openclaw": {
+    "extensions": ["./index.js"],
+    "compat": {
+      "pluginApi": ">=2026.3.24-beta.2",
+      "minGatewayVersion": "2026.3.24-beta.2"
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # OpenClaw Skill Lessons Learned
 
-Last updated: April 8, 2026
+Last updated: 2026-05-01
 
 These are hard-won lessons from building the Vardalux agent suite. Apply them
 to every new skill and agent setup.
@@ -26,12 +26,22 @@ rm -f ~/.openclaw/agents/{name}/sessions/*.jsonl
 echo '{}' > ~/.openclaw/agents/{name}/sessions/sessions.json
 ```
 
-### 3. Copy models.json to every new agent's agentDir
-New agents don't get models.json automatically. Without it, the agent has no
-model config and fails silently.
+### 3. Set the model in the agent entry in root openclaw.json
+The current pattern sets the model directly in the agent's entry in
+`~/.openclaw/openclaw.json` — no separate file needed:
+```json
+{
+  "id": "<agent-name>",
+  "model": "claude-sonnet-4-6"
+}
 ```
-cp ~/.openclaw/agents/nutrios/agent/models.json ~/.openclaw/agents/{name}/agent/models.json
+If the gateway version requires a `models.json` file in the agent dir, copy
+from an existing agent as a fallback:
 ```
+cp ~/.openclaw/agents/nutriosv2/agent/models.json ~/.openclaw/agents/{name}/agent/models.json
+```
+See `AGENT_ARCHITECTURE.md §Root openclaw.json — Agent Registry` for the full
+agent entry shape.
 
 ### 4. auth-profiles.json must exist
 ```
@@ -73,9 +83,17 @@ Every unnecessary message costs an API call. AGENTS.md must state:
 - Do NOT send status updates
 - ONLY send: (1) missing field question, (2) confirmation summary, (3) hard error
 
-### 10. Don't re-read SKILL.md every turn
-If AGENTS.md says "read SKILL.md on every message", the agent will narrate
-the read and burn tokens. Load the skill once at session start.
+### 10. SKILL.md is already in context — do not instruct the agent to read it
+If AGENTS.md says "read SKILL.md on every message" or "on every startup, read
+SKILL.md", the LLM interprets this as a literal file-read action, narrates it,
+and burns tokens. The correct AGENTS.md boilerplate (from `AGENT_ARCHITECTURE.md`):
+
+```markdown
+## On Every Startup
+SKILL.md is already in your context. Do not attempt to read any files.
+```
+
+SKILL.md is injected as part of the system prompt; it does not need to be loaded.
 
 ### 11. Make instructions prescriptive, not descriptive
 "Extract seller info from the invoice header" → agent improvises and fails.
@@ -86,31 +104,26 @@ phone, email. These are always in the header or 'From' section." → works.
 
 ## File I/O
 
-### 12. exec requires absolute paths, one command at a time
-No `cd`, no `&&`, no pipes, no relative paths. The exec preflight rejects them.
-```
-# Wrong
-exec: cd /some/dir && cp file.pdf /dest/
+### 12. exec is denied in all new agents — use the plugin pattern
+New agents must have `tools.deny: ["exec", "group:runtime"]` in root
+`openclaw.json`. Custom tool logic lives in Python scripts registered as
+plugin tools. See `agent_api_integration_pattern.md` for the canonical pattern.
 
-# Right
-exec: cp /full/source/path/file.pdf /full/dest/path/file.pdf
-```
+The exec incident (NutriOS v2, 2026-04-27): with exec on the surface and
+registered tools unavailable, the agent made 45 exec bypasses in a single
+session — writing data, calling Python directly, installing packages. Prompt
+rules alone did not stop it. Deny exec structurally; don't rely on instructions.
 
-### 13. pdf tool can't read from Google Drive or /tmp
-Copy to workspace directory first, use pdf tool, then clean up.
-```
-exec: cp /tmp/file.pdf /Users/ranbirchawla/.openclaw/workspace/skills/{skill}/file.pdf
-pdf tool: /Users/ranbirchawla/.openclaw/workspace/skills/{skill}/file.pdf
-exec: rm /Users/ranbirchawla/.openclaw/workspace/skills/{skill}/file.pdf
-```
+### 13. PDF extraction for legacy agents (grailzee, intake, watch-listing)
+These agents predate the plugin architecture and still use exec. If maintaining
+them:
+- exec requires absolute paths only — no `cd`, no `&&`, no pipes
+- Native pdf tool hits size/path limits; use `pdf_read.js` (pdftotext via exec)
+  for reliable extraction: `skills/purchase-intake/gmail/pdf_read.js`
+- pdf tool cannot read from Google Drive or `/tmp` — copy to workspace first,
+  process, then clean up
 
-### 14. pdftotext (poppler) is the reliable PDF extractor
-Native pdf tool hits size/path limits. Use the pdf_read.js tool (pdftotext
-via exec) for reliable text extraction from any PDF.
-```
-node /Users/ranbirchawla/.openclaw/workspace/skills/purchase-intake/gmail/pdf_read.js
-input: { "path": "/full/path/to/file.pdf" }
-```
+Do not apply these patterns to new agents. New agents use registered plugin tools.
 
 ### 15. Session state doesn't survive resets — write to Drive
 Any dedup tracking, partial state, or progress must be written to a JSON file
