@@ -13,7 +13,7 @@ import pytest
 
 _ROOT_OPENCLAW_JSON = Path.home() / ".openclaw" / "openclaw.json"
 
-_1C_TOOLS_ALLOW = frozenset({"evaluate_deal", "report_pipeline", "ingest_sales", "message"})
+_1C_TOOLS_ALLOW = frozenset({"evaluate_deal", "report_pipeline", "ingest_sales", "message", "turn_state"})
 
 
 @pytest.mark.skipif(

@@ -9,12 +9,59 @@ Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
 
 ## Active tracks
 
-### Track 1 — Shape K (ACTIVE — Mac Studio runtime gates, 2026-05-03)
+### Track 1 — Shape K (ACTIVE — 2026-05-04)
 
 **Branch**: `feature/grailzee-eval-v2`
-**Tip**: `254b6e7` (Phase 1 ledger merge commit; pushed)
-**Remote**: origin/main has 3 new commits since branch diverged (not merged in yet)
-**Pytest baseline (per ShapeK Resume 2026-05-02)**: ledger 332 / eval 1366 / 71 skipped / cowork 235
+**Tip**: `0c3d78b` (pushed to origin; session 2026-05-04 uncommitted work above this)
+
+#### Session 2026-05-04 — what happened
+
+**Commits landed this session (all pushed):**
+- `7ff23e9` G — report_pipeline plugin dispatch layer
+- `0d73691` H — ingest_sales plugin dispatch layer + tool registration
+- `2852144` E — capabilities/ledger.md rewrite
+- `ce4be04` A — AGENTS.md rewrite (design §7)
+- `70b1164` B.1 — SKILL.md rewrite (design §6)
+- `25be64b` B.2 — remove cross-cutting rule duplication from ledger.md
+- `0c3d78b` fix — ingest_sales sys.path.insert for spawnArgv invocation
+
+**Model switch**: grailzee-eval agent switched from `ollama/qwen3.5:latest`
+to `mnemo/claude-sonnet-4-6` (edit to `~/.openclaw/openclaw.json` only; not
+in repo). qwen3.5 was not following plugin tool dispatch instructions.
+
+#### Session 2026-05-05 — what happened
+
+**turn_state dispatch tool built and /ledger gate CLEARED**
+
+Root cause of prior gate failure: AGENTS.md said "Read one file: SKILL.md"
+but no `read` tool in tools.allow. SKILL.md never landed in context.
+
+Fix: `turn_state.py` (stdin-dispatched) classifies message, reads matching
+capability file from disk, returns `{intent, capability_prompt}`. AGENTS.md
+PREFLIGHT forces it before every response.
+
+Second failure: `GRAILZEE_ROOT` not in gateway environment. Fix: injected
+as `SPAWN_ENV` constant in `index.js` with production Drive path as fallback.
+
+**Uncommitted work (ready to stage):**
+- `skills/grailzee-eval/scripts/turn_state.py` (new)
+- `skills/grailzee-eval/tests/test_turn_state.py` (new, 50 tests)
+- `plugins/grailzee-eval-tools/index.js` — turn_state registration + SPAWN_ENV
+- `skills/grailzee-eval/AGENTS.md` — PREFLIGHT replaces "Read one file"
+- `skills/grailzee-eval/tests/test_plugin_shape.py` — turn_state assertions
+- `Makefile` — test-grailzee-eval-turn-state target
+- `update_openclaw_config.py` — one-time config script (already run; idempotent)
+
+**Test baseline**: 1441 passed / 71 skipped (all green; 1 skip-guarded config
+test passes after `update_openclaw_config.py` was run)
+
+**Operator gate: CLEARED — /ledger worked on Telegram 2026-05-05**
+
+**Remaining commit chain:**
+- Commit: turn_state + AGENTS.md + SPAWN_ENV + tests (ready now)
+- C — capabilities/eval.md (replaces capabilities/deal.md)
+- D — capabilities/report.md rewrite
+- F — tools.allow lockdown + audit gate
 
 **Resume doc**: `~/Downloads/aBuilds-5-2/Grailzee_ShapeK_Resume_2026-05-02.md` (supersedes 04-28 doc)
 
