@@ -20,7 +20,7 @@
 PYTHON = .venv/bin/python
 PYTEST = python3.12 -m pytest
 
-.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-eval-report-pipeline test-grailzee-eval-ingest-sales-plugin test-grailzee-cowork test-grailzee-ledger test-grailzee-ledger-schema test-grailzee-ledger-transform test-grailzee-ledger-lock test-grailzee-ledger-merge test-grailzee-ledger-prune test-grailzee-ledger-archive test-grailzee-ledger-read test-grailzee-ledger-orchestrator test-grailzee-ledger-integration
+.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-eval-report-pipeline test-grailzee-eval-ingest-sales-plugin test-grailzee-eval-turn-state test-grailzee-cowork test-grailzee-ledger test-grailzee-ledger-schema test-grailzee-ledger-transform test-grailzee-ledger-lock test-grailzee-ledger-merge test-grailzee-ledger-prune test-grailzee-ledger-archive test-grailzee-ledger-read test-grailzee-ledger-orchestrator test-grailzee-ledger-integration
 
 help:
 	@echo "Available targets:"
@@ -33,6 +33,7 @@ help:
 	@echo "  make test-grailzee-eval-build-shortlist - run build_shortlist tests"
 	@echo "  make test-grailzee-eval-run-analysis    - run run_analysis tests"
 	@echo "  make test-grailzee-eval-evaluate-deal   - run evaluate_deal tests"
+	@echo "  make test-grailzee-eval-turn-state      - run turn_state routing tests"
 	@echo "  make test-grailzee-cowork          - run all grailzee-cowork tests"
 	@echo "  make test-grailzee-ledger          - run all grailzee ledger redo tests"
 	@echo "  make test-grailzee-ledger-schema   - run sub-step 1.1 schema tests only"
@@ -93,6 +94,9 @@ test-grailzee-eval-report-pipeline:
 
 test-grailzee-eval-ingest-sales-plugin:
 	$(PYTEST) skills/grailzee-eval/tests/test_ingest_sales_plugin.py
+
+test-grailzee-eval-turn-state:
+	$(PYTEST) skills/grailzee-eval/tests/test_turn_state.py
 
 test-grailzee-cowork:
 	$(PYTEST) grailzee-cowork/tests

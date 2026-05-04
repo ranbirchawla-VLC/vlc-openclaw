@@ -23,7 +23,7 @@ _ROOT_OPENCLAW = Path.home() / ".openclaw" / "openclaw.json"
 
 _AGENT_SURFACE_TEST = _SKILL_DIR / "tests" / "test_agent_surface.py"
 
-_1C_TOOLS_ALLOW = frozenset({"evaluate_deal", "report_pipeline", "ingest_sales", "message"})
+_1C_TOOLS_ALLOW = frozenset({"evaluate_deal", "report_pipeline", "ingest_sales", "message", "turn_state"})
 
 
 # ─── Plugin package shape ────────────────────────────────────────────
@@ -69,12 +69,18 @@ class TestPluginPackageShape:
             "index.js must register evaluate_deal tool"
         )
 
+    def test_index_js_registers_turn_state(self):
+        content = (_PLUGIN_DIR / "index.js").read_text()
+        assert '"turn_state"' in content, (
+            "index.js must register turn_state tool"
+        )
+
 
 # ─── Plugin dispatch method ───────────────────────────────────────────
 
 
 class TestIndexJsDispatch:
-    """Verify evaluate_deal uses spawnArgv (not spawnStdin) after 1c.5."""
+    """Verify dispatch methods: evaluate_deal spawnArgv, turn_state spawnStdin."""
 
     def test_evaluate_deal_uses_spawnargv(self):
         content = (_PLUGIN_DIR / "index.js").read_text()
@@ -86,6 +92,12 @@ class TestIndexJsDispatch:
         content = (_PLUGIN_DIR / "index.js").read_text()
         assert 'spawnStdin("evaluate_deal.py"' not in content, (
             "evaluate_deal registration must not use spawnStdin after 1c.5"
+        )
+
+    def test_turn_state_uses_spawnstdin(self):
+        content = (_PLUGIN_DIR / "index.js").read_text()
+        assert 'spawnStdin("turn_state.py"' in content, (
+            "turn_state registration must use spawnStdin (stdin dispatch)"
         )
 
 
