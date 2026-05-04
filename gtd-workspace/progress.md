@@ -428,3 +428,58 @@ Code reviewer: fresh context subagent.
 - Migration user-id: `8712103657` (Telegram chat ID).
 - Plist env vars: `GTD_STORAGE_ROOT`, `OPENCLAW_USER_ID`, `GTD_TZ`, `OTEL_EXPORTER_OTLP_ENDPOINT` — verify all present before Gate 3 smoke.
 - `.claude/settings.json` hook and permission paths corrected (vlc-openclaw → vlc-openclaw-gtd) in `7ffbf83`; takes effect on next session start.
+
+---
+
+## Pre-build Audit — 2b.3 (2026-05-04)
+
+**Session scope:** read-only audit pass before 2b.3 build. No feature branch opened; no code changed.
+
+### Reference docs updated (repo root)
+
+- `agent_api_integration_pattern.md` — updated from `~/Downloads/_aSkills/` (build-time mechanics, code skeletons, OTEL wrapping)
+- `AGENT_ARCHITECTURE.md` — updated from `~/Downloads/_aSkills/` (locked patterns 1-10, reference layout, AGENTS.md skeleton)
+
+### Audit reports produced
+
+- `2b3-audit-2026-05-04.md` — plugin and integration state audit (8 gaps identified)
+- `2b3-soul-identity-audit-2026-05-04.md` — verbatim content of all 8 workspace prompt files
+- Both copied to `~/Downloads/`
+
+### Branch cleanup
+
+- `feature/sub-step-2b-api-surface` squashed and merged to main (`4cc1f58` on main after Z3 + progress.md closure).
+- Feature branch requires force-delete: `git branch -D feature/sub-step-2b-api-surface` (blocked by settings deny list; operator runs directly in terminal).
+
+### 8 gaps from 2b3-audit (build order for 2b.3)
+
+1. **`tools.allow` missing GTD tools** — add `capture_gtd`, `query_tasks`, `query_ideas`, `query_parking_lot`, `review_gtd`, `delegation` to agent entry in `~/.openclaw/openclaw.json`. One JSON edit; gateway restart required.
+2. **AGENTS.md is v1 legacy** — full replacement per AGENT_ARCHITECTURE skeleton: Hard Rules block, correct Tools Available list, exec/read/write/edit/browser prohibition, On Every Startup block (single-mode: SKILL.md already in context).
+3. **SKILL.md not at workspace root** — `gtd-workspace/SKILL.md` does not exist; gateway never loads it. New file needed at workspace root.
+4. **Mislocated SKILL.md content is v1** — `gtd-workspace/skills/gtd/SKILL.md` references `gtd_normalize`, `gtd_write`, `gtd_validate`, `gtd_review` (none exist). New SKILL.md at workspace root must reference current plugin tool names.
+5. **`index.js` missing `startActiveSpan` + `TRACEPARENT` injection** — locked pattern 2 violation. Add tracer import, `startActiveSpan` per-tool, `TRACEPARENT` in `SPAWN_ENV`.
+6. **`index.js` missing `SPAWN_ENV` constant** — replace `env: { ...process.env }` with module-level `SPAWN_ENV = { ...process.env, OTEL_SERVICE_NAME: PLUGIN_TRACER }`.
+7. **`package.json` missing `@opentelemetry/api` dependency** — add `"dependencies": { "@opentelemetry/api": "^1.9.0" }`. Run `npm install` after.
+8. **`auth-profiles.json` missing from `agentDir`** — `echo '{"version":1,"profiles":{}}' > ~/.openclaw/agents/gtd/agent/auth-profiles.json`.
+
+### Surface state (verbatim from audit)
+
+- Agent ID: `gtd` | Model: `mnemo/claude-sonnet-4-6` | Workspace: `gtd-workspace/`
+- Plugin registered and on disk: `gtd-tools` at `plugins/gtd-tools/` — all 8 scripts present
+- Live tool surface (last session): `message`, `list_events`, `get_event` only — 6 GTD tools absent
+- SOUL.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md: present, injected, v1-era content but usable
+- TOOLS.md: present, injected, references v1 tool names (`gtd_normalize.py` etc.) — needs update after AGENTS.md/SKILL.md
+- AGENTS.md: present, injected, v1 legacy
+- SKILL.md: mislocated at `skills/gtd/SKILL.md`, not loaded
+- Telegram binding: present, bot token present, `allowFrom: ["8712103657"]`
+
+### Notes for 2b.3 build session
+
+- Start on a fresh branch: `git checkout -b feature/gtd-2b3-wiring`
+- Highest-leverage single edit: add GTD tools to `tools.allow` in `openclaw.json` + restart gateway → unblocks Gate 3 smoke immediately
+- AGENTS.md and SKILL.md are the capability instruction layer — write these before doing Gate 3 smoke
+- TOOLS.md also needs update (references v1 tool names); bundle with AGENTS.md/SKILL.md rewrite
+- OTEL gap in `index.js` (gaps 5-7): separate commit; requires `npm install` after `package.json` change
+- `auth-profiles.json` (gap 8): one operator command; do before gateway restart
+- Z3 cleanup deferred items (N-1, N-2, N-3, N-5, N-6, N-7): bundle into 2b.3 as a cleanup commit alongside the main wiring work
+- Gate 3 re-run checklist (after all wiring done): capture task via Telegram → verify `capture_gtd` appears in session audit → verify 16 fields on disk → query back → confirm no channel field leaks
