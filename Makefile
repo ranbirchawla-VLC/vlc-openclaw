@@ -105,6 +105,9 @@ test-grailzee-eval-ingest-sales-plugin:
 test-grailzee-eval-turn-state:
 	$(PYTEST) skills/grailzee-eval/tests/test_turn_state.py
 
+test-grailzee-eval-buying:
+	$(PYTEST) skills/grailzee-eval/tests/test_get_cycle_targets.py skills/grailzee-eval/tests/test_turn_state.py
+
 test-grailzee-cowork:
 	$(PYTEST) grailzee-cowork/tests
 

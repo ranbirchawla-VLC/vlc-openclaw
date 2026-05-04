@@ -162,6 +162,24 @@ export default definePluginEntry({
     });
 
     api.registerTool({
+      name: "get_cycle_targets",
+      description: "Return the current cycle buying list: targets, capital, volume, and brand focus. Call when the operator asks what to buy this cycle.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+      execute(_id, params) {
+        return trace.getTracer(GRAILZEE_TRACER).startActiveSpan("grailzee.tool.get_cycle_targets", (span) => {
+          span.setAttributes({ "tool.name": "get_cycle_targets" });
+          const result = toToolResult(spawnArgv("get_cycle_targets.py", params, { TRACEPARENT: activeTraceparent() }));
+          span.end();
+          return result;
+        });
+      },
+    });
+
+    api.registerTool({
       name: "turn_state",
       description: "Call first on every user turn. Classifies intent and returns the capability instructions for this turn. Returns {intent, capability_prompt}. Follow capability_prompt exactly.",
       parameters: {

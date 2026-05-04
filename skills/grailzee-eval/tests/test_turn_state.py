@@ -109,6 +109,31 @@ class TestClassifier:
     def test_leading_whitespace_stripped(self):
         assert _classify("  /ledger  ") == "ledger"
 
+    def test_buying_slash(self):
+        assert _classify("/buying") == "buying"
+
+    def test_buying_slash_case_insensitive(self):
+        assert _classify("/BUYING") == "buying"
+
+    def test_buying_natural_what_should_i_buy(self):
+        assert _classify("what should I be buying this week?") == "buying"
+
+    def test_buying_natural_what_to_buy(self):
+        assert _classify("what should I buy?") == "buying"
+
+    def test_buying_natural_buying_list(self):
+        assert _classify("show me the buying list") == "buying"
+
+    def test_buying_natural_targets(self):
+        assert _classify("show me the targets") == "buying"
+
+    def test_buying_natural_this_week(self):
+        assert _classify("what are we doing this week") == "buying"
+
+    def test_buying_slash_takes_precedence_over_dollar(self):
+        # /buying with a price mention should still route to buying
+        assert _classify("/buying $2,750") == "buying"
+
 
 # ─── Capability loading ───────────────────────────────────────────────
 
@@ -148,6 +173,12 @@ class TestCapabilityLoading:
         caps.mkdir()
         assert _load_capability("surprise_intent", str(caps)) == ""
 
+    def test_buying_loads_buying_md(self, tmp_path: Path):
+        caps = tmp_path / "capabilities"
+        caps.mkdir()
+        (caps / "buying.md").write_text("buying instructions")
+        assert _load_capability("buying", str(caps)) == "buying instructions"
+
 
 # ─── compute_turn_state integration ──────────────────────────────────
 
@@ -160,6 +191,7 @@ class TestComputeTurnState:
         (caps / "deal.md").write_text("## Deal Evaluation\nBuy or pass.")
         (caps / "report.md").write_text("## Report Processing\nRun the pipeline.")
         (caps / "ledger.md").write_text("## Ledger Ingest\nFold it in.")
+        (caps / "buying.md").write_text("## Buying List\nShow targets.")
         return str(caps)
 
     def test_eval_route_returns_deal_content(self, caps_dir: str):
@@ -204,6 +236,20 @@ class TestComputeTurnState:
     def test_live_capabilities_dir_report_md_exists(self):
         result = compute_turn_state("/report")
         assert result["intent"] == "report"
+        assert len(result["capability_prompt"]) > 0
+
+    def test_buying_slash_routes_to_buying(self, caps_dir: str):
+        result = compute_turn_state("/buying", capabilities_dir=caps_dir)
+        assert result["intent"] == "buying"
+        assert "Buying List" in result["capability_prompt"]
+
+    def test_buying_natural_routes_to_buying(self, caps_dir: str):
+        result = compute_turn_state("what should I buy this week?", capabilities_dir=caps_dir)
+        assert result["intent"] == "buying"
+
+    def test_live_capabilities_dir_buying_md_exists(self):
+        result = compute_turn_state("/buying")
+        assert result["intent"] == "buying"
         assert len(result["capability_prompt"]) > 0
 
 

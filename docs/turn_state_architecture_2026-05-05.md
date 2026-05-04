@@ -198,9 +198,9 @@ references.
 
 # OTel Trace Context Propagation — Plugin to Python Subprocess
 
-**Date**: 2026-05-05 (initial), updated 2026-05-06 (real Node spans)
-**Branch**: feature/grailzee-eval-otel
-**Commits**: 073200f, e95af43, 0b4a10f (initial); Node span upgrade TBD
+**Date**: 2026-05-05 (initial), updated 2026-05-06 (real Node spans), 2026-05-04 (get_cycle_targets)
+**Branch**: feature/grailzee-eval-otel (merged main), feature/grailzee-buying-command
+**Commits**: 073200f, e95af43, 0b4a10f (initial); f43925f (Node span upgrade)
 
 ---
 
@@ -326,21 +326,55 @@ creates the span as a child. No re-indentation of existing span bodies required.
 
 ---
 
+## Span Attributes per Tool
+
+Each Node.js `startActiveSpan` and its Python child carry a consistent
+attribute set. All four tools follow this contract:
+
+| Tool | Node span name | Python span name | Attributes (Python) |
+|---|---|---|---|
+| `turn_state` | `grailzee.tool.turn_state` | `turn_state.run` | `intent`, `capability_file`, `capability_loaded` |
+| `evaluate_deal` | `grailzee.tool.evaluate_deal` | `evaluate_deal` | `grailzee.brand`, `grailzee.reference` (Node); deal-specific on Python side |
+| `report_pipeline` | `grailzee.tool.report_pipeline` | `report_pipeline.run` | `tool.name` |
+| `ingest_sales` | `grailzee.tool.ingest_sales` | `ingest_sales.ingest_sales` | `tool.name` |
+| `get_cycle_targets` | `grailzee.tool.get_cycle_targets` | `get_cycle_targets.run` | `targets_count`, `outcome` |
+
+`turn_state` was the first span instrumented on this branch. Its three
+attributes — `intent`, `capability_file`, `capability_loaded` — make every
+turn's routing decision visible and queryable in Honeycomb: you can filter
+for turns where `capability_loaded = false` to catch capability file misses,
+or group by `intent` to see the distribution across evaluate_deal / report /
+ledger / buying.
+
+---
+
 ## What This Looks Like in Honeycomb
 
-Each tool invocation produces one trace with a complete parent-child hierarchy:
+Each tool invocation produces one trace with a complete parent-child hierarchy.
+Confirmed in Honeycomb (operator gate 2026-05-06, trace `1199eb87...`):
 
 ```
-grailzee.tool.evaluate_deal   (Node.js span, from plugin)
-  └── evaluate_deal           (Python span, from evaluate_deal.py)
+grailzee.tool.evaluate_deal   (openclaw-gateway, Node.js, 235.1ms)
+  └── evaluate_deal           (grailzee-eval-tools, Python, 31.73ms)
+        ├── config_helper.read_...   (0.232ms)
+        └── config_helper.sche_...  (6µs)
 ```
 
-The Node.js span carries `tool.name`, `grailzee.brand`, `grailzee.reference`
-attributes. The Python span carries `intent`, `listing_price`, `decision`, and
-the other domain attributes.
+The same hierarchy applies to every tool. For `turn_state`:
 
-Before this upgrade, the Node.js span did not exist in Honeycomb — Python spans
-appeared as trace roots with "missing parent span" shown in the waterfall.
+```
+grailzee.tool.turn_state      (openclaw-gateway, Node.js)
+  └── turn_state.run          (grailzee-eval-tools, Python)
+        attrs: intent, capability_file, capability_loaded
+```
+
+The Node.js span service name is `openclaw-gateway` because it runs inside
+the gateway process where `diagnostics-otel` registered the SDK. The Python
+span service name is `grailzee-eval-tools` from `OTEL_SERVICE_NAME` injected
+via `SPAWN_ENV`.
+
+Before this upgrade, the Node.js span did not exist — Python spans appeared
+as trace roots with "missing parent span" in the Honeycomb waterfall.
 
 ---
 
@@ -368,5 +402,6 @@ updated yet (as of 2026-05-06). Steps per plugin:
 | `skills/grailzee-eval/scripts/evaluate_deal.py` | Parent context attachment on `evaluate_deal` span |
 | `skills/grailzee-eval/scripts/ingest_sales.py` | Parent context attachment on `ingest_sales.ingest_sales` span |
 | `skills/grailzee-eval/scripts/report_pipeline.py` | Parent context attachment on `report_pipeline.run` span |
-| `plugins/grailzee-eval-tools/index.js` | `activeTraceparent()` with OTel SDK + fallback; `startActiveSpan` per tool; `@opentelemetry/api` dep |
+| `plugins/grailzee-eval-tools/index.js` | `activeTraceparent()` with OTel SDK + fallback; `startActiveSpan` per tool; `@opentelemetry/api` dep; `get_cycle_targets` tool registered |
 | `plugins/grailzee-eval-tools/package.json` | Added `@opentelemetry/api: ^1.9.0` dependency |
+| `skills/grailzee-eval/scripts/get_cycle_targets.py` | New — `get_cycle_targets.run` span with `targets_count`, `outcome` attributes |
