@@ -26,6 +26,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import IO, Any, Generator
 
+from pydantic import BaseModel, ConfigDict, ValidationError
+
 from scripts.grailzee_common import cycle_id_from_date, get_tracer
 
 tracer = get_tracer(__name__)
@@ -1204,6 +1206,120 @@ def ingest_sales(
         return manifest
 
 
+# ─── Plugin input contract ───────────────────────────────────────────
+
+
+class _Input(BaseModel):
+    """Plugin input model. No business fields; this is a no-input capability.
+
+    extra='forbid' rejects unknown fields as bad_input, preventing silent
+    drift between the registered JSON Schema and the Python contract.
+    All run-time path overrides are extracted as test hooks before _Input
+    validation and never reach this model.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
+_TEST_HOOK_KEYS: frozenset[str] = frozenset({
+    "sales_data_dir",
+    "archive_dir",
+    "ledger_path",
+    "lock_path",
+    "today",
+    "window_days",
+    "lock_timeout",
+})
+
+# Maps IngestError subclasses to distinct error_type strings for the plugin envelope.
+# IngestError base class falls through to the "ingest_error" fallback in _run_from_dict.
+_PLUGIN_ERROR_TYPE: dict[type, str] = {
+    ERPBatchInvalid: "erp_batch_invalid",
+    LedgerWriteFailed: "ledger_write_failed",
+    LockAcquisitionFailed: "lock_acquisition_failed",
+    SchemaShiftDetected: "schema_shift_detected",
+    ArchiveMoveFailed: "archive_move_failed",
+}
+
+
+def _error_envelope(error_type: str, message: str) -> dict:
+    return {"status": "error", "error_type": error_type, "message": message}
+
+
+# ─── Plugin dispatch ──────────────────────────────────────────────────
+
+
+def _run_from_dict(data: dict) -> int:
+    """JSON dispatch. Validates with _Input, calls ingest_sales, emits result.
+
+    Test hooks (path overrides and run parameters) are extracted before _Input
+    validation so they never reach the strict model. All error paths emit
+    _error_envelope() to stdout and return 0 per the §4.3 exit-0 contract.
+    """
+    hooks = {k: v for k, v in data.items() if k in _TEST_HOOK_KEYS}
+    schema_data = {k: v for k, v in data.items() if k not in _TEST_HOOK_KEYS}
+
+    try:
+        _Input(**schema_data)
+    except ValidationError as exc:
+        errors = exc.errors()
+        if any(e["type"] == "missing" for e in errors):
+            missing = ", ".join(
+                str(e["loc"][-1]) for e in errors if e["type"] == "missing"
+            )
+            print(json.dumps(_error_envelope("missing_arg", f"Missing required field: {missing}")))
+        else:
+            print(json.dumps(_error_envelope("bad_input", str(exc))))
+        return 0
+
+    kwargs: dict = {}
+    for key in ("sales_data_dir", "archive_dir", "ledger_path", "lock_path"):
+        if hooks.get(key) is not None:
+            kwargs[key] = Path(hooks[key])
+    if hooks.get("today") is not None:
+        kwargs["today"] = date.fromisoformat(hooks["today"])
+    if hooks.get("window_days") is not None:
+        kwargs["window_days"] = int(hooks["window_days"])
+    if hooks.get("lock_timeout") is not None:
+        kwargs["lock_timeout"] = float(hooks["lock_timeout"])
+
+    try:
+        manifest = ingest_sales(**kwargs)
+    except IngestError as exc:
+        error_type = _PLUGIN_ERROR_TYPE.get(type(exc), "ingest_error")
+        print(json.dumps(_error_envelope(error_type, str(exc))))
+        return 0
+    except Exception as exc:
+        print(json.dumps(_error_envelope("internal_error", str(exc))))
+        return 0
+
+    print(json.dumps({
+        "status": "ok",
+        "files_found": manifest.files_found,
+        "files_processed": manifest.files_processed,
+        "rows_added": manifest.rows_added,
+        "rows_updated": manifest.rows_updated,
+        "rows_unchanged": manifest.rows_unchanged,
+        "rows_unmatched": manifest.rows_unmatched,
+        "rows_pruned": manifest.rows_pruned,
+        "rows_skipped": manifest.rows_skipped,
+    }, indent=2, default=str))
+    return 0
+
+
+def _run_from_argv() -> int:
+    """Plugin spawnArgv entry point: reads sys.argv[1] as JSON string."""
+    try:
+        payload = json.loads(sys.argv[1])
+    except json.JSONDecodeError as exc:
+        print(json.dumps(_error_envelope("bad_input", f"Invalid JSON in argv[1]: {exc}")))
+        return 0
+    if not isinstance(payload, dict):
+        print(json.dumps(_error_envelope("bad_input", f"Expected JSON object, got {type(payload).__name__}")))
+        return 0
+    return _run_from_dict(payload)
+
+
 # ─── CLI surface (sub-step 1.7 commit 2) ─────────────────────────────
 #
 # Minimal operator escape hatch -- zero arguments. Production invocation
@@ -1241,4 +1357,9 @@ def _main() -> int:
 
 
 if __name__ == "__main__":
+    # argv[1] starts with "{" → JSON payload from spawnArgv plugin dispatch.
+    if len(sys.argv) > 1 and sys.argv[1].startswith("{"):
+        sys.exit(_run_from_argv())
+    # No extra argv or unrecognised argv → legacy CLI path (zero-arg default run).
+    # ingest_sales is a no-input tool: stdin JSON adds nothing over the default path.
     sys.exit(_main())

@@ -95,5 +95,18 @@ export default definePluginEntry({
         return toToolResult(spawnArgv("report_pipeline.py", params));
       },
     });
+
+    api.registerTool({
+      name: "ingest_sales",
+      description: "Run one ledger ingest cycle: scan sales_data/ for WatchTrack JSONL batches, transform, merge, prune, write, and archive. Takes no required inputs; all path overrides are optional test hooks.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+      async execute(_id, params) {
+        return toToolResult(spawnArgv("ingest_sales.py", params));
+      },
+    });
   },
 });

@@ -1,7 +1,7 @@
 """Root config surface validation for grailzee-eval agent.
 
-Validates the grailzee-eval entry in ~/.openclaw/openclaw.json after G:
-- tools.allow: evaluate_deal, report_pipeline, message
+Validates the grailzee-eval entry in ~/.openclaw/openclaw.json after H:
+- tools.allow: evaluate_deal, report_pipeline, ingest_sales, message
 - no tools.deny block
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ import pytest
 
 _ROOT_OPENCLAW_JSON = Path.home() / ".openclaw" / "openclaw.json"
 
-_1C_TOOLS_ALLOW = frozenset({"evaluate_deal", "report_pipeline", "message"})
+_1C_TOOLS_ALLOW = frozenset({"evaluate_deal", "report_pipeline", "ingest_sales", "message"})
 
 
 @pytest.mark.skipif(
