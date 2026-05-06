@@ -185,6 +185,48 @@ Promotion: underlying proxy issue resolved; bypass removed; pattern restates as 
 
 ---
 
+## PENDING CANON UPDATES
+
+Decisions made in build sessions that have not yet been integrated into the locked pattern sections above. Full editorial pass deferred. Do not treat these as authoritative until promoted; do treat them as binding for any new build that touches these areas.
+
+### A. Inner LLM role-based routing — promote to LOCKED
+
+**Decision (2026-05-06):** Promote from TRIAL to LOCKED. First proven on Trina (gtd agent): outer model is Sonnet via mnemo; inner model is Qwen3.5 via Ollama with Sonnet fallback on validation failure. Pattern held at temperature=0 across 27 LLM test fixtures. Applies to any multi-capability agent that needs a fast-path classifier.
+
+**Promotion condition met.** Awaiting editorial integration into Locked Patterns section.
+
+### B. Capability file content shape — new LOCKED pattern
+
+**Decision (2026-05-06):** The capability file is a structured prompt document, not free-form prose. Canonical sections: Purpose, Voice Register, Submission Contract (for write tools), Verbatim Render Rule (for read tools), Branch table (A/B/C/D for happy/empty/error/ambiguous), Hard Prohibitions. Agent-agnostic; applies to any multi-mode agent. Reference: `gtd-workspace/capabilities/capture.md`, `query_tasks.md`.
+
+Capability files are plain markdown on disk; the dispatcher reads them fresh every call. They are the primary mechanism for changing agent behavior without a code deploy.
+
+### C. Negative-path capability file — new LOCKED pattern
+
+**Decision (2026-05-06):** Every multi-mode agent gets an `unknown.md` capability file. It handles greetings, out-of-scope requests, and ambiguous intent. The dispatcher returns it when no other intent matches. Without it, the agent improvises when it should stay bounded. Reference: `gtd-workspace/capabilities/unknown.md`.
+
+### D. Shared-tools plugin — new LOCKED pattern
+
+**Decision (2026-05-06):** Any tool needed by more than one agent lives in a `shared-tools` plugin, not in an agent-specific plugin. `shared-tools` is loaded first in `plugins.load.paths` so it wins any future tool name collision.
+
+Per-agent config for shared tools lives in `~/.openclaw/workspace/plugins/shared-tools/agent-settings.json`, keyed by agent ID. This is the fallback when gateway `agents.list` entry-level `settings` are unavailable (gateway schema rejects unknown keys on agent entries as of v2026.4.5).
+
+Agent ID at execute time comes from `ctx.agentId` via the factory registration pattern: `api.registerTool((ctx) => ({ execute(_id, params) { const agentId = ctx.agentId ?? "unknown"; } }))`. Do not read `process.env.OPENCLAW_AGENT_ID` — that env var does not exist in the gateway.
+
+### E. agent_id resolution standing rule
+
+**Decision (2026-05-06):** The mechanism used to resolve agent identity for span attributes and the mechanism used to resolve agent identity for config lookup must be the same. If they diverge, one silently falls back with no error signal while the other succeeds, making span attributes misleading.
+
+Canonical: both use `ctx.agentId` from the factory closure. No secondary resolution path. Applies to any agent touching shared-tools or any future shared plugin.
+
+### F. Per-user profile.json — user-mutable config pattern
+
+**Decision (2026-05-06):** `profile.json` at `<agent_data_path>/<user_id>/profile.json` is the source of truth for any config the user can change (timezone, preferences, display name). The agent default in `agent-settings.json` is the cold-start fallback only — used when no profile exists or the profile has no value for the key.
+
+This pattern applies to all agents, not just GTD. When `tz_source = "fallback"` appears in a Honeycomb span, it means no profile exists or the profile has no value for that key. `tz_source = "profile"` means the user's own setting was honored.
+
+---
+
 ## REFERENCE
 
 ### Directory layout
@@ -365,10 +407,15 @@ When a bot becomes group admin, the group upgrades to a supergroup with a new ch
 | 9. Temperature=0 inner calls | LOCKED |
 | 10. NO_REPLY for inline buttons | LOCKED |
 | Multi-identity model | TRIAL |
-| Inner LLM role-based routing | TRIAL |
+| Inner LLM role-based routing | TRIAL — promotion pending (see Pending A) |
 | Memory proxy bypass | TRIAL (workaround) |
+| B. Capability file content shape | PENDING LOCK |
+| C. Negative-path capability file | PENDING LOCK |
+| D. Shared-tools plugin | PENDING LOCK |
+| E. agent_id resolution standing rule | PENDING LOCK |
+| F. Per-user profile.json config | PENDING LOCK |
 
-Trial patterns elevate to LOCKED via supervisor session decision-reasoning doc; the lock entry replaces the trial entry.
+Trial patterns elevate to LOCKED via supervisor session decision-reasoning doc; the lock entry replaces the trial entry. PENDING LOCK entries are binding for new builds but awaiting editorial integration.
 
 ---
 
