@@ -80,8 +80,8 @@ def test_happy_path_returns_events(capsys: pytest.CaptureFixture) -> None:
     assert result["events"][0] == {
         "id": "evt1",
         "summary": "Team standup",
-        "start": {"dateTime": "2026-05-05T10:00:00-06:00"},
-        "end": {"dateTime": "2026-05-05T10:30:00-06:00"},
+        "start": {"dateTime": "2026-05-05T10:00:00-06:00", "timeZone": "America/Denver"},
+        "end": {"dateTime": "2026-05-05T10:30:00-06:00", "timeZone": "America/Denver"},
         "attendees": [{"email": "a@b.com"}],
         "location": "Room 1",
         "description": "Sync",
@@ -281,7 +281,32 @@ def test_otel_span_attrs_on_success() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Case 10: Invalid JSON args — err() called
+# Case 10: Cross-timezone normalization — externally-created event times converted to local TZ
+# Guards: events created by others in e.g. Eastern time displaying wrong local time to user.
+# ---------------------------------------------------------------------------
+
+def test_external_timezone_normalized_to_local() -> None:
+    from get_events import run_list_events
+
+    # Simulate an event created in Eastern time (UTC-4): 5:30pm EDT = 3:30pm MDT
+    eastern_event = _make_event()
+    eastern_event["start"] = {"dateTime": "2026-05-07T17:30:00-04:00", "timeZone": "America/New_York"}
+    eastern_event["end"] = {"dateTime": "2026-05-07T18:00:00-04:00", "timeZone": "America/New_York"}
+    mock_service = _make_service_mock([eastern_event])
+
+    with patch("get_events.build", return_value=mock_service), \
+         patch("get_events.get_google_credentials", return_value=MagicMock()):
+        result = run_list_events()
+
+    start = result["events"][0]["start"]
+    assert start["timeZone"] == "America/Denver"
+    # 5:30pm EDT = 3:30pm MDT
+    assert "15:30:00" in start["dateTime"]
+    assert "-06:00" in start["dateTime"]
+
+
+# ---------------------------------------------------------------------------
+# Case 11: Invalid JSON args — err() called
 # Guards: JSON parse error propagates uncaught to gateway as unformatted crash.
 # ---------------------------------------------------------------------------
 

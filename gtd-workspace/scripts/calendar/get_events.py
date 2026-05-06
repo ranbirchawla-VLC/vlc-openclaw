@@ -11,6 +11,7 @@ import os
 import sys
 import time
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -53,12 +54,27 @@ def _seven_days_iso() -> str:
     return (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
 
 
+def _to_local(dt_field: dict | None) -> dict | None:
+    """Normalize a Google Calendar dateTime dict to the user's local timezone.
+
+    Externally-created events carry the organizer's UTC offset, causing the LLM
+    to display the wrong local time. This converts every timed event to TZ so
+    the string the LLM sees already reflects local time.
+    All-day events (date-only) are returned unchanged.
+    """
+    if dt_field is None or "dateTime" not in dt_field:
+        return dt_field
+    dt = datetime.fromisoformat(dt_field["dateTime"])
+    local = dt.astimezone(ZoneInfo(TZ))
+    return {"dateTime": local.isoformat(), "timeZone": TZ}
+
+
 def _map_event(e: dict) -> dict:
     return {
         "id": e.get("id"),
         "summary": e.get("summary"),
-        "start": e.get("start"),
-        "end": e.get("end"),
+        "start": _to_local(e.get("start")),
+        "end": _to_local(e.get("end")),
         "attendees": e.get("attendees", []),
         "location": e.get("location"),
         "description": e.get("description"),

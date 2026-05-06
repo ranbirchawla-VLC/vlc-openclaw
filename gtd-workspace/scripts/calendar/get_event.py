@@ -10,10 +10,12 @@ import json
 import os
 import sys
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from common import err, get_google_credentials, ok
+from common import TZ, err, get_google_credentials, ok
 from otel_common import _is_transient_google, attach_parent_trace_context, get_tracer
 
 from googleapiclient.discovery import build
@@ -35,6 +37,20 @@ _CONTEXT_ENV = {
     "channel.peer_id": "OPENCLAW_CHANNEL_PEER_ID",
     "request.type":    "OPENCLAW_REQUEST_TYPE",
 }
+
+
+def _to_local(dt_field: dict | None) -> dict | None:
+    if dt_field is None or "dateTime" not in dt_field:
+        return dt_field
+    dt = datetime.fromisoformat(dt_field["dateTime"])
+    local = dt.astimezone(ZoneInfo(TZ))
+    return {"dateTime": local.isoformat(), "timeZone": TZ}
+
+
+def _normalize_event(event: dict) -> dict:
+    event["start"] = _to_local(event.get("start"))
+    event["end"] = _to_local(event.get("end"))
+    return event
 
 
 class _Input(BaseModel):
@@ -67,7 +83,7 @@ def run_get_event(event_id: str, calendar_id: str = "primary") -> dict:
                         calendarId=calendar_id,
                         eventId=event_id,
                     ).execute()
-                    return {"event": event}
+                    return {"event": _normalize_event(event)}
                 except Exception as exc:
                     if _is_transient_google(exc):
                         last_exc = exc
