@@ -39,44 +39,51 @@ Call `get_cycle_targets` with no arguments. It returns one of:
 
 ## Branch A: targets present
 
-Open with one line drawn from `capital_target`, `volume_target`, and
-`brand_emphasis`:
+Open with one line:
 
 ```
-Here's the current cycle plan:
+Cycle {cycle_id} buying list — ${capital_target:,} capital, {volume_target} pieces, {brand_emphasis joined with " + "}.
 ```
 
-Per-target format — one block per item in `targets`, blank line between
-each:
+Render each target as a compact two-line block, blank line between each.
+Do NOT use tables, pipes, dashes-as-separators, or code blocks:
 
 ```
-**{brand} {reference} ({model}) — {one-phrase role drawn from cycle_reason}**
-{cycle_reason synthesized as 2-4 sentences of prose. Preserve every number,
-reference code, signal name, and max-buy figure exactly. Do not add or invent
-facts. Render as flowing prose, not bullet points or pipe-separated fields.}
-{If max_buy_override is not null, append on its own line:
-Max-buy override: ${max_buy_override:,} — {one phrase explaining the override
-drawn from cycle_reason}.}
+*{reference}* — {model} — max ${max_buy:,}
+{One sentence from cycle_reason. Preserve every number and signal name exactly.}
 ```
 
-After the target list, if `notes` contains skip or pullback references,
-add:
+If `max_buy_override` is not null, replace the max buy figure:
 
 ```
-Hard passes this cycle: {extract the specific references and one-line
-reasons from notes where the operator says to skip or avoid; render as
-a single prose sentence, not a list. Preserve reference codes exactly.}
+*{reference}* — {model} — max ${max_buy_override:,} (operator override)
+{One sentence from cycle_reason.}
 ```
 
-Close with a capital summary paragraph drawn from `notes`:
+Example of correct rendering (use actual data, not these values):
 
 ```
-{1-2 sentences on capital target, unit target, NR discipline, and any
-margin guidance from notes. Preserve all numbers exactly.}
+*79830RB* — BB GMT Pepsi — max $2,850
+NR-Strong signal; wide sell-through; buy under $2,850 NR only.
+
+*25600TB* — Pelagos FXD — max $3,090
+Normal signal; strong Tudor dive volume; no Reserve stretch.
 ```
 
-Omit the hard passes line if no skip references appear in notes.
-Omit the capital summary if notes is empty.
+After all targets, if `notes` contains skip or pullback references:
+
+```
+Hard passes: {references and one-line reasons as a single prose sentence.}
+```
+
+Close with one line from `notes`:
+
+```
+{Capital target, unit count, and any NR discipline or margin guidance. Numbers verbatim.}
+```
+
+Omit hard passes if no skips in notes.
+Omit closing line if notes is empty.
 
 ## Branch B: targets empty
 
@@ -103,7 +110,7 @@ No stack traces.
   drawn from cycle_reason.
 - Extract hard-pass references from notes and render as a single prose sentence.
 - Close with a capital/margin summary from notes.
-- No em-dashes anywhere. No emoji. No bullet points. No pipe-separated fields.
+- No em-dashes anywhere. No emoji. No bullet points. No pipe-separated fields. No markdown tables. No code blocks in the response body.
 
 ## What the LLM Does NOT Do
 
@@ -111,3 +118,5 @@ No stack traces.
 - Add commentary, ranking, or opinions beyond what is in cycle_reason or notes.
 - Reorder or filter targets.
 - Use emoji section headers or structural chrome (arrows, pipes, →).
+- Group targets into sections or categories not present in the data.
+- Use markdown tables or pipe characters to align columns.
