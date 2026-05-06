@@ -93,8 +93,7 @@ class TestHappyPath:
         kwargs = _common_kwargs(tmp_path, csv_dir)
         result = report_pipeline.run_pipeline(str(xlsx), **kwargs)
 
-        assert set(result.keys()) == {"summary_path", "unnamed", "cycle_id"}
-        assert Path(result["summary_path"]).exists()
+        assert set(result.keys()) == {"unnamed", "cycle_id"}
         assert result["cycle_id"].startswith("cycle_")
         csv_files = sorted(csv_dir.glob("grailzee_*.csv"))
         assert len(csv_files) == 4
@@ -163,7 +162,6 @@ class TestTrendWindow:
         def _fake_run_analysis(csv_paths, output_folder, **kw):
             captured["csv_paths"] = list(csv_paths)
             return {
-                "summary_path": str(tmp_path / "summary.md"),
                 "unnamed": [],
                 "cycle_id": "cycle_2026-08",
             }
@@ -189,7 +187,6 @@ class TestTrendWindow:
 # ═══════════════════════════════════════════════════════════════════════
 
 _CANNED_RESULT = {
-    "summary_path": "/tmp/sum.md",
     "unnamed": [],
     "cycle_id": "cycle_2026-04",
 }
@@ -212,8 +209,24 @@ class TestRunFromDict:
         assert rc == 0
         assert out["status"] == "ok"
         assert out["cycle_id"] == "cycle_2026-04"
-        assert "summary_path" in out
         assert "unnamed" in out
+        assert "summary_path" not in out
+
+    def test_ok_envelope_exact_keys(self, tmp_path, monkeypatch, capsys):
+        """ok envelope is exactly {status, unnamed, cycle_id} — no extra keys.
+
+        Regression guard: if run_analysis gains a new return field (e.g. a
+        resurrected summary_path) without updating report.md and capability
+        consumers, this test fails before the agent sees the unexpected key.
+        """
+        monkeypatch.setattr(report_pipeline, "run_pipeline", _stub_pipeline)
+        xlsx = tmp_path / "report.xlsx"
+        xlsx.write_bytes(b"unused")
+
+        report_pipeline._run_from_dict({"input_report": str(xlsx)})
+        out = json.loads(capsys.readouterr().out)
+
+        assert set(out.keys()) == {"status", "unnamed", "cycle_id"}
 
     def test_extra_field_rejected(self, capsys):
         """Unknown business field → bad_input error envelope; exit 0."""

@@ -10,7 +10,7 @@ analyze_references.run. build_shortlist reads references from the v3 cache.
 Called by the report capability (Section 10.1):
     python3 scripts/run_analysis.py <csv> [<csv> ...] --output-dir DIR
 
-Returns {"summary_path", "unnamed", "cycle_id"} on success.
+Returns {"unnamed", "cycle_id"} on success.
 Returns {"status": "error", "error": str} on failure.
 
 Usage:
@@ -61,6 +61,13 @@ from scripts import write_cache
 
 tracer = get_tracer(__name__)
 
+# Signals that indicate a reference is worth a name-cache lookup.
+# Pass = too risky to buy; Low data = too few sales to score.
+# Neither warrants web resolution.
+_SIGNALS_WORTH_RESOLVING: frozenset[str] = frozenset(
+    {"Strong", "Normal", "Reserve", "Careful"}
+)
+
 
 def run_analysis(
     csv_paths: list[str],
@@ -74,7 +81,7 @@ def run_analysis(
     """Run the full analysis pipeline.
 
     csv_paths: normalized CSVs, newest first.
-    Returns {"summary_path": str, "unnamed": [str], "cycle_id": str}
+    Returns {"unnamed": [{"reference": str, "brand": str}], "cycle_id": str}
     """
     if not csv_paths:
         raise ValueError("No CSV paths provided; at least one report is required.")
@@ -212,13 +219,20 @@ def run_analysis(
             span.set_status(StatusCode.ERROR, str(exc))
             raise
 
-    # Step 13: Unnamed references
+    # Step 13: Unnamed references with actionable signals.
+    # Only include refs that are (a) absent from the name cache and
+    # (b) have at least one bucket whose signal indicates trading value.
+    # Pass and Low data refs are excluded — no value in resolving names
+    # for references we would never buy.
     unnamed = [
-        ref for ref, data in all_results.get("references", {}).items()
+        {"reference": ref, "brand": data.get("brand", "?")}
+        for ref, data in all_results.get("references", {}).items()
         if not data.get("named", False)
+        and any(
+            bd.get("signal") in _SIGNALS_WORTH_RESOLVING
+            for bd in data.get("buckets", {}).values()
+        )
     ]
-
-    summary_path: str = ""
 
     # Step 15: Cache write
     market_window = {
@@ -256,8 +270,7 @@ def run_analysis(
         )
 
     return {
-        "summary_path": summary_path,
-        "unnamed": sorted(unnamed),
+        "unnamed": sorted(unnamed, key=lambda x: x["reference"]),
         "cycle_id": current_cycle_id,
     }
 

@@ -44,33 +44,35 @@ folder) from grailzee_common constants — no flags needed.
 On success, stdout is JSON:
 
 ```json
-{"summary_path": "<path>", "unnamed": ["<ref>", ...], "cycle_id": "<cycle_id>"}
+{"unnamed": [{"reference": "<ref>", "brand": "<brand>"}, ...], "cycle_id": "<cycle_id>"}
 ```
 
 On failure, non-zero exit; stderr carries `{"status": "error", "error": "..."}`.
 
-### Step 4: Post the summary
+### Step 4: Resolve unnamed references
 
-Read the markdown at `summary_path`. Post to Telegram, chunking at 4000
-characters max per message.
+Cap at **20 web searches per run** — the name cache grows incrementally
+across cycles. Take the first 20 entries from `unnamed`.
 
-### Step 5: Resolve unnamed references
+Each entry carries `reference` and `brand`. For each of the 20:
+web search `"{brand} {reference} watch"` and note the confirmed model name.
+Skip any ref where results are ambiguous or yield no confident match.
 
-For each reference in `unnamed`:
-
-1. Web search: `"{brand} {reference} watch"` (brand from cache entry).
-2. Parse results for the official model name.
-3. Append to name_cache:
+Once all searches are done, write confirmed entries in a single call:
 
 ```
-python3 -c "from scripts.grailzee_common import append_name_cache_entry; append_name_cache_entry('<ref>', '<brand>', '<model>')"
+update_name_cache({"entries": [
+  {"reference": "<ref>", "brand": "<brand>", "model": "<model>"},
+  ...
+]})
 ```
 
-If a search fails or yields no confident match, skip the reference and
-continue. Do not stall the hand-off. At the end of the loop, include a
-one-line note listing any references that could not be resolved.
+Returns `{"status": "ok", "written": N, "skipped": N}`. Include a
+one-line note with written/skipped counts, how many unnamed refs remain
+total, and any refs in the 20 that could not be resolved.
+Do not stall the hand-off.
 
-### Step 6: Post the hand-off message
+### Step 5: Post the hand-off message
 
 Post verbatim (substituting `cycle_id`):
 
@@ -82,8 +84,8 @@ Cycle {cycle_id} analyzed. Ready to strategize in Chat.
 
 ### Success
 
-The markdown summary (chunked at 4000 chars) followed by the hand-off
-message above.
+The hand-off message above. If `unnamed` is non-empty, include the
+one-line unresolved-references note before the hand-off line.
 
 ### Error
 
@@ -97,8 +99,6 @@ Check the report file and try again. If the issue persists, check the logs.
 - Acknowledge the incoming report.
 - Invoke the wrapper; capture the returned dict.
 - Web-search unnamed references and resolve to model names.
-- Present the summary conversationally; highlight notable items (strong
-  emergers, premium threshold reached, high-volume momentum flips).
 - Chunk Telegram messages at 4000 characters max.
 - Route errors cleanly; no raw stack traces.
 
