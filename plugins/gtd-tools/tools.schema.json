@@ -1,6 +1,22 @@
 {
   "tools": [
     {
+      "name": "trina_dispatch",
+      "description": "Classify intent from the verbatim user message and return the matching capability prompt. Call first on every turn before any other tool. Returns {ok: true, data: {intent, capability_prompt}}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_message": {
+            "type": "string",
+            "description": "The verbatim user message, unmodified."
+          }
+        },
+        "required": [
+          "user_message"
+        ]
+      }
+    },
+    {
       "name": "list_events",
       "description": "List upcoming Google Calendar events. Returns {ok: true, data: {events: [{id, summary, start, end, attendees, location, description, html_link}]}}.",
       "inputSchema": {
@@ -47,17 +63,22 @@
       }
     },
     {
-      "name": "capture_gtd",
-      "description": "Capture a GTD record (task, idea, or parking_lot). Returns {ok: true, data: {id, record_type}} on success.",
+      "name": "capture",
+      "description": "Capture a GTD record (task, idea, or parking_lot). Returns {ok: true, data: {captured: {id, ...}}} where captured contains type-specific fields. task: id, title, context, project, priority, waiting_for, due_date, notes, status, created_at, updated_at, last_reviewed, completed_at. idea: id, title, topic, content, status, created_at, updated_at, last_reviewed, completed_at. parking_lot: id, content, reason, status, created_at, updated_at, last_reviewed, completed_at. record_type, source, telegram_chat_id excluded.",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "Sender's Telegram user ID. Read sender_id from the conversation metadata (untrusted)."
+          },
           "record": {
             "type": "object",
             "description": "The assembled GTD record. Must include record_type and required fields for that type."
           }
         },
         "required": [
+          "user_id",
           "record"
         ]
       }
@@ -68,6 +89,10 @@
       "inputSchema": {
         "type": "object",
         "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "Sender's Telegram user ID. Read sender_id from the conversation metadata (untrusted)."
+          },
           "context": {
             "type": "string",
             "description": "Filter by context (e.g. '@phone', '@computer')"
@@ -89,7 +114,9 @@
             "description": "Maximum number of items to return (default: 10; max: 25)"
           }
         },
-        "required": []
+        "required": [
+          "user_id"
+        ]
       }
     },
     {
@@ -98,12 +125,18 @@
       "inputSchema": {
         "type": "object",
         "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "Sender's Telegram user ID. Read sender_id from the conversation metadata (untrusted)."
+          },
           "limit": {
             "type": "integer",
             "description": "Maximum number of items to return (default: 10; max: 25)"
           }
         },
-        "required": []
+        "required": [
+          "user_id"
+        ]
       }
     },
     {
@@ -112,44 +145,54 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "limit": {
-            "type": "integer",
-            "description": "Maximum number of items to return (default: 10; max: 25)"
-          }
-        },
-        "required": []
-      }
-    },
-    {
-      "name": "review_gtd",
-      "description": "Run a structured GTD review scan. Returns {ok: true, data: {items, total_count, truncated, review_available, note}}. review_available is false until review semantics are fully designed.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "limit": {
-            "type": "integer",
-            "description": "Maximum number of items to return (default: 10; max: 25)"
-          }
-        },
-        "required": []
-      }
-    },
-    {
-      "name": "delegation",
-      "description": "Query waiting-for tasks grouped by person. Returns {ok: true, data: {groups: [{person, count, items}], total_items, truncated}}.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "person": {
+          "user_id": {
             "type": "string",
-            "description": "Filter to a specific person's waiting-for items (omit for all persons)"
+            "description": "Sender's Telegram user ID. Read sender_id from the conversation metadata (untrusted)."
           },
           "limit": {
             "type": "integer",
-            "description": "Maximum items per person group (default: 10; max: 25)"
+            "description": "Maximum number of items to return (default: 10; max: 25)"
           }
         },
-        "required": []
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "review",
+      "description": "Run a structured GTD review pass; stamp stale records per record type. Returns {ok: true, data: {reviewed_at: <iso>, by_type: {tasks: {items, total_count, truncated}, ideas: {items, total_count, truncated}, parking_lot: {items, total_count, truncated}}}}. On partial stamp failure: {ok: false, error: {code: \"storage_unavailable\", path: <failing-file>, ...}}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "Sender's Telegram user ID. Read sender_id from the conversation metadata (untrusted)."
+          },
+          "record_types": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "tasks",
+                "ideas",
+                "parking_lot"
+              ]
+            },
+            "description": "Record types to include in the review pass. Allowed values: 'tasks', 'ideas', 'parking_lot'. Default: all three. Omit to review all types."
+          },
+          "stale_for_days": {
+            "type": "integer",
+            "description": "Days before a record is considered stale (default: 7). Records not reviewed within this window are returned and stamped."
+          },
+          "limit_per_type": {
+            "type": "integer",
+            "description": "Maximum records to stamp per record type (default: 25; max: 25)."
+          }
+        },
+        "required": [
+          "user_id"
+        ]
       }
     }
   ]

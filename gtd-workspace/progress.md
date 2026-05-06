@@ -483,3 +483,507 @@ Code reviewer: fresh context subagent.
 - `auth-profiles.json` (gap 8): one operator command; do before gateway restart
 - Z3 cleanup deferred items (N-1, N-2, N-3, N-5, N-6, N-7): bundle into 2b.3 as a cleanup commit alongside the main wiring work
 - Gate 3 re-run checklist (after all wiring done): capture task via Telegram → verify `capture_gtd` appears in session audit → verify 16 fields on disk → query back → confirm no channel field leaks
+
+---
+
+## Sub-step 2b.3 — Phase 1: OTEL Plumbing
+
+**Started:** 2026-05-04
+**Branch:** `feature/sub-step-2b3-capability-wiring`
+
+**Pre-review commit:** `4f01fce` — 9/9 JS tests, 187/187 Python tests.
+**Post-review commit:** `5d8e5e0` — blocker fixed (span.end() in finally); KI-011/012/013 added.
+
+### Files delivered
+
+| File | Change |
+|---|---|
+| `plugins/gtd-tools/package.json` | `@opentelemetry/api ^1.9.0` dep; `@opentelemetry/sdk-trace-base ^1.25.0` devDep; `test` script |
+| `plugins/gtd-tools/otel-helpers.js` | New: SPAWN_ENV, PLUGIN_TRACER, activeTraceparent, toToolResult (error discipline), executeWithSpan (try/finally span.end) |
+| `plugins/gtd-tools/index.js` | Retrofit: imports otel-helpers; TOOLS loop with executeWithSpan; spawnArgv/Stdin accept extraEnv |
+| `plugins/gtd-tools/tests/test_index.js` | New: 9 JS unit tests (node:test + InMemorySpanExporter) |
+| `gtd-workspace/scripts/otel_common.py` | `attach_parent_trace_context()` context manager added after `extract_parent_context` |
+| `gtd-workspace/scripts/test_otel_common.py` | Tests 8-9 appended: attach and noop paths |
+| `gtd-workspace/scripts/tests/test_otel_phase1_integration.py` | New: tests 10-11 (in-process cross-process trace ID and parent span ID propagation) |
+| `gtd-workspace/scripts/gtd/capture.py` | `attach_parent_trace_context` import + `with attach_parent_trace_context():` in main() |
+| `gtd-workspace/scripts/gtd/query_tasks.py` | Same |
+| `gtd-workspace/scripts/gtd/query_ideas.py` | Same |
+| `gtd-workspace/scripts/gtd/query_parking_lot.py` | Same |
+| `gtd-workspace/scripts/gtd/review.py` | Same |
+| `gtd-workspace/scripts/calendar/get_events.py` | Replace `extract_parent_context` pattern with `attach_parent_trace_context` in main(); remove `context=parent_ctx` from start_as_current_span |
+| `gtd-workspace/scripts/calendar/get_event.py` | Same |
+| `~/.openclaw/agents/gtd/agent/auth-profiles.json` | Created: `{"version":1,"profiles":{}}` (not in repo) |
+| `.gitignore` | `node_modules/` added |
+| `gtd-workspace/docs/KNOWN_ISSUES.md` | KI-010 through KI-013 added |
+
+### Gate 1
+
+- 9/9 JS tests (node:test + @opentelemetry/sdk-trace-base InMemorySpanExporter)
+- 187/187 Python tests (183 prior + 4 new: tests 8-11)
+- RED confirmed for all 13 new tests before implementation
+- Integration test harness: in-process (approach a) per operator-approved fallback
+
+**Gate 1:** GREEN — 2026-05-04
+
+### Gate 2
+
+- 1 blocker: span.end() not in finally in executeWithSpan — fixed in post-review commit
+- 3 non-blockers: KI-011 (test 8 assertion gap), KI-012 (narrow Makefile target), KI-013 (SPAWN_ENV snapshot inconsistency across plugins)
+- 4 observations: no action required
+
+**Gate 2:** GREEN — 2026-05-04
+
+### Gate 3
+
+Deferred to end of Phase 1+2+3 combined or after Phase 6 naming alignment; full Telegram round-trip requires turn_state dispatcher (Phase 2) to be in place.
+
+### KNOWN_ISSUES added
+
+KI-010 through KI-013 (see `gtd-workspace/docs/KNOWN_ISSUES.md`).
+
+### Notes for next session (Phase 2)
+
+Phase 2 is now IN PROGRESS. See Phase 2 entry below.
+
+---
+
+## Sub-step 2b.3 — Phase 2: turn_state Plugin and Dispatcher
+
+**Started:** 2026-05-04
+**Branch:** `feature/sub-step-2b3-capability-wiring`
+
+**Pre-review commit:** `aae91d7` — 206 Python + 27/27 LLM (9 fixtures x 3x) + 9 JS.
+**Post-review commit:** `25f7c1c` — 207 Python + 27/27 LLM + 9 JS.
+**Tool rename commit:** `faa2ed1` — `turn_state` → `trina_dispatch` (collision with grailzee-eval-tools plugin).
+
+### Files delivered
+
+| File | Change |
+|---|---|
+| `gtd-workspace/scripts/turn_state.py` | New: three-layer classifier, inner LLM fallback, capability file read, 7 span attrs, 4 error codes |
+| `gtd-workspace/scripts/tests/test_turn_state.py` | New: 19 Python unit tests |
+| `gtd-workspace/scripts/tests/llm/conftest.py` | New: API key fixture, GTD_CAPABILITIES_DIR, isolate_tracer_provider |
+| `gtd-workspace/scripts/tests/llm/run_llm_3x.py` | New: 3x require-all-pass harness |
+| `gtd-workspace/scripts/tests/llm/test_turn_state_llm.py` | New: 9 LLM fixtures |
+| `gtd-workspace/scripts/tests/llm/fixtures/capabilities/` | New: 7 one-line stub .md files |
+| `plugins/gtd-tools/tool-schemas.js` | turn_state added as first entry (_spawn: stdin, user_message param) |
+| `plugins/gtd-tools/tools.schema.json` | Regenerated (9 tools) |
+| `Makefile` | test-gtd-turn-state, test-gtd-llm targets; test-gtd adds -m "not llm" |
+| `gtd-workspace/docs/KNOWN_ISSUES.md` | KI-014 added (capability_dispatched canon drift) |
+| `gtd-workspace/docs/sub-step-2b3/` | 11 design docs landed (handoff, classifier-spec, target-arch, negative-path, latency-playbook, turn_state-arch + 5 previously present) |
+
+### Gate 1
+
+- 206 Python passed (187 prior + 19 new); 9 deselected (LLM excluded from test-gtd)
+- 27/27 LLM (9 fixtures x 3 runs, temp=0, zero flakes)
+- 9/9 JS (unchanged)
+- RED confirmed before implementation for all 19 Python tests and all 9 LLM tests
+
+**Gate 1:** GREEN — 2026-05-04
+
+### Gate 2 findings (5 blockers, 7 non-blockers)
+
+**Blockers — all must be fixed in post-review commit:**
+
+- B-1: `turn_state.py:main()` — `ok()` never called; success path produces no stdout; plugin maps to subprocess_nonzero_exit error; tool completely non-functional in production
+- B-2: `test_turn_state.py` — no test exercises `main()` CLI entry point; missing `ok()` call passes all 19 tests undetected; add one stdin/stdout round-trip test
+- B-3: `turn_state.py:54-57` — module-level `_CAPABILITIES_DIR` is dead code; never referenced; `compute_turn_state()` re-reads env at call time; remove constant; fix test docstrings
+- B-4: `turn_state.py:196-217` — retry loop applies to parse failures at temp=0; deterministic at temp=0, retrying wastes 3 API calls + 3s sleep per incident; split except clauses: raise immediately on parse failure, retry only on SDK/network exceptions
+- B-5: `test_turn_state_llm.py:test_llm_continuity_turn_valid_result` — claims to assert `continuity_turn=True` on span but never does; dead io/patch imports; add InMemorySpanExporter and assert the attribute
+
+**Non-blockers — route to KNOWN_ISSUES.md:**
+
+- N-1 (P2): conftest `_resolve_api_key()` skips env check; silently skips LLM tests in CI with ANTHROPIC_API_KEY in env but no openclaw.json
+- N-2 (P2): `\bevents?\b` and `\bschedule\b` in calendar_read signals too broad; "can we schedule a call" dispatches to calendar_read
+- N-3 (P2): `\bi need to\b` in capture signals fires before review; "I need to do my weekly review" routes to capture
+- N-4 (P3): `_load_api_key()` duplicated from otel_common.py
+- N-5 (P3): test 19 is subset of test 14; no distinct behavior
+- N-6 (P3): tests 7-8 assert only intent, not capability_prompt; wrong file could be served silently
+- N-7 (P3): conftest module docstring incorrect re: API key resolution order
+
+**Gate 2:** GREEN — 2026-05-05
+
+### Gate 3
+
+Session `db423255`. Tool timeline:
+- `trina_dispatch` called first — correct dispatcher, grailzee collision resolved
+- Returns `capability_file_missing` — expected; capabilities dir is Phase 3 deliverable
+- 0 forbidden calls; 0 exec bypasses
+
+**Gate 3 finding:** `grailzee-eval-tools` plugin also registers a tool named `turn_state` and loads before `gtd-tools` in `plugins.load.paths`. GTD agent was calling grailzee's classifier, which returns `intent: "default"` for all GTD messages. Fixed by renaming GTD's dispatcher to `trina_dispatch` (`faa2ed1`). `tools.allow` in `~/.openclaw/openclaw.json` updated via operator patch script.
+
+**Gate 3:** GREEN (dispatch layer) — 2026-05-05
+
+Full end-to-end pass (capture + query round-trip) deferred to Phase 3 gate after capability files are written.
+
+### Notes for next session (Phase 3)
+
+- Phase 3 deliverable: write `gtd-workspace/capabilities/` with 7 `.md` files: `capture.md`, `query_tasks.md`, `query_ideas.md`, `query_parking_lot.md`, `review.md`, `calendar_read.md`, `unknown.md`
+- `capture.md` must include the full task/idea/parking_lot schema; agent must be told to populate `source` and `telegram_chat_id` from conversation metadata (sender_id = Telegram chat ID, source = "telegram")
+- Rewrite `AGENTS.md` per AGENT_ARCHITECTURE.md skeleton: correct tools list (trina_dispatch + 8 others + message), Hard Rules block, On Every Startup = read SKILL.md only
+- Write `gtd-workspace/SKILL.md` at workspace root (current file is mislocated at `skills/gtd/SKILL.md` and references v1 tool names)
+- Update `TOOLS.md` to reference current plugin tool names
+- Gate 3 full pass: capture via Telegram → 16 fields on disk → query back → no channel field leaks
+- Branch: `feature/sub-step-2b3-capability-wiring`; commits ahead of main: `aae91d7`, `25f7c1c`, `faa2ed1`
+
+---
+
+## Sub-step 2b.3 — Phase 3: Dispatcher Naming + Surface Alignment + Gate 3 Production Fixes
+
+**Started:** 2026-05-05
+**Branch:** `feature/sub-step-2b3-capability-wiring`
+
+**Squash commit:** `afb65de` — 209 Python + 27/27 LLM + 9 JS.
+
+### Files delivered
+
+| File | Change |
+|---|---|
+| `AGENT_ARCHITECTURE.md` | Replaced stale 760-line verbose version with compact `_aSkills` version (LOCKED PATTERNS 1-10). Pattern 1 rewritten: dispatcher name is per-agent unique; convention `<agent>_dispatch`; collision risk in flat plugin namespace documented; Trina as canonical reference; grailzee-eval flagged as legacy (KI-018). |
+| `gtd-workspace/AGENTS.md` | Full rewrite from v1 legacy to architecture skeleton. PREFLIGHT block added citing `trina_dispatch`. Tools Available: 9 registered plugin tools + `message`. Identity line preserved verbatim from v1. |
+| `gtd-workspace/TOOLS.md` | Replaced v1 Python tool table and stale LLM Skills section with live 9-tool plugin surface. Paths block corrected. `capture_gtd` return shape corrected (post-review: `{captured: {...}}` not `{id, record_type}`). |
+| `gtd-workspace/scripts/gtd/tests/test_capture_user_pathing.py` | New: Pattern 7 characterization test; group-chat scenario (alpha + beta in same chat → separate per-user directories; chat ID never appears as directory component). |
+| `gtd-workspace/docs/KNOWN_ISSUES.md` | KI-018 through KI-027 added: Pattern 1 naming crystallization, handoff path drift, handoff envelope claim drift, GTD_STORAGE_ROOT vs DATA_ROOT divergence, path segment divergence from Pattern 7, dual test tree gap, bounded-autonomy enforcement gap, Gate 2 N-1/N-2/N-3. |
+| `plugins/gtd-tools/tool-schemas.js` | `capture_gtd` description corrected to actual return shape. `user_id` added as required parameter to all 6 GTD tools. Schema regenerated. |
+| `plugins/gtd-tools/tools.schema.json` | Regenerated (twice: once for description fix, once for user_id parameter). |
+| `plugins/gtd-tools/otel-helpers.js` | SPAWN_ENV changed from module-load-time `process.env` snapshot to static OTEL overrides only. `process.env` now spread at call time in spawnArgv/spawnStdin. |
+| `plugins/gtd-tools/index.js` | `spawnArgv` and `spawnStdin` updated: `{ ...process.env, ...SPAWN_ENV, ...extraEnv }` — live process.env at call time picks up gateway per-request injections. |
+| `gtd-workspace/scripts/gtd/capture.py` | `_Input` gains `user_id: str`. `main()` reads from `inp.user_id`. `source` hardcoded `"telegram"`. `telegram_chat_id = inp.user_id` (DM pattern). |
+| `gtd-workspace/scripts/gtd/query_tasks.py` | `_Input` gains `user_id: str`. `main()` reads from `inp.user_id`. |
+| `gtd-workspace/scripts/gtd/query_ideas.py` | Same. |
+| `gtd-workspace/scripts/gtd/query_parking_lot.py` | Same. |
+| `gtd-workspace/scripts/gtd/review.py` | Same. |
+| `gtd-workspace/scripts/gtd/delegation.py` | Same. |
+| `gtd-workspace/scripts/gtd/tests/test_capture.py` | `test_capture_persists_channel_fields` updated: env monkeypatching removed; `user_id` in args JSON; assertions updated for hardcoded source and user-derived chat_id. |
+| `gtd-workspace/scripts/gtd/tests/test_capture_user_pathing.py` | Updated: `_args_json` includes `user_id`; `_invoke` drops OPENCLAW_ env vars; `telegram_chat_id` assertion updated to match user_id. |
+
+### Gate 1
+
+- 209/209 Python (unchanged count; all tests green after each change)
+- 27/27 LLM (9 fixtures × 3 runs, temp=0, zero flakes)
+- 9/9 JS (all green after SPAWN_ENV fix)
+
+**Gate 1:** GREEN — 2026-05-05
+
+### Gate 2 findings (1 blocker, 3 non-blockers, 3 observations)
+
+- B-1: `capture_gtd` return shape wrong in TOOLS.md and tool-schemas.js (`{id, record_type}` described; actual is `{captured: {...}}`). Fixed.
+- N-1 (P2, KI-025): Pattern 7 mismatch in TOOLS.md without flagging deviation.
+- N-2 (P3, KI-026): TOOLS.md Paths block omits default storage_root fallback.
+- N-3 (P3, KI-027): test_capture_user_pathing.py missing record_type absence assertion.
+
+**Gate 2:** GREEN — 2026-05-05
+
+### Gate 3 production fixes
+
+Three issues found and fixed during smoke testing:
+
+1. **SPAWN_ENV snapshot** — `otel-helpers.js` captured `process.env` at module load time. Gateway per-request env injections (OPENCLAW_USER_ID etc.) never reached subprocesses. Fixed: `process.env` spread at call time.
+
+2. **User identity mechanism** — Gateway passes sender context as conversation metadata (JSON block in user message), NOT as `process.env.OPENCLAW_USER_ID`. All 6 GTD tool scripts were reading from env (always empty). Fixed: `user_id` as explicit tool parameter; LLM reads `sender_id` from message metadata and passes it. Matches nutriosv2 pattern.
+
+3. **Gate 3 result** — Session `fa207e8d`: `capture_gtd` returned `{ok: true, data: {captured: {...}}}` with `user_id: "8712103657"` correctly threaded from Telegram → LLM → tool parameter → storage path. 0 forbidden calls, 0 exec bypasses.
+
+**Gate 3:** PARTIAL — dispatch layer (capture) cleared 2026-05-05. `trina_dispatch` still returns `capability_file_missing`; capabilities directory is Phase 3 remaining deliverable.
+
+### KNOWN_ISSUES added
+
+KI-018 through KI-027 (see `gtd-workspace/docs/KNOWN_ISSUES.md`).
+
+### Notes for next session (Phase 3 continued — capability files)
+
+- Write `gtd-workspace/capabilities/` — 7 files: `capture.md`, `query_tasks.md`, `query_ideas.md`, `query_parking_lot.md`, `review.md`, `calendar_read.md`, `unknown.md`
+- `capture.md`: schema per type (task/idea/parking_lot); instruct LLM to read `sender_id` from conversation metadata and pass as `user_id`; `source` is always `"telegram"` (hardcoded in capture.py)
+- Write `gtd-workspace/SKILL.md` at workspace root (current at `skills/gtd/SKILL.md` references v1 tool names)
+- Gate 3 full pass: capture via Telegram → `trina_dispatch` returns capability_prompt → `capture_gtd` called with user_id → record on disk → query back
+- Branch: `feature/sub-step-2b3-capability-wiring`; squash commit: `afb65de`
+
+---
+
+## Sub-step 2b.3 — Phase 3b: get_today_date plugin tool
+
+**Started:** 2026-05-05
+**Branch:** `feature/sub-step-2b3-capability-wiring`
+**Status:** Gate 1 GREEN — awaiting Gate 2 (code-reviewer subagent)
+
+### Files delivered
+
+| File | Change |
+|---|---|
+| `gtd-workspace/scripts/get_today_date.py` | New: `run_get_today_date(tz_str=None)` pure computation; `main()` with OTEL span `gtd.get_today_date`; reads `GTD_TZ` from `common.TZ`; error code `invalid_timezone` on bad tz string |
+| `gtd-workspace/scripts/tests/test_get_today_date.py` | New: 7 tests (shape, ISO format, Denver midnight boundary, explicit tz_str override, invalid timezone GTDError, span emission with tz attribute, main() CLI round-trip) |
+| `plugins/gtd-tools/tool-schemas.js` | `get_today_date` entry added after `trina_dispatch`; `_spawn: "argv"`; no parameters |
+| `plugins/gtd-tools/tools.schema.json` | Regenerated; 10 tools |
+| `Makefile` | `test-gtd-get-today-date` target added; added to `.PHONY` |
+
+### Design decisions
+
+- `run_get_today_date(tz_str=None)` accepts explicit tz for testability; defaults to `common.TZ` (`GTD_TZ` env var, fallback `America/Denver`).
+- OTEL span in `main()` only; `run_get_today_date` is pure. Success attr: `tz`. Error attrs: full error span discipline per Layer 3.3.
+- `_spawn: "argv"` — no parameters; consistent with nutriosv2 reference registration.
+- Phase 7 extension (per-user profile timezone) noted in module docstring; deferred.
+
+### Gate 1
+
+- 7/7 new tests GREEN (`make test-gtd-get-today-date`)
+- 216/216 Python full suite GREEN (`make test-gtd`); no regressions
+- RED confirmed before implementation: `ModuleNotFoundError: No module named 'get_today_date'`
+
+**Gate 1:** GREEN — 2026-05-05
+
+### Operator step (after Gate 2)
+
+Add `get_today_date` to `tools.allow` for the GTD agent in `~/.openclaw/openclaw.json` and restart gateway.
+
+### Notes for next session (capability files)
+
+Session-open reading order:
+1. `gtd-workspace/progress.md` (this file)
+2. `gtd-workspace/docs/sub-step-2b3/2b3-handoff-2026-05-04-v3.md` (latest handoff; v4 does not exist)
+3. `gtd-workspace/docs/sub-step-2b3/2b3-soul-anchor-2026-05-04-v2.md`
+4. `gtd-workspace/docs/sub-step-2b3/2b3-capability-shape-2026-05-04-v1.md` (per-capability sketches)
+5. `gtd-workspace/docs/sub-step-2b3/2b3-negative-path-2026-05-04-v2.md`
+6. `gtd-workspace/docs/sub-step-2b3/2b3-outcomes-lock-2026-05-04-v1.md`
+7. `gtd-workspace/docs/sub-step-2b3/2b3-decision-reasoning-2026-05-04-v1.md`
+
+Capability authoring prerequisites confirmed complete:
+- `trina_dispatch` — registered and live
+- `get_today_date` — script + tests + registration done; operator tools.allow step pending
+- AGENTS.md, TOOLS.md — rewritten to current surface
+- capture_gtd user_id wiring — confirmed live (Gate 3 session fa207e8d)
+
+Remaining scope for Phase 3:
+- 7 capability files at `gtd-workspace/capabilities/`
+- `gtd-workspace/SKILL.md` at workspace root
+- Phase 6 renames: `capture_gtd` → `capture`, `review_gtd` → `review`, remove `delegation`
+- Read query/review Python scripts before authoring query/review capability files (exact field names for verbatim render rule)
+- Full Gate 3 sweep after capabilities land
+
+---
+
+## Sub-step 2b.3 — Phase 6: Tool Renames + Surface Alignment
+
+**Commit:** `2228447`
+**Branch:** `feature/sub-step-2b3-capability-wiring`
+
+- `capture_gtd` → `capture` in `tool-schemas.js`, `tools.schema.json`, `AGENTS.md`, `TOOLS.md`
+- `review_gtd` → `review` — same files
+- `delegation` entry removed from `tool-schemas.js`; `delegation.py` and `test_delegation.py` deleted
+- `tools.schema.json` regenerated (10 tools → 9 tools)
+- **make test-gtd:** 206 passed, 9 deselected
+
+---
+
+## Sub-step 2b.3 — Phase 4-5: Capability Files + SKILL.md
+
+**Commits:** `2a83654` (Phase 4-5), `ae4dcb0` (post-review)
+**Branch:** `feature/sub-step-2b3-capability-wiring`
+
+### Files delivered
+
+| File | Change |
+|---|---|
+| `gtd-workspace/capabilities/capture.md` | New: 8-section capability; submission contracts; branch B/C prose; D-3 drift correction (actual error codes) |
+| `gtd-workspace/capabilities/query_tasks.md` | New: 13-field VRR; overdue get_today_date wiring; 3 branches |
+| `gtd-workspace/capabilities/query_ideas.md` | New: 9-field VRR; Branch C filter-unavailable handling |
+| `gtd-workspace/capabilities/query_parking_lot.md` | New: 8-field VRR; Branch C completed-status unavailable |
+| `gtd-workspace/capabilities/review.md` | New: actual return shape (`by_type`); D-2 drift correction inline |
+| `gtd-workspace/capabilities/calendar_read.md` | New: decision-helping/decision-making table; conflict definition; tight-stretch qualitative rule |
+| `gtd-workspace/capabilities/unknown.md` | New: 4 branches; 6 hard prohibitions verbatim; discovery surface allowed/not-allowed |
+| `gtd-workspace/SKILL.md` | New: dispatch rule; capabilities index; empty-prompt fallback (no enumeration) |
+| `gtd-workspace/skills/gtd/SKILL.md` | Deleted (v1; mislocated; never loaded) |
+| `gtd-workspace/AGENTS.md` | PREFLIGHT fallback updated to match SKILL.md; all em-dashes removed (9 pre-existing) |
+| `gtd-workspace/TOOLS.md` | Date Utility section added; review row corrected; 2 em-dashes removed |
+| `gtd-workspace/docs/KNOWN_ISSUES.md` | KI-028 added (guardrail outcomes citations missing, P3) |
+| `plugins/gtd-tools/tool-schemas.js` | `review` entry: D-1 `limit` → `limit_per_type`; expose `record_types`, `stale_for_days`; D-2 description rewrite |
+| `gtd-workspace/scripts/gtd/capture.py` | D-4: `tool.name` span attribute `capture_gtd` → `capture` |
+| `gtd-workspace/scripts/gtd/review.py` | D-4: `tool.name` span attribute `review_gtd` → `review` |
+| `gtd-workspace/scripts/gtd/tests/test_review.py` | D-4: assertion updated to match |
+
+### Gate 1
+
+- **209 Python tests passing** (`make test-gtd`)
+- 9 deselected (LLM)
+
+**Gate 1:** GREEN — 2026-05-05
+
+### Gate 2
+
+Code-reviewer subagent findings:
+- 1 blocker: AGENTS.md PREFLIGHT fallback contradicted SKILL.md (fixed in `ae4dcb0`)
+- 3 non-blockers: get_today_date separator (P3); review.md VRR path shorthand (fixed); guardrail outcome citations missing → KI-028
+
+**Gate 2:** GREEN — 2026-05-05
+
+### Gate 3
+
+Session `6fd93d6b`: `trina_dispatch` → `capture` pipeline live. Task "Call Chris Westerhold" captured ok:true; confirmed on disk. Two bugs found and fixed:
+
+1. **AGENTS.md PREFLIGHT fallback** contradicted SKILL.md (`ae4dcb0`).
+2. **Storage root misdirection** — writes went to wrong path (`gtd/ranbir`) due to `GTD_STORAGE_ROOT` plist env var being passed through subprocess env and overriding `tools/common.py`'s default. See Storage Root Fix section below.
+
+**Verbatim Render Rule violation noted:** Trina composed capture confirmation from user input with em-dash rather than rendering from `data.captured`. Pipeline works; voice is wrong. LLM test gap; deferred to capability test session.
+
+**`get_today_date` tool name conflict:** `nutriosv2-tools` plugin also registers `get_today_date`; logged as "plugin tool name conflict" at gateway startup. Tool still callable by GTD agent (allow-listed); conflict resolution unclear. Recommend rename to `gtd_get_today_date` before next production sweep.
+
+**Gate 3:** PARTIAL — dispatch + capture + storage path now verified correct.
+
+---
+
+## Storage Root Config Fix
+
+**Commit:** (today's commit, this session)
+**Branch:** `feature/sub-step-2b3-capability-wiring`
+
+### Root cause
+
+`tools/common.py`'s `storage_root()` read `GTD_STORAGE_ROOT` env var and fell back to `gtd-workspace/storage/` (legacy default). The plist had `GTD_STORAGE_ROOT=/Users/ranbirchawla/agent_data/gtd/ranbir` which flowed through `{ ...process.env, ...SPAWN_ENV }` into every Python subprocess. When the plist entry was removed, the fallback was `gtd-workspace/storage/`, not the production path. The real data (`~/agent_data/gtd-agent/users/8712103657/`) was never reached by the new pipeline.
+
+### Fix
+
+`gtd-workspace/config/gtd.json` gains `storage_root: /Users/ranbirchawla/agent_data`. Both `tools/common.py` (write layer) and `scripts/common.py` (constants layer) now check the config file when `GTD_STORAGE_ROOT` is unset. Config file takes precedence after env var. Legacy default (`gtd-workspace/storage/`) is last resort only.
+
+`~/Library/LaunchAgents/ai.openclaw.gateway.plist`: `GTD_STORAGE_ROOT` entry removed entirely.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `gtd-workspace/config/gtd.json` | `storage_root: /Users/ranbirchawla/agent_data` added |
+| `gtd-workspace/tools/common.py` | `storage_root()` reads config file before legacy default |
+| `gtd-workspace/scripts/common.py` | `_resolve_data_root()` added; `DATA_ROOT` uses config file fallback |
+| `gtd-workspace/scripts/test_common.py` | 3 new tests for `_resolve_data_root()` (env precedence, config fallback, neither-set error) |
+| `gtd-workspace/scripts/patch_openclaw_tools_allow.py` | New operator script: patches GTD agent `tools.allow` in `~/.openclaw/openclaw.json` |
+| `Makefile` | `test-gtd-get-today-date` target (Phase 3b carry) |
+
+### Gate 1
+
+- **209 Python tests passing** (`make test-gtd`); no regressions
+
+**Gate 1:** GREEN — 2026-05-05
+
+### Verified
+
+Probe write with `GTD_STORAGE_ROOT` unset → record landed at `~/agent_data/gtd-agent/users/8712103657/tasks.jsonl`. Live Telegram capture ("Call Mom") confirmed in same file immediately after gateway restart.
+
+**Gate 3 (storage path):** GREEN — 2026-05-05
+
+### KNOWN_ISSUES
+
+- `get_today_date` tool name conflict with `nutriosv2-tools`. Does not block current operation but may cause wrong tool to be called in edge cases. **Fix is the shared-tools plugin build below.**
+- Test probe record (`95f2b085 - test probe write 2`) in production tasks.jsonl; operator marking done in morning.
+- `gtd-workspace/storage/` directory may contain stale probe records from this debug session; safe to delete entire directory.
+
+---
+
+## Sub-step 2b.3 — Phase 7: shared-tools plugin (get_today_date consolidation)
+
+**Started:** 2026-05-06
+**Branch:** `feature/sub-step-2b3-capability-wiring` (same branch; do not create a new branch)
+
+**Plan doc:** `gtd-workspace/docs/sub-step-2b3/2b3-shared-tools-plan-2026-05-06.md`
+
+### Files delivered
+
+#### Created outside repo
+
+| Path | Description |
+|------|-------------|
+| `~/.openclaw/workspace/scripts/shared/get_today_date.py` | Self-contained; inline OTEL; reads GTD_TZ from env; `_configure_tracer()` for test injection; zero workspace imports; span `gtd.get_today_date` with `tz` attribute |
+| `~/.openclaw/workspace/plugins/shared-tools/agent-settings.json` | Agent ID to `{agent_data_path, default_timezone}` map; operator-managed; read at plugin module load. gateway schema rejects `settings` on agent entries; mapping lives here instead |
+| `~/.openclaw/workspace/plugins/shared-tools/package.json` | `@opentelemetry/api ^1.9.0` dep; `@opentelemetry/sdk-trace-base ^1.25.0` devDep |
+| `~/.openclaw/workspace/plugins/shared-tools/openclaw.plugin.json` | `id: shared-tools`; `configSchema: {}` required by gateway schema validator |
+| `~/.openclaw/workspace/plugins/shared-tools/tool-schemas.js` | Single `get_today_date` entry; optional `user_id` parameter |
+| `~/.openclaw/workspace/plugins/shared-tools/tools.schema.json` | Manually generated |
+| `~/.openclaw/workspace/plugins/shared-tools/otel-helpers.js` | `PLUGIN_TRACER="shared-tools"`; `resolveTZ()` exported pure function; `executeWithSpan()` accepts `extraAttrs`; span `shared-tools.tool.<toolName>` |
+| `~/.openclaw/workspace/plugins/shared-tools/index.js` | Factory pattern: `api.registerTool((ctx) => ({...}))` — `ctx.agentId` identifies calling agent at execute time; injects `GTD_TZ` + `agent_id` span attr |
+| `~/.openclaw/workspace/plugins/shared-tools/tests/test_index.js` | 9 JS tests (resolveTZ 4 cases, executeWithSpan extraAttrs, GTD_TZ injection, span name, SPAWN_ENV, TRACEPARENT) |
+
+#### Modified outside repo
+
+| Path | Change |
+|------|--------|
+| `~/.openclaw/workspace/plugins/nutriosv2-tools/tool-schemas.js` | `get_today_date` entry removed |
+| `~/.openclaw/workspace/plugins/nutriosv2-tools/tools.schema.json` | `get_today_date` entry removed |
+| `~/.openclaw/openclaw.json` | `shared-tools` first in `plugins.load.paths`; `shared-tools` in `plugins.entries` + `plugins.installs` |
+| `~/Library/LaunchAgents/ai.openclaw.gateway.plist` | `OPENCLAW_PYTHON_BIN=/Users/ranbirchawla/ai-code/vlc-openclaw-gtd/.venv/bin/python` added; fixes `ModuleNotFoundError: opentelemetry` when shared script spawned via system python3 |
+
+#### Modified in repo
+
+| Path | Change |
+|------|--------|
+| `plugins/gtd-tools/tool-schemas.js` | `get_today_date` entry removed |
+| `plugins/gtd-tools/tools.schema.json` | `get_today_date` entry removed |
+| `plugins/nutriosv2-tools/tool-schemas.js` | `get_today_date` entry removed (post-review B-1 fix) |
+| `plugins/nutriosv2-tools/tools.schema.json` | `get_today_date` entry removed (post-review B-1 fix) |
+| `gtd-workspace/scripts/get_today_date.py` | **Deleted** (dead code; superseded by shared-tools) |
+| `gtd-workspace/scripts/tests/test_get_today_date.py` | **Deleted** (imported deleted script) |
+| `gtd-workspace/scripts/tests/test_shared_get_today_date.py` | New: 3 Python tests (GTD_TZ honored, fallback, span tz attr) |
+| `Makefile` | `test-gtd-shared-get-today-date` added; `test-gtd-get-today-date` removed; `.PHONY` updated |
+| `gtd-workspace/AGENTS.md` | `get_today_date` description notes shared-tools plugin |
+| `gtd-workspace/TOOLS.md` | Date Utility updated: user_id param, shared-tools registration noted |
+| `gtd-workspace/docs/KNOWN_ISSUES.md` | KI-029 added (conftest sys.path fragility) |
+
+### Key design deviations from plan
+
+1. **`agents.list.N.settings` rejected by gateway schema.** Plan put `agent_data_path` + `default_timezone` on agent entries in `openclaw.json`. Gateway validator rejected unknown keys. Pivoted to `agent-settings.json` in plugin directory; `index.js` reads it at module load.
+
+2. **`OPENCLAW_AGENT_ID` does not exist.** Plan assumed gateway injected this env var. Exhaustive grep of gateway dist confirmed it is never set. Gateway source revealed the factory pattern: `api.registerTool((ctx) => toolObject)` receives `ctx.agentId` = session-resolved agent ID (parsed from session key format `agent:<agentId>:<rest>`). `index.js` updated to factory pattern; `agent_id` added as span attribute.
+
+3. **`OPENCLAW_PYTHON_BIN` not set; system python3 lacks opentelemetry.** Shared script spawned by the gateway process uses system python3 (`/opt/homebrew/bin/python3`) which has no opentelemetry packages. Added `OPENCLAW_PYTHON_BIN` to plist pointing to the GTD venv. All plugins in this gateway use the same Python.
+
+### Gate 1
+
+- **205/205 Python tests** (`make test-gtd`; 212 initial − 7 from deleted test file)
+- **9/9 JS tests** (`node --test tests/` in `~/.openclaw/workspace/plugins/shared-tools/`)
+
+**Gate 1:** GREEN — 2026-05-06
+
+### Gate 2
+
+Code-reviewer subagent run twice (initial build + factory pattern change).
+
+**B-1 (FIXED):** `plugins/nutriosv2-tools/` repo copy still registered `get_today_date`. Removed from both `tool-schemas.js` and `tools.schema.json`.
+
+**B-2 (WAIVED):** `tools.allow` cross-plugin resolution concern. Allow-list is name-based and resolved globally across all loaded plugins; confirmed by gateway source.
+
+**B-3 (FIXED):** Superseded `get_today_date.py` retained as dead code. Deleted per CLAUDE.md; test file deleted with it.
+
+**N-1 (open, P2):** Factory registration path not directly tested. `ctx.agentId` → `_AGENT_SETTINGS` lookup exercised only by Gate 3, not by unit tests.
+
+**Gate 2:** GREEN — 2026-05-06
+
+### Gate 3
+
+**Session `a59f7a84` (2026-05-06, first post-restart smoke):**
+- `trina_dispatch` → `capture` intent — correct
+- `get_today_date` called with `user_id: "8712103657"` — **dispatch and user_id wiring correct**
+- `get_today_date` returned `ok: false` — `ModuleNotFoundError: No module named 'opentelemetry'` — system python3 used; no otel packages
+- Agent fell back to conversation metadata timestamp; `capture` succeeded
+- **Root cause fixed:** `OPENCLAW_PYTHON_BIN` added to plist; gateway restarted
+
+**Gate 3:** PENDING — one more smoke test required to confirm `get_today_date` returns `ok: true` with correct `tz`, `tz_source`, `agent_id` span attributes.
+
+### KNOWN_ISSUES added
+
+KI-029 (conftest sys.path fragility)
+
+### Notes for next session
+
+**Gate 3 completion (top priority):**
+- Send a capture to Trina that uses "today" (e.g. "add X due today")
+- Confirm `get_today_date` returns `ok: true` in session audit
+- In Honeycomb, confirm span `shared-tools.tool.get_today_date` with `agent_id: "gtd"`, `tz: "America/Denver"`, `tz_source: "fallback"`
+
+**After Gate 3 GREEN:**
+- Squash branch and merge to main (final 2b.3 close-out)
+- Branch: `feature/sub-step-2b3-capability-wiring`
+- Next sub-step: 2c (identity model) or 2d (update semantics); see `gtd-workspace/docs/trina-scope-2026-05-02-v1.md`
+
+**System state as of session close:**
+- Gateway: running with `OPENCLAW_PYTHON_BIN` set; `shared-tools` loaded first in plugin chain
+- `get_today_date` registered in `shared-tools` only; removed from `gtd-tools` and `nutriosv2-tools`
+- `index.js` uses `(ctx) => ({...})` factory; `ctx.agentId` identifies calling agent
+- `agent-settings.json` keys: `"gtd"` → `gtd-agent/users`, `"nutriosv2"` → `agent_data/nutriosv2`
+- Plist: `OPENCLAW_PYTHON_BIN=/Users/ranbirchawla/ai-code/vlc-openclaw-gtd/.venv/bin/python`
+- Test suite: 205 Python GREEN, 9 JS GREEN

@@ -18,13 +18,9 @@
 #   4. Allowlist the new Bash(make test-<skill-name>*) patterns in .claude/settings.json.
 
 PYTHON = .venv/bin/python
-PYTEST = python3.12 -m pytest
+PYTEST = $(PYTHON) -m pytest
 
-<<<<<<< HEAD
-.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-eval-report-pipeline test-grailzee-eval-ingest-sales-plugin test-grailzee-eval-turn-state test-grailzee-cowork test-grailzee-ledger test-grailzee-ledger-schema test-grailzee-ledger-transform test-grailzee-ledger-lock test-grailzee-ledger-merge test-grailzee-ledger-prune test-grailzee-ledger-archive test-grailzee-ledger-read test-grailzee-ledger-orchestrator test-grailzee-ledger-integration test-gtd test-gtd-storage test-gtd-helpers test-gtd-common test-gtd-otel test-gtd-calendar
-=======
-.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-gtd test-gtd-storage test-gtd-helpers test-gtd-common test-gtd-otel test-gtd-calendar test-gtd-internal
->>>>>>> e4499d2 (sub-step-2b.1: shared helpers foundation + internal modules)
+.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-eval-report-pipeline test-grailzee-eval-ingest-sales-plugin test-grailzee-eval-turn-state test-grailzee-cowork test-grailzee-ledger test-grailzee-ledger-schema test-grailzee-ledger-transform test-grailzee-ledger-lock test-grailzee-ledger-merge test-grailzee-ledger-prune test-grailzee-ledger-archive test-grailzee-ledger-read test-grailzee-ledger-orchestrator test-grailzee-ledger-integration test-gtd test-gtd-storage test-gtd-helpers test-gtd-common test-gtd-otel test-gtd-calendar test-gtd-internal test-gtd-capture test-gtd-queries test-gtd-delegation test-gtd-review test-gtd-migration test-gtd-turn-state test-gtd-shared-get-today-date test-gtd-llm
 
 help:
 	@echo "Available targets:"
@@ -69,7 +65,14 @@ help:
 	@echo "  make test-gtd-common             - run scripts/common.py tests only"
 	@echo "  make test-gtd-otel               - run otel_common.py tests only"
 	@echo "  make test-gtd-calendar           - run calendar tool tests only"
-	@echo "  make test-gtd-internal           - run 2b.1 internal modules (normalize, validate, write)"
+	@echo "  make test-gtd-internal           - run gtd internal modules (validate, write, common, migration)"
+	@echo "  make test-gtd-capture            - run capture entry point tests"
+	@echo "  make test-gtd-queries            - run query_tasks, query_ideas, query_parking_lot tests"
+	@echo "  make test-gtd-delegation         - run delegation entry point tests"
+	@echo "  make test-gtd-review             - run review entry point tests"
+	@echo "  make test-gtd-migration          - run migrate_to_simplified_shape tests
+	@echo "  make test-gtd-turn-state         - run turn_state dispatcher tests"
+	@echo "  make test-gtd-llm               - run GTD LLM tests (3x require-all-pass)""
 
 setup:
 	test -d .venv || python3.11 -m venv .venv
@@ -190,7 +193,7 @@ test-nutriosv2-llm-3x:
 	$(PYTHON) skills/nutriosv2/scripts/run_llm_3x.py
 
 test-gtd:
-	$(PYTEST) gtd-workspace/scripts
+	$(PYTEST) gtd-workspace/scripts -m "not llm"
 
 test-gtd-internal:
 	$(PYTEST) gtd-workspace/scripts/gtd/tests gtd-workspace/scripts/test_common.py
@@ -209,3 +212,27 @@ test-gtd-otel:
 
 test-gtd-calendar:
 	$(PYTEST) gtd-workspace/scripts/calendar
+
+test-gtd-capture:
+	$(PYTEST) gtd-workspace/scripts/gtd/tests/test_capture.py
+
+test-gtd-queries:
+	$(PYTEST) gtd-workspace/scripts/gtd/tests/test_query_tasks.py gtd-workspace/scripts/gtd/tests/test_query_ideas.py gtd-workspace/scripts/gtd/tests/test_query_parking_lot.py
+
+test-gtd-delegation:
+	$(PYTEST) gtd-workspace/scripts/gtd/tests/test_delegation.py
+
+test-gtd-review:
+	$(PYTEST) gtd-workspace/scripts/gtd/tests/test_review.py
+
+test-gtd-migration:
+	$(PYTEST) gtd-workspace/scripts/gtd/tests/test_migrate_to_simplified_shape.py
+
+test-gtd-turn-state:
+	$(PYTEST) gtd-workspace/scripts/tests/test_turn_state.py -v
+
+test-gtd-shared-get-today-date:
+	$(PYTEST) gtd-workspace/scripts/tests/test_shared_get_today_date.py -v
+
+test-gtd-llm:
+	$(PYTHON) gtd-workspace/scripts/tests/llm/run_llm_3x.py

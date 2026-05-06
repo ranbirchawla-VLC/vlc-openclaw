@@ -44,6 +44,7 @@ skills/nutrios/logs/
 # Environment
 .env
 .env.local
+node_modules/
 
 # Secrets / OAuth credentials
 client_secret.json

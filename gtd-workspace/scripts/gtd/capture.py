@@ -19,7 +19,7 @@ sys.path.insert(0, str(_here.parent))   # scripts/
 from pydantic import BaseModel
 
 from common import GTDError, err, ok
-from otel_common import get_tracer
+from otel_common import attach_parent_trace_context, get_tracer
 from opentelemetry.trace import Status, StatusCode
 from validate import validate_submission
 from write import write
@@ -31,6 +31,7 @@ from write import write
 
 class _Input(BaseModel):
     record: dict
+    user_id: str
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +98,7 @@ def capture(
     tracer = get_tracer("gtd.capture")
     with tracer.start_as_current_span("gtd.capture") as span:
         span.set_attribute("agent.id", "gtd")
-        span.set_attribute("tool.name", "capture_gtd")
+        span.set_attribute("tool.name", "capture")
         span.set_attribute("request.type", "capture")
         for attr, env_var in _CONTEXT_ENV.items():
             val = os.environ.get(env_var)
@@ -144,15 +145,16 @@ def main() -> None:
         err(GTDError("internal_error", f"Invalid input: {exc}"))
         return
 
-    requesting_user_id = os.environ.get("OPENCLAW_USER_ID", "")
-    source           = os.environ.get("OPENCLAW_CHANNEL_TYPE", "")
-    telegram_chat_id = os.environ.get("OPENCLAW_CHANNEL_PEER_ID", "")
+    requesting_user_id = inp.user_id
+    source           = "telegram"
+    telegram_chat_id = inp.user_id
 
-    try:
-        result = capture(inp.record, requesting_user_id, source, telegram_chat_id)
-        ok(result)
-    except GTDError as exc:
-        err(exc)
+    with attach_parent_trace_context():
+        try:
+            result = capture(inp.record, requesting_user_id, source, telegram_chat_id)
+            ok(result)
+        except GTDError as exc:
+            err(exc)
 
 
 if __name__ == "__main__":

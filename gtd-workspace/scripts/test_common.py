@@ -211,10 +211,7 @@ def test_malformed_token_json_names_path(
         get_google_credentials(["https://www.googleapis.com/auth/calendar"])
 
 
-# M-2: GTD_STORAGE_ROOT is required — _require_env raises clearly when unset.
-# Guards against: misconfigured deploy silently writing to /tmp/gtd-missing.
-# The import-time evaluation of DATA_ROOT = Path(_require_env("GTD_STORAGE_ROOT"))
-# means a missing env var fails loudly at collection time, not silently at runtime.
+# _require_env is a general helper; GTD_STORAGE_ROOT is now optional (config file fallback).
 def test_require_env_raises_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GTD_STORAGE_ROOT", raising=False)
     from common import _require_env
@@ -226,6 +223,44 @@ def test_require_env_returns_value_when_set(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("GTD_STORAGE_ROOT", "/some/agent/path")
     from common import _require_env
     assert _require_env("GTD_STORAGE_ROOT") == "/some/agent/path"
+
+
+# ---------------------------------------------------------------------------
+# _resolve_data_root
+# ---------------------------------------------------------------------------
+
+def test_resolve_data_root_prefers_env_over_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Env var takes precedence over config file storage_root."""
+    monkeypatch.setenv("GTD_STORAGE_ROOT", str(tmp_path))
+    config = tmp_path / "gtd.json"
+    config.write_text(json.dumps({"storage_root": "/should/not/be/used"}))
+    from common import _resolve_data_root
+    assert _resolve_data_root(config_path=config) == tmp_path
+
+
+def test_resolve_data_root_falls_back_to_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When GTD_STORAGE_ROOT is unset, config file storage_root is used."""
+    monkeypatch.delenv("GTD_STORAGE_ROOT", raising=False)
+    config = tmp_path / "gtd.json"
+    config.write_text(json.dumps({"storage_root": str(tmp_path)}))
+    from common import _resolve_data_root
+    assert _resolve_data_root(config_path=config) == tmp_path
+
+
+def test_resolve_data_root_raises_when_neither_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Raises clearly when neither env var nor config has storage_root."""
+    monkeypatch.delenv("GTD_STORAGE_ROOT", raising=False)
+    config = tmp_path / "gtd.json"
+    config.write_text(json.dumps({"default_query_limit": 10}))
+    from common import _resolve_data_root
+    with pytest.raises(EnvironmentError, match="storage_root"):
+        _resolve_data_root(config_path=config)
 
 
 # ---------------------------------------------------------------------------

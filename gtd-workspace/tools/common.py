@@ -87,10 +87,25 @@ _DEFAULT_STORAGE_ROOT = Path(__file__).parent.parent / "storage"
 
 
 def storage_root() -> Path:
-    """Return the GTD storage root from GTD_STORAGE_ROOT env var or default."""
+    """Return the GTD storage root.
+
+    Precedence:
+      1. GTD_STORAGE_ROOT env var (override for dev/test).
+      2. storage_root field in gtd-workspace/config/gtd.json.
+      3. gtd-workspace/storage/ (legacy default; should not be used in production).
+    """
     raw = os.environ.get("GTD_STORAGE_ROOT")
     if raw:
         return Path(raw)
+    config_path = Path(__file__).parent.parent / "config" / "gtd.json"
+    if config_path.exists():
+        try:
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+            sr = data.get("storage_root")
+            if sr:
+                return Path(sr)
+        except (json.JSONDecodeError, OSError):
+            pass
     return _DEFAULT_STORAGE_ROOT
 
 

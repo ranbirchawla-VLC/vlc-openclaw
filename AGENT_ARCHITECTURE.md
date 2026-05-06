@@ -41,24 +41,47 @@ Drift indicator: a single-mode agent gains a second mode mid-build. Halt; reopen
 
 Each pattern: rule, drift indicator, halt action, reference implementation pointer.
 
-### 1. Multi-mode dispatcher (turn_state)
+### 1. Multi-mode dispatcher
 
-**Rule.** Multi-mode agents use a `turn_state` plugin tool called first on every turn. The tool classifies intent, reads the matching capability file from disk fresh each call, and returns `{intent, capability_prompt}`. The agent follows `capability_prompt`.
+**Rule.** Multi-mode agents use a dispatcher plugin tool called first on
+every turn. The tool classifies intent, reads the matching capability file
+from disk fresh each call, and returns `{intent, capability_prompt}`. The
+agent follows `capability_prompt`.
 
-**Structural enforcement.** AGENTS.md PREFLIGHT block: "Before every response, call `turn_state` with the verbatim user message. No response before turn_state completes."
+**Naming.** Dispatcher tool name is unique per agent. Plugin tool namespace
+is flat across the gateway; a single shared name (e.g., `turn_state`)
+collides as more agents land. Convention: `<agent>_dispatch`. Examples:
+`trina_dispatch`, `grailzee_dispatch`. The agent name in the tool name
+matches the agent id in `openclaw.json`.
 
-**Capability files.** On disk at `capabilities/<intent>.md`. Read fresh every call; no caching. Editing a capability file takes effect on the next turn.
+**Structural enforcement.** AGENTS.md PREFLIGHT block: "Before every
+response, call `<agent>_dispatch` with the verbatim user message. No
+response before `<agent>_dispatch` completes." Each agent's PREFLIGHT
+cites its own dispatcher tool by name.
 
-**Classifier strategy.** Slash commands first; signal-based detection second (e.g., `$` for prices); keyword fallback last; everything else returns empty `capability_prompt` and a one-line help reply.
+**Capability files.** On disk at `capabilities/<intent>.md`. Read fresh
+every call; no caching. Editing a capability file takes effect on the
+next turn.
+
+**Classifier strategy.** Slash commands first; signal-based detection
+second (e.g., `$` for prices); keyword fallback last; everything else
+returns empty `capability_prompt` and a one-line help reply.
 
 **Drift indicators:**
-- Agent responds to a turn without a `turn_state` call in the tool log
+- Agent responds to a turn without a dispatcher call in the tool log
 - Capability file edits don't take effect; suspect caching
-- Agent invokes the wrong capability for an obvious intent; suspect classifier coverage
+- Agent invokes the wrong capability for an obvious intent; suspect
+  classifier coverage
+- Two agents register the same dispatcher tool name; routing collisions
+  and observability ambiguity follow
 
-**Halt action.** Missing dispatcher or weak PREFLIGHT: halt; reopen design phase; do not proceed to capabilities.
+**Halt action.** Missing dispatcher or weak PREFLIGHT: halt; reopen design
+phase; do not proceed to capabilities. Shared dispatcher name across
+agents: rename one before continuing.
 
-**Reference.** `skills/grailzee-eval/scripts/turn_state.py`; `skills/grailzee-eval/AGENTS.md` PREFLIGHT block.
+**Reference.** Trina (gtd workspace): `trina_dispatch` is the canonical
+post-rename pattern. Grailzee-eval: `skills/grailzee-eval/scripts/turn_state.py`
+(legacy `turn_state` name; pending rename in portfolio-wide pass per KI-018).
 
 ### 2. OTEL cross-process propagation
 
@@ -231,12 +254,12 @@ SKILL.md is already in your context. Do not attempt to read any files.
 ```markdown
 ## PREFLIGHT
 
-Before every response, call `turn_state` with the verbatim user message.
+Before every response, call `<agent>_dispatch` with the verbatim user message.
 Read `capability_prompt` from the response. If non-empty, it contains your
 complete instructions for this turn. Follow them exactly. If empty, reply
 with one line naming the available commands.
 
-No response before turn_state completes.
+No response before `<agent>_dispatch` completes.
 ```
 
 ### Code skeletons
@@ -331,7 +354,7 @@ When a bot becomes group admin, the group upgrades to a supergroup with a new ch
 
 | Pattern | Status |
 |---|---|
-| 1. Multi-mode dispatcher (turn_state) | LOCKED |
+| 1. Multi-mode dispatcher | LOCKED |
 | 2. OTEL cross-process propagation | LOCKED |
 | 3. Plugin registration | LOCKED |
 | 4. Tool surface deny defaults | LOCKED |

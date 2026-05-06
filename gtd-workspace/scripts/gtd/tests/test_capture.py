@@ -113,21 +113,17 @@ def test_capture_stamps_system_fields(storage: Path) -> None:
     assert stored["last_reviewed"] is None
 
 
-def test_capture_persists_channel_fields(storage: Path, monkeypatch) -> None:
-    """Channel fields from env (via main()) land in on-disk record."""
-    monkeypatch.setenv("OPENCLAW_CHANNEL_TYPE", "telegram_text")
-    monkeypatch.setenv("OPENCLAW_CHANNEL_PEER_ID", "8712103657")
-    monkeypatch.setenv("OPENCLAW_USER_ID", "user1")
-
-    inp = json.dumps({"record": _task()})
+def test_capture_persists_channel_fields(storage: Path) -> None:
+    """user_id from input args drives storage path and telegram_chat_id; source is always telegram."""
+    inp = json.dumps({"record": _task(), "user_id": "user1"})
     with patch.object(sys, "argv", ["capture.py", inp]):
         with pytest.raises(SystemExit):
             main()
 
     tasks_file = storage / "gtd-agent" / "users" / "user1" / "tasks.jsonl"
     stored = _read_jsonl(tasks_file)[0]
-    assert stored["source"] == "telegram_text"
-    assert stored["telegram_chat_id"] == "8712103657"
+    assert stored["source"] == "telegram"
+    assert stored["telegram_chat_id"] == "user1"
 
 
 def test_capture_submission_invalid(storage: Path) -> None:

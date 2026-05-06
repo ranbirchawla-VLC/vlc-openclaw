@@ -1,4 +1,5 @@
 {
+  "storage_root": "/Users/ranbirchawla/agent_data",
   "default_query_limit": 10,
   "max_query_limit": 25
 }

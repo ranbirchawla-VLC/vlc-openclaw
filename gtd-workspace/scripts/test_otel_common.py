@@ -532,3 +532,73 @@ def test_inner_qwen_5xx_sets_health_cache_and_advances_to_sonnet() -> None:
     sonnet_attempts = [a for a in attempts if a.get("llm.provider") == "claude"]
     assert len(sonnet_attempts) >= 1
     assert sonnet_attempts[0]["llm.chain_position"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests 8-9: attach_parent_trace_context (Phase 1 addition)
+#
+# RED baseline: attach_parent_trace_context does not exist in otel_common.py
+# before Phase 1. Both tests fail with AttributeError.
+# ---------------------------------------------------------------------------
+
+def test_attach_parent_trace_context_attaches_env_traceparent(monkeypatch):
+    """TRACEPARENT from env is attached so the next span becomes a child of it.
+
+    Reproduces production failure: without attach_parent_trace_context, Python
+    spans land as trace roots in Honeycomb with 'missing parent span' in waterfall.
+    Failed against unfixed code: AttributeError (function absent).
+    Model/temperature: N/A; no LLM calls in this test.
+    """
+    from otel_common import configure_tracer_provider, attach_parent_trace_context, get_tracer
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    known_trace_id = "0af7651916cd43dd8448eb211c80319c"
+    known_parent_id = "b7ad6b7169203331"
+    traceparent = f"00-{known_trace_id}-{known_parent_id}-01"
+    monkeypatch.setenv("TRACEPARENT", traceparent)
+
+    exporter = InMemorySpanExporter()
+    configure_tracer_provider(exporter)
+    tracer = get_tracer("test.attach_parent")
+
+    with attach_parent_trace_context():
+        with tracer.start_as_current_span("child.span") as span:
+            pass
+
+    spans = exporter.get_finished_spans()
+    assert len(spans) >= 1
+    child = spans[-1]
+    trace_id_hex = format(child.get_span_context().trace_id, "032x")
+    assert trace_id_hex == known_trace_id, (
+        f"child span trace_id {trace_id_hex!r} must match injected parent {known_trace_id!r}"
+    )
+
+
+def test_attach_parent_trace_context_noop_when_no_traceparent(monkeypatch):
+    """With no TRACEPARENT in env, context manager is a no-op; no exception raised.
+
+    Model/temperature: N/A.
+    """
+    from otel_common import attach_parent_trace_context, configure_tracer_provider, get_tracer
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    monkeypatch.delenv("TRACEPARENT", raising=False)
+
+    exporter = InMemorySpanExporter()
+    configure_tracer_provider(exporter)
+    tracer = get_tracer("test.noop_parent")
+
+    entered = False
+    try:
+        with attach_parent_trace_context():
+            entered = True
+            with tracer.start_as_current_span("standalone.span"):
+                pass
+    except Exception as exc:
+        pytest.fail(f"attach_parent_trace_context raised unexpectedly: {exc}")
+
+    assert entered, "context manager body must execute"
+    spans = exporter.get_finished_spans()
+    assert len(spans) >= 1
+    standalone = spans[-1]
+    assert standalone.parent is None, "span must be a root span when no TRACEPARENT"

@@ -1,62 +1,51 @@
-# Tools — GTD Workspace
+# Tools: GTD Workspace
 
-Python tools are deterministic and always available. LLM skills are invoked only when a Python tool explicitly signals `needs_llm: true`, or when the user requests a narrative summary.
-
----
-
-## Python Tools
-
-All six tools are standalone-runnable and independently testable.
-
-| Tool | Purpose | CLI invocation |
-|------|---------|----------------|
-| `common.py` | Shared path resolution, user-scoped JSONL I/O, enums, `parse_iso` | Imported by other tools |
-| `gtd_normalize.py` | Classify raw text into task/idea/parking_lot with confidence scoring | `python3 tools/gtd_normalize.py '<raw_input>'` |
-| `gtd_validate.py` | Validate a candidate record against JSON schema and business rules | `python3 tools/gtd_validate.py <type> <file.json>` |
-| `gtd_write.py` | Persist a validated record to user-scoped JSONL storage | `python3 tools/gtd_write.py <record_type> <file.json>` |
-| `gtd_query.py` | Filter and rank tasks by context, priority, energy, duration | `python3 tools/gtd_query.py <user_id> [--context @computer] [--priority high] [--limit 5]` |
-| `gtd_review.py` | Structured scan: missing metadata, stale tasks, overdue ideas, waiting follow-ups, parking lot | `python3 tools/gtd_review.py <user_id>` |
-| `gtd_delegation.py` | Group waiting-for and delegated tasks by person, sorted by oldest untouched | `python3 tools/gtd_delegation.py <user_id>` |
-
-### Key contracts
-
-- Every tool reads from and writes to user-scoped paths via `common.user_path(user_id)`.
-- No tool calls the LLM or reads another user's data.
-- `gtd_write` always runs `gtd_validate` before persisting.
-- `gtd_query` never returns idea or parking-lot records — tasks only.
+Plugin tools registered with the gateway. All tool calls go through the plugin surface; no direct script invocation.
 
 ---
 
-## LLM Skills
+## Dispatcher
 
-Defined in `skills/gtd/`. See `skills/gtd/SKILL.md` for full invocation rules.
+| Tool | Description |
+|------|-------------|
+| `trina_dispatch` | Classify intent from the verbatim user message and return the matching capability prompt. Call first on every turn before any other tool. Returns `{ok: true, data: {intent, capability_prompt}}`. |
 
-| Skill | Invoked when | Returns |
-|-------|-------------|---------|
-| `llm_ambiguous_classifier` | `gtd_normalize` returns `needs_llm: true` (confidence < 0.60) | `{ record_type, rationale }` |
-| `llm_title_rewriter` | Voice transcription is garbled, overly long, or unclear | Clean title string |
-| `llm_domain_inferrer` | Idea has no domain and no keyword match above threshold | `{ suggested_domain, is_new_domain, rationale }` |
-| `llm_clarification_generator` | A required field is still missing after classify + validate | `{ status, question, missing_field, options }` |
-| `llm_review_narrative` | User explicitly requests a conversational review summary | 3–5 sentence plain text |
+---
 
-### Invocation rule
+## Date Utility
 
-```
-needs_llm == true from a Python tool  →  invoke the appropriate skill
-Otherwise                              →  no LLM call
-```
+| Tool | Description |
+|------|-------------|
+| `get_today_date` | Return today's date as YYYY-MM-DD in the user's timezone. Registered in `shared-tools` plugin (not gtd-tools). Pass `user_id` to resolve per-user timezone from `profile.json`; falls back to `America/Denver`. Returns `{ok: true, data: {date: "YYYY-MM-DD"}}`. Call before any flow that requires the current date: due-date capture, overdue queries, review window, calendar default. |
 
-LLM skills never write to storage, read files directly, or call each other.
+---
+
+## Calendar Tools
+
+| Tool | Description |
+|------|-------------|
+| `list_events` | List upcoming Google Calendar events. Returns `{ok: true, data: {events: [{id, summary, start, end, attendees, location, description, html_link}]}}`. |
+| `get_event` | Get a single Google Calendar event by ID. Returns `{ok: true, data: {event: {...}}}` with the full event object. |
+
+---
+
+## GTD Tools
+
+| Tool | Description |
+|------|-------------|
+| `capture` | Capture a GTD record (task, idea, or parking_lot). Returns `{ok: true, data: {captured: {...}}}`. Captured fields by type; task: id, title, context, project, priority, waiting_for, due_date, notes, status, created_at, updated_at, last_reviewed, completed_at. idea: id, title, topic, content, status, created_at, updated_at, last_reviewed, completed_at. parking_lot: id, content, reason, status, created_at, updated_at, last_reviewed, completed_at. record_type, source, telegram_chat_id excluded. |
+| `query_tasks` | Query GTD tasks with optional filters. Returns `{ok: true, data: {items, total_count, truncated}}`. |
+| `query_ideas` | Query GTD ideas. Returns `{ok: true, data: {items, total_count, truncated}}`. |
+| `query_parking_lot` | Query GTD parking lot items. Returns `{ok: true, data: {items, total_count, truncated}}`. |
+| `review` | Run a structured GTD review pass; stamp stale records per record type. Returns `{ok: true, data: {reviewed_at: <iso>, by_type: {tasks: {items, total_count, truncated}, ideas: {...}, parking_lot: {...}}}}`. On partial stamp failure: `{ok: false, error: {code: "storage_unavailable", path: <failing-file>}}`. |
 
 ---
 
 ## Paths
 
 ```
-storage_root:  $GTD_STORAGE_ROOT or gtd-workspace/storage/
+storage_root:  $GTD_STORAGE_ROOT
 user_data:     {storage_root}/gtd-agent/users/{user_id}/
-schemas:       references/schemas/
-taxonomy:      references/taxonomy.json
-skills:        skills/gtd/
-memory:        memory/
+capabilities:  gtd-workspace/capabilities/
+memory:        gtd-workspace/memory/
 ```

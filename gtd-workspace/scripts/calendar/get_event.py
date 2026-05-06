@@ -14,7 +14,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from common import err, get_google_credentials, ok
-from otel_common import _is_transient_google, extract_parent_context, get_tracer
+from otel_common import _is_transient_google, attach_parent_trace_context, get_tracer
 
 from googleapiclient.discovery import build
 from opentelemetry.trace import Status, StatusCode
@@ -44,9 +44,7 @@ class _Input(BaseModel):
 
 def run_get_event(event_id: str, calendar_id: str = "primary") -> dict:
     tracer = get_tracer("gtd.calendar")
-    parent_ctx = extract_parent_context()
-
-    with tracer.start_as_current_span(_SPAN_NAME, context=parent_ctx) as span:
+    with tracer.start_as_current_span(_SPAN_NAME) as span:
         span.set_attribute("agent.id", "gtd")
         span.set_attribute("tool.name", _TOOL_NAME)
         span.set_attribute("calendar.id", calendar_id)
@@ -99,12 +97,13 @@ def main() -> None:
     except Exception as exc:
         err(f"invalid input: {exc}")
         return
-    try:
-        result = run_get_event(event_id=inp.event_id, calendar_id=inp.calendar_id)
-    except Exception as exc:
-        err(str(exc))
-        return
-    ok(result)
+    with attach_parent_trace_context():
+        try:
+            result = run_get_event(event_id=inp.event_id, calendar_id=inp.calendar_id)
+        except Exception as exc:
+            err(str(exc))
+            return
+        ok(result)
 
 
 if __name__ == "__main__":

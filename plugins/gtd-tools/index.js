@@ -1,48 +1,29 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { spawnSync } from "child_process";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
+import { trace } from "@opentelemetry/api";
 import { TOOLS } from "./tool-schemas.js";
+import {
+  PYTHON,
+  SCRIPTS,
+  PLUGIN_TRACER,
+  SPAWN_ENV,
+  executeWithSpan,
+} from "./otel-helpers.js";
 
-const __pluginDir = dirname(fileURLToPath(import.meta.url));
-const __workspaceDir = dirname(dirname(__pluginDir));  // plugins/gtd-tools/ -> plugins/ -> workspace/
-
-// OPENCLAW_PYTHON_BIN overrides the workspace .venv default for non-standard installs.
-const PYTHON = process.env.OPENCLAW_PYTHON_BIN || join(__workspaceDir, ".venv", "bin", "python");
-const SCRIPTS = join(__workspaceDir, "gtd-workspace", "scripts");
-
-function spawnArgv(script, params) {
+function spawnArgv(script, params, extraEnv = {}) {
   return spawnSync(
     PYTHON,
     [`${SCRIPTS}/${script}`, JSON.stringify(params)],
-    { encoding: "utf8", env: { ...process.env } }
+    { encoding: "utf8", env: { ...process.env, ...SPAWN_ENV, ...extraEnv } }
   );
 }
 
-function spawnStdin(script, params) {
+function spawnStdin(script, params, extraEnv = {}) {
   return spawnSync(
     PYTHON,
     [`${SCRIPTS}/${script}`],
-    { encoding: "utf8", input: JSON.stringify(params), env: { ...process.env } }
+    { encoding: "utf8", input: JSON.stringify(params), env: { ...process.env, ...SPAWN_ENV, ...extraEnv } }
   );
-}
-
-function toToolResult(result) {
-  if (result.error) {
-    return { content: [{ type: "text", text: JSON.stringify({ ok: false, error: result.error.message }) }] };
-  }
-  const stdout = (result.stdout ?? "").trim();
-  if (result.status !== 0 || !stdout) {
-    const stderr = (result.stderr ?? "").trim();
-    return { content: [{ type: "text", text: JSON.stringify({ ok: false, error: stderr || "script exited non-zero", status: result.status }) }] };
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(stdout);
-  } catch {
-    return { content: [{ type: "text", text: JSON.stringify({ ok: false, error: "failed to parse script output", raw: stdout.slice(0, 500) }) }] };
-  }
-  return { content: [{ type: "text", text: JSON.stringify(parsed) }] };
 }
 
 export default definePluginEntry({
@@ -51,11 +32,18 @@ export default definePluginEntry({
   description: "Custom tools for the GTD agent",
   register(api) {
     for (const { _script, _spawn, ...schema } of TOOLS) {
-      const spawn = _spawn === "stdin" ? spawnStdin : spawnArgv;
+      const spawnFn = _spawn === "stdin"
+        ? (params, extraEnv) => spawnStdin(_script, params, extraEnv)
+        : (params, extraEnv) => spawnArgv(_script, params, extraEnv);
       api.registerTool({
         ...schema,
         async execute(_id, params) {
-          return toToolResult(spawn(_script, params));
+          return executeWithSpan(
+            trace.getTracer(PLUGIN_TRACER),
+            schema.name,
+            spawnFn,
+            params
+          );
         },
       });
     }

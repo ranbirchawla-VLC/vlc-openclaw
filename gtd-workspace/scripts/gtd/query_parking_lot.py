@@ -17,7 +17,7 @@ sys.path.insert(0, str(_here.parent))   # scripts/
 from pydantic import BaseModel
 
 from common import GTDError, err, get_gtd_config, ok
-from otel_common import get_tracer
+from otel_common import attach_parent_trace_context, get_tracer
 from opentelemetry.trace import Status, StatusCode
 from _tools_common import read_jsonl, user_path
 
@@ -36,6 +36,7 @@ def _project(record: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 class _Input(BaseModel):
+    user_id: str
     limit: int | None = None
 
 
@@ -108,12 +109,12 @@ def main() -> None:
         err(GTDError("internal_error", f"Invalid input: {exc}"))
         return
 
-    requesting_user_id = os.environ.get("OPENCLAW_USER_ID", "")
-    try:
-        result = query_parking_lot(limit=inp.limit, requesting_user_id=requesting_user_id)
-        ok(result)
-    except GTDError as exc:
-        err(exc)
+    with attach_parent_trace_context():
+        try:
+            result = query_parking_lot(limit=inp.limit, requesting_user_id=inp.user_id)
+            ok(result)
+        except GTDError as exc:
+            err(exc)
 
 
 if __name__ == "__main__":

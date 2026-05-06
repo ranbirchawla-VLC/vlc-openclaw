@@ -252,4 +252,4 @@ def test_review_emits_otel_span(storage: Path) -> None:
     span = next((s for s in spans if s.name == "gtd.review"), None)
     assert span is not None
     attrs = dict(span.attributes)
-    assert attrs.get("tool.name") == "review_gtd"
+    assert attrs.get("tool.name") == "review"

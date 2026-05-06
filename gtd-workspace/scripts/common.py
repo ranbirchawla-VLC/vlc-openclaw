@@ -30,7 +30,33 @@ def _require_env(name: str) -> str:
     return val
 
 
-DATA_ROOT: Path = Path(_require_env("GTD_STORAGE_ROOT"))
+def _resolve_data_root(config_path: Path | None = None) -> Path:
+    """Resolve the GTD storage root.
+
+    Precedence:
+      1. GTD_STORAGE_ROOT env var (override for dev/test).
+      2. storage_root field in gtd-workspace/config/gtd.json.
+    Raises EnvironmentError if neither is set.
+    """
+    env_val = os.environ.get("GTD_STORAGE_ROOT")
+    if env_val:
+        return Path(env_val)
+    _config = config_path or Path(__file__).parent.parent / "config" / "gtd.json"
+    if _config.exists():
+        try:
+            raw = json.loads(_config.read_text(encoding="utf-8"))
+            storage_root = raw.get("storage_root")
+            if storage_root:
+                return Path(storage_root)
+        except (json.JSONDecodeError, OSError):
+            pass
+    raise EnvironmentError(
+        "GTD storage root not configured: set GTD_STORAGE_ROOT env var "
+        "or add storage_root to gtd-workspace/config/gtd.json"
+    )
+
+
+DATA_ROOT: Path = _resolve_data_root()
 TZ: str = os.environ.get("GTD_TZ", "America/Denver")
 
 
@@ -80,6 +106,7 @@ def err(error: str | GTDError) -> None:
 # ---------------------------------------------------------------------------
 
 class GTDConfig(BaseModel):
+    storage_root: str | None = None
     default_query_limit: int = 10
     max_query_limit: int = 25
 

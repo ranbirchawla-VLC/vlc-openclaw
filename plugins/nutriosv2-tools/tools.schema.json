@@ -495,15 +495,6 @@
           "portion"
         ]
       }
-    },
-    {
-      "name": "get_today_date",
-      "description": "Return today's date as YYYY-MM-DD in the America/Denver timezone. Call before any flow that requires the current date. Returns {ok: true, data: {date: \"YYYY-MM-DD\"}}.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "required": []
-      }
     }
   ]
 }

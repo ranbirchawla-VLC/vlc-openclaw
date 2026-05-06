@@ -20,7 +20,7 @@ sys.path.insert(0, str(_here.parent))   # scripts/
 from pydantic import BaseModel
 
 from common import GTDError, err, ok
-from otel_common import get_tracer
+from otel_common import attach_parent_trace_context, get_tracer
 from opentelemetry.trace import Status, StatusCode
 from _tools_common import read_jsonl, user_path
 from validate import validate_storage
@@ -31,6 +31,7 @@ from validate import validate_storage
 # ---------------------------------------------------------------------------
 
 class _Input(BaseModel):
+    user_id: str
     record_types:   list[str] | None = None   # default: all three
     stale_for_days: int | None = None          # default: 7
     limit_per_type: int | None = None          # default: 25, max: 25
@@ -148,7 +149,7 @@ def review(
     tracer = get_tracer("gtd.review")
     with tracer.start_as_current_span("gtd.review") as span:
         span.set_attribute("agent.id", "gtd")
-        span.set_attribute("tool.name", "review_gtd")
+        span.set_attribute("tool.name", "review")
         span.set_attribute("request.type", "review")
         for attr, env_var in _CONTEXT_ENV.items():
             val = os.environ.get(env_var)
@@ -245,17 +246,17 @@ def main() -> None:
         err(GTDError("internal_error", f"Invalid input: {exc}"))
         return
 
-    requesting_user_id = os.environ.get("OPENCLAW_USER_ID", "")
-    try:
-        result = review(
+    with attach_parent_trace_context():
+        try:
+            result = review(
             record_types=inp.record_types,
             stale_for_days=inp.stale_for_days,
             limit_per_type=inp.limit_per_type,
-            requesting_user_id=requesting_user_id,
+            requesting_user_id=inp.user_id,
         )
-        ok(result)
-    except GTDError as exc:
-        err(exc)
+            ok(result)
+        except GTDError as exc:
+            err(exc)
 
 
 if __name__ == "__main__":

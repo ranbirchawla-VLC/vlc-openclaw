@@ -3,13 +3,22 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "build:schemas": "node scripts/emit-schemas.js"
+    "build:schemas": "node scripts/emit-schemas.js",
+    "test": "node --test tests/test_index.js"
   },
   "openclaw": {
-    "extensions": ["./index.js"],
+    "extensions": [
+      "./index.js"
+    ],
     "compat": {
       "pluginApi": ">=2026.3.24-beta.2",
       "minGatewayVersion": "2026.3.24-beta.2"
     }
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0"
+  },
+  "devDependencies": {
+    "@opentelemetry/sdk-trace-base": "^1.25.0"
   }
 }
