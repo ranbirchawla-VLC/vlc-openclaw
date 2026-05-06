@@ -9,10 +9,9 @@ Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
 
 ## Active tracks
 
-### Track 3 — OTEL Instrumentation (ACTIVE — 2026-05-05)
+### Track 3 — OTEL Instrumentation (SHIPPED — merged main `1b3536e`, 2026-05-06)
 
-**Branch**: `feature/grailzee-eval-otel` (off main, tip `acaf044`)
-**Tests**: 1447 passed / 71 skipped
+**Tests**: 1475 passed / 71 skipped (at close)
 
 #### What was built
 
@@ -75,9 +74,25 @@ grailzee.tool.evaluate_deal   (openclaw-gateway, 235.1ms)
 - `plugins/grailzee-eval-tools/package.json` — added `@opentelemetry/api: ^1.9.0`
 - `docs/turn_state_architecture_2026-05-05.md` — investigation findings + updated recipe
 
-#### Commit before closing
+#### Track 4 — /buying command (SHIPPED — merged main `e873f24`, 2026-05-06)
 
-Not yet pushed. Stage and push `feature/grailzee-eval-otel` then merge to main.
+- `get_cycle_targets.py` — loads `cycle_focus.json`, returns targets + metadata + notes
+- `capabilities/buying.md` — prose-per-target render; bold headers; synthesized cycle_reason;
+  hard-passes section; capital summary from notes
+- `turn_state.py` — `/buying` slash + natural language patterns routed to `buying.md`
+- Plugin: `get_cycle_targets` tool registered with `startActiveSpan`
+- `web_search` added to `tools.allow`
+- Gate confirmed on Telegram: targets rendered with notes formatted as cycle summary
+
+#### Track 5 — Perplexity comp search (SHIPPED — merged main `8c75e00`, 2026-05-06)
+
+- `deal.md` Branches A(no), C, D — two `web_search` calls per trigger:
+  eBay US sold + Chrono24/international; prices verbatim from results
+- Gate confirmed: AP 26378IO.OO.A001KE.01 hit Branch D, fired comp search
+  (API key issue at time of test; routing and search logic confirmed correct)
+- `agent_api_integration_pattern.md` added to repo root
+
+#### Main at close: `8c75e00` — 1475 passed / 71 skipped
 
 ---
 
