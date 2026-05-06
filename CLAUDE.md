@@ -72,11 +72,24 @@ Config files carry `last_updated` (ISO timestamp) and `updated_by`
 - Prefer match/case over if/elif chains when branching on a known value 
   (platform names, step numbers, condition ratings)
 
+## Session-Open Protocol
+
+Each workspace has its own progress file. Read the right one for the session:
+
+| Workspace | Progress file |
+|---|---|
+| Grailzee | `skills/grailzee-eval/progress.md` + `GRAILZEE_SYSTEM_STATE.md` |
+| GTD | `gtd-workspace/progress.md` |
+| NutriOS v2 | `skills/nutriosv2/progress.md` |
+| Index | `.claude/progress.md` (workspace index only) |
+
+Do not update `.claude/progress.md` — update the workspace file directly.
+
 ## Repo Structure
 - `skills/` — existing OpenClaw skills (DO NOT modify without asking). 
-  Active commission: `skills/grailzee-eval-v2/` for the Grailzee schema 
-  refactor.
-- `watch-listing-workspace/` — new decomposed pipeline (active build target)
+  Active commission: `skills/grailzee-eval/` for the Grailzee eval v2 build.
+- `gtd-workspace/` — GTD agent workspace
+- `plugins/` — OpenClaw plugin tools (one plugin per agent)
 - `memory/` — OpenClaw memory files
 - `pipelines/` — pipeline definitions
 - `state/` — Grailzee analyzer reads/writes here (config files, cache, 
