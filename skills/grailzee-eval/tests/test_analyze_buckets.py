@@ -371,6 +371,68 @@ class TestScoreAllReferences:
         assert result["unnamed"] == []
 
 
+# ─── alt_refs expansion ───────────────────────────────────────────────
+
+
+class TestAltRefsExpansion:
+    """alt_refs in the name cache are expanded before the scoring loop.
+
+    Regression guard: a Pro-report ref that appears under a different
+    format than the cache primary key (e.g. M79830RB vs 79830RB) must
+    still resolve to named=True when the curator listed it as an alt_ref.
+    """
+
+    def test_alt_ref_resolves_to_named(self):
+        """Ref matching an alt_ref entry is marked named=True."""
+        rows = _rows(3, reference="M79830RB")
+        cache = {"79830RB": {"brand": "Tudor", "model": "BB GMT", "alt_refs": ["M79830RB"]}}
+        result = score_all_references(rows, cache)
+        rd = result["references"]["M79830RB"]
+        assert rd["named"] is True
+
+    def test_alt_ref_carries_brand_and_model(self):
+        """Brand and model come from the primary cache entry, not the row."""
+        rows = _rows(3, reference="M79830RB")
+        cache = {"79830RB": {"brand": "Tudor", "model": "BB GMT Pepsi", "alt_refs": ["M79830RB"]}}
+        result = score_all_references(rows, cache)
+        rd = result["references"]["M79830RB"]
+        assert rd["brand"] == "Tudor"
+        assert rd["model"] == "BB GMT Pepsi"
+
+    def test_alt_ref_not_in_unnamed(self):
+        """A ref resolved via alt_refs does not appear in the unnamed list."""
+        rows = _rows(3, reference="M79830RB")
+        cache = {"79830RB": {"brand": "Tudor", "model": "BB GMT", "alt_refs": ["M79830RB"]}}
+        result = score_all_references(rows, cache)
+        assert "M79830RB" not in result["unnamed"]
+
+    def test_primary_key_still_works(self):
+        """Primary key lookup is unaffected by alt_refs expansion."""
+        rows = _rows(3, reference="79830RB")
+        cache = {"79830RB": {"brand": "Tudor", "model": "BB GMT", "alt_refs": ["M79830RB"]}}
+        result = score_all_references(rows, cache)
+        assert result["references"]["79830RB"]["named"] is True
+
+    def test_primary_key_wins_over_alt_ref(self):
+        """If a ref appears as both a primary key and an alt_ref of another
+        entry, the primary key entry takes precedence."""
+        rows = _rows(3, reference="SHARED")
+        cache = {
+            "SHARED": {"brand": "BrandA", "model": "ModelA"},
+            "OTHER":  {"brand": "BrandB", "model": "ModelB", "alt_refs": ["SHARED"]},
+        }
+        result = score_all_references(rows, cache)
+        rd = result["references"]["SHARED"]
+        assert rd["brand"] == "BrandA"
+
+    def test_entry_without_alt_refs_unaffected(self):
+        """Entries with no alt_refs key work exactly as before."""
+        rows = _rows(3, reference="126610LN")
+        cache = {"126610LN": {"brand": "Rolex", "model": "Submariner Date"}}
+        result = score_all_references(rows, cache)
+        assert result["references"]["126610LN"]["named"] is True
+
+
 # ─── DJ config path ────────────────────────────────────────────────────
 
 

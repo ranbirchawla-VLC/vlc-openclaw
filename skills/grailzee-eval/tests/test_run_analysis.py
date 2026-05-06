@@ -30,7 +30,7 @@ ALL_CSVS = [CSV_APR, CSV_MAR2, CSV_MAR1]
 NAME_CACHE = str(FIXTURES / "name_cache_seed.json")
 
 from scripts.grailzee_common import cycle_id_from_csv, cycle_id_from_date
-from scripts.run_analysis import run_analysis
+from scripts.run_analysis import _SIGNALS_WORTH_RESOLVING, run_analysis
 
 
 V2_LEDGER_HEADER = (
@@ -69,28 +69,23 @@ def _setup(tmp_path: Path, csvs=None, ledger_fn=None):
 
 
 class TestEndToEnd:
-    @pytest.mark.skip(reason="2c-restore: build_summary/build_spreadsheet/build_brief skipped in v3; files not created")
+    @pytest.mark.skip(reason="2c-restore: build_summary/build_spreadsheet/build_brief removed in v3; output folder not written")
     def test_all_outputs_exist(self, tmp_path):
-        """Feed 3 CSVs, assert all output files created."""
+        """Feed 3 CSVs, assert all output files created. Kept as documentation
+        of the v2 contract; not executable until output builders are restored."""
         kwargs = _setup(tmp_path)
         result = run_analysis(**kwargs)
 
-        # Return shape
-        assert set(result.keys()) == {"summary_path", "unnamed", "cycle_id"}
-        assert isinstance(result["summary_path"], str)
+        assert set(result.keys()) == {"unnamed", "cycle_id"}
         assert isinstance(result["unnamed"], list)
         assert isinstance(result["cycle_id"], str)
-
-        # Output files exist
-        assert Path(result["summary_path"]).exists()
         assert Path(kwargs["cache_path"]).exists()
 
-        # Spreadsheet and brief in output folder
         output_files = os.listdir(kwargs["output_folder"])
         xlsx_files = [f for f in output_files if f.endswith(".xlsx")]
         md_files = [f for f in output_files if f.endswith(".md")]
         assert len(xlsx_files) >= 1
-        assert len(md_files) >= 1  # summary + brief MD
+        assert len(md_files) >= 1
 
     def test_performance(self, tmp_path):
         """Pipeline completes in < 60s on real fixtures."""
@@ -267,12 +262,6 @@ class TestReferenceShape:
 
 
 class TestOutputLocation:
-    def test_summary_path_empty_after_output_builder_removal(self, tmp_path):
-        """build_summary deleted; summary_path is always empty string."""
-        kwargs = _setup(tmp_path)
-        result = run_analysis(**kwargs)
-        assert result["summary_path"] == ""
-
     def test_cache_in_configured_path(self, tmp_path):
         """Cache writes to the configured cache_path."""
         kwargs = _setup(tmp_path)
@@ -387,10 +376,31 @@ class TestZeroCSVs:
 
 class TestReturnShape:
     def test_exact_keys(self, tmp_path):
-        """Return dict has exactly {summary_path, unnamed, cycle_id}."""
+        """Return dict has exactly {unnamed, cycle_id} — no extra keys.
+
+        Regression guard: if a new field is added to the return dict (e.g. a
+        resurrected summary_path), this test fails and forces report.md and
+        downstream consumers to be updated in the same commit.
+        """
         kwargs = _setup(tmp_path, csvs=[CSV_APR])
         result = run_analysis(**kwargs)
-        assert set(result.keys()) == {"summary_path", "unnamed", "cycle_id"}
+        assert set(result.keys()) == {"unnamed", "cycle_id"}
+
+    def test_unnamed_items_are_dicts_with_reference_and_brand(self, tmp_path):
+        """Each unnamed entry carries both reference and brand.
+
+        Regression guard: the agent needs brand context to form web searches
+        and call append_name_cache_entry. A bare string list breaks the
+        name cache write path.
+        """
+        kwargs = _setup(tmp_path, csvs=[CSV_APR])
+        result = run_analysis(**kwargs)
+        for item in result["unnamed"]:
+            assert isinstance(item, dict), f"expected dict, got {type(item)}"
+            assert "reference" in item, f"missing 'reference' key: {item}"
+            assert "brand" in item, f"missing 'brand' key: {item}"
+            assert isinstance(item["reference"], str) and item["reference"]
+            assert isinstance(item["brand"], str) and item["brand"]
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -423,3 +433,74 @@ class TestShortlistEmitted:
             len(re["buckets"]) for re in cache["references"].values()
         )
         assert len(rows) == total_buckets
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Unnamed signal filter
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _make_ref(named: bool, signals: list[str], brand: str = "Tudor") -> dict:
+    """Build a minimal references entry with one bucket per signal."""
+    return {
+        "named": named,
+        "brand": brand,
+        "buckets": {
+            f"bucket_{i}": {"signal": sig}
+            for i, sig in enumerate(signals)
+        },
+    }
+
+
+def _apply_unnamed_filter(references: dict) -> list[str]:
+    """Mirror the unnamed filter in run_analysis for unit testing."""
+    return [
+        ref for ref, data in references.items()
+        if not data.get("named", False)
+        and any(
+            bd.get("signal") in _SIGNALS_WORTH_RESOLVING
+            for bd in data.get("buckets", {}).values()
+        )
+    ]
+
+
+class TestUnnamedFilter:
+    """_SIGNALS_WORTH_RESOLVING gates name-cache resolution correctly.
+
+    Tests the filter expression in isolation — no pipeline I/O needed.
+    If the set of actionable signals changes, update both the constant
+    and these tests.
+    """
+
+    def test_strong_normal_reserve_careful_included(self):
+        """Each actionable signal independently qualifies a ref."""
+        for sig in ("Strong", "Normal", "Reserve", "Careful"):
+            refs = {"R": _make_ref(False, [sig])}
+            assert "R" in _apply_unnamed_filter(refs), f"{sig} should be included"
+
+    def test_pass_and_low_data_excluded(self):
+        """Pass and Low data refs are excluded — not worth resolving."""
+        for sig in ("Pass", "Low data"):
+            refs = {"R": _make_ref(False, [sig])}
+            assert "R" not in _apply_unnamed_filter(refs), f"{sig} should be excluded"
+
+    def test_named_ref_excluded_regardless_of_signal(self):
+        """A named ref with a Strong bucket is never in unnamed."""
+        refs = {"R": _make_ref(True, ["Strong"])}
+        assert "R" not in _apply_unnamed_filter(refs)
+
+    def test_mixed_buckets_included_if_any_actionable(self):
+        """One actionable bucket among non-actionable ones is enough."""
+        refs = {"R": _make_ref(False, ["Pass", "Normal"])}
+        assert "R" in _apply_unnamed_filter(refs)
+
+    def test_mixed_buckets_excluded_if_none_actionable(self):
+        """All-Pass/Low-data bucket set → excluded."""
+        refs = {"R": _make_ref(False, ["Pass", "Low data"])}
+        assert "R" not in _apply_unnamed_filter(refs)
+
+    def test_signals_worth_resolving_constant(self):
+        """_SIGNALS_WORTH_RESOLVING contains exactly the four actionable signals."""
+        assert _SIGNALS_WORTH_RESOLVING == frozenset(
+            {"Strong", "Normal", "Reserve", "Careful"}
+        )

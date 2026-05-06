@@ -50,7 +50,7 @@ The bundle is written to `<GRAILZEE_ROOT>/bundles/` as
 - `quarterly_allocation.json`
 - `trade_ledger.csv` (the full trade ledger — all historical Grailzee
   trades, one row per closed position)
-- `sourcing_brief.json`
+- `cycle_shortlist.csv` (per-cycle shortlist CSV from the analyzer)
 - `latest_report/grailzee_YYYY-MM-DD.csv` (newest)
 
 ## Workflow — INBOUND

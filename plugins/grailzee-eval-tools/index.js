@@ -201,5 +201,38 @@ export default definePluginEntry({
         });
       },
     });
+
+    api.registerTool({
+      name: "update_name_cache",
+      description: "Write confirmed model-name entries to name_cache.json. Call after web-resolving unnamed references. Accepts a batch; idempotent on already-known refs.",
+      parameters: {
+        type: "object",
+        properties: {
+          entries: {
+            type: "array",
+            description: "Confirmed entries to write",
+            items: {
+              type: "object",
+              properties: {
+                reference: { type: "string", description: "Canonical reference number" },
+                brand:     { type: "string", description: "Brand name (e.g. Rolex)" },
+                model:     { type: "string", description: "Official model name (e.g. Submariner Date)" },
+                alt_refs:  { type: "array", items: { type: "string" }, description: "Optional alternate reference strings" },
+              },
+              required: ["reference", "brand", "model"],
+            },
+          },
+        },
+        required: ["entries"],
+      },
+      execute(_id, params) {
+        return trace.getTracer(GRAILZEE_TRACER).startActiveSpan("grailzee.tool.update_name_cache", (span) => {
+          span.setAttributes({ "tool.name": "update_name_cache", "entries_count": (params.entries || []).length });
+          const result = toToolResult(spawnArgv("update_name_cache.py", params, { TRACEPARENT: activeTraceparent() }));
+          span.end();
+          return result;
+        });
+      },
+    });
   },
 });

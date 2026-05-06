@@ -283,6 +283,16 @@ def score_all_references(
         for row in rows:
             by_ref[row.reference].append(row)
 
+        # Expand alt_refs so lookups against Pro-report ref variants
+        # (e.g. "M79830RB") hit the curated entry keyed as "79830RB".
+        # Primary keys win; alt_refs only fill gaps. named=True covers
+        # both primary-key hits and alt_ref hits — both are curated names.
+        lookup_cache: dict[str, dict] = dict(name_cache)
+        for entry in name_cache.values():
+            for alt in entry.get("alt_refs", []):
+                if alt not in lookup_cache:
+                    lookup_cache[alt] = entry
+
         cfg = load_analyzer_config()
         min_sales: int = cfg["scoring"]["min_sales_for_scoring"]
 
@@ -295,10 +305,10 @@ def score_all_references(
         below_threshold_count = 0
 
         for ref, ref_rows in by_ref.items():
-            cache_entry = name_cache.get(ref, {})
+            cache_entry = lookup_cache.get(ref, {})
             brand: str = cache_entry.get("brand") or (ref_rows[0].brand if ref_rows else "?")
             model: str = cache_entry.get("model") or ref
-            named: bool = ref in name_cache
+            named: bool = ref in lookup_cache
 
             if not named:
                 unnamed.append(ref)
@@ -323,7 +333,7 @@ def score_all_references(
             if ref == DJ_PARENT_REFERENCE:
                 rows_126300 = ref_rows
 
-        dj_configs = _score_dj_configs(rows_126300, name_cache)
+        dj_configs = _score_dj_configs(rows_126300, lookup_cache)
 
         span.set_attribute("reference_count", len(references))
         span.set_attribute("total_bucket_count", total_bucket_count)

@@ -9,6 +9,170 @@ Session-open protocol: read `GRAILZEE_SYSTEM_STATE.md`, then this file.
 
 ## Active tracks
 
+### fix/grailzee-report-summary-path (OPEN — 2026-05-06, session close)
+
+**Branch**: `fix/grailzee-report-summary-path`
+**Tests**: 1501 passed / 71 skipped at session close
+**Status**: All changes on disk, uncommitted. Gateway restart pending (machine restart).
+
+#### What was built this session
+
+**summary_path removed** (`run_analysis.py`, `report_pipeline.py`, `report.md`):
+- `summary_path` dropped from return contract; was always `""` since `build_summary.py`
+  was removed. Agent was trying to read a file at `""` → error after every pipeline run.
+- Contract test added: `test_ok_envelope_exact_keys` (report_pipeline) +
+  `test_unnamed_items_are_dicts_with_reference_and_brand` (run_analysis).
+
+**Signal filter on unnamed** (`run_analysis.py`):
+- `_SIGNALS_WORTH_RESOLVING = {"Strong", "Normal", "Reserve", "Careful"}`
+- unnamed list filtered from ~2000+ to ~230 actionable refs per cycle.
+- `TestUnnamedFilter` (6 tests) added to `test_run_analysis.py`.
+
+**alt_refs expansion** (`analyze_buckets.py`):
+- `lookup_cache` built by expanding all `alt_refs` before the scoring loop.
+- Fixes: "M79830RB" in report now hits "79830RB" cache entry.
+- `TestAltRefsExpansion` (6 tests) added to `test_analyze_buckets.py`.
+
+**Brand in unnamed list** (`run_analysis.py`):
+- unnamed now `[{"reference": str, "brand": str}]` not `[str]`.
+- Agent can now form `"{brand} {ref} watch"` searches and call write tools.
+- `TestReturnShape.test_unnamed_items_are_dicts_with_reference_and_brand` added.
+
+**update_name_cache tool** (new script + plugin registration):
+- `scripts/update_name_cache.py` — batch write to name_cache.json.
+- Registered in `plugins/grailzee-eval-tools/index.js` as `update_name_cache`.
+- `report.md` Step 4 updated: agent calls tool once with all confirmed entries.
+- 13 tests in `tests/test_update_name_cache.py`.
+
+**Bundle build unblocked**:
+- `grailzee-cowork-plugin` and `Desktop/vardalux-plugins` `build_bundle.py` —
+  sourcing_brief changed from `_read_required` to conditional include.
+  sourcing_brief is absent for cycle_2026-09 and slated for Phase D removal.
+- `grailzee-cowork/skills/grailzee-bundle/SKILL.md` — sourcing_brief replaced
+  with cycle_shortlist.csv in bundle contents list.
+
+#### On resume
+
+1. Gateway restart required — `index.js` changed (update_name_cache tool).
+2. Test the report workflow on Telegram: run report, verify unnamed list has
+   brand context, verify update_name_cache tool call writes to name_cache.
+3. Run code review (`code-reviewer` subagent) on the branch diff.
+4. Commit and merge to main.
+5. Track 6 (resolve_names.py) is still PLANNED — builds on top of this.
+
+---
+
+### Track 6 — resolve_names.py — batch Perplexity name resolution (PLANNED)
+
+**Branch**: `feature/grailzee-resolve-names` (not yet created)
+**Priority**: ELEVATED — Anthropic web_search is rate-limited at 30/sec.
+Current cap in report.md (20/run) is a guard, not a solution. Perplexity
+direct calls bypass this limit entirely. Build before the cap becomes a
+UX problem (230 refs / 20 per cycle = 11+ cycles to name the full catalog).
+**Motivation**: `report.md` Step 4 uses Anthropic web_search (30/sec limit,
+~11 cycles to fully populate cache at 20/run cap). This replaces the loop
+with a single Python script that calls Perplexity API directly in batch
+— no Anthropic rate limit, observable via OTel, retryable on failure.
+
+#### Scope
+
+**New files:**
+- `skills/grailzee-eval/scripts/resolve_names.py` — batch resolver script
+- `skills/grailzee-eval/tests/test_resolve_names.py` — tests
+
+**Modified files:**
+- `plugins/grailzee-eval-tools/index.js` — register `resolve_names` tool
+- `skills/grailzee-eval/capabilities/report.md` — Step 4 becomes one tool call
+- `Makefile` — `test-grailzee-eval-resolve-names` target
+
+#### Script contract
+
+**Plugin input** (`_run_from_dict` / spawnArgv):
+```json
+{"max_lookups": 50}
+```
+`max_lookups` optional; default 50; hard cap on Perplexity calls per run.
+
+**Auto-discovery**: reads `analysis_cache.json` to get `brand` per ref;
+reads `name_cache.json` to get current unnamed set (refs not already in cache
+with actionable signals). Does not require the caller to pass ref lists —
+same no-arg pattern as `report_pipeline`.
+
+**stdout on success**:
+```json
+{
+  "status": "ok",
+  "resolved": {"REF": "Model Name", ...},
+  "unresolved": ["REF", ...],
+  "skipped": ["REF", ...]
+}
+```
+`skipped` = refs beyond `max_lookups` cap or refs where Perplexity returned
+"unknown". `unresolved` = API errors or confidence failures.
+
+**Writes** confirmed hits to `name_cache.json` via `append_name_cache_entry`
+during the run (not batched at end — partial progress survives a crash).
+
+#### Perplexity call design
+
+One request per ref. Prompt:
+```
+What is the official model name for [brand] reference [ref]?
+Reply with just the model name (e.g. "Submariner Date", "Black Bay GMT").
+If you do not recognize this reference, reply with exactly: unknown
+```
+Response handling:
+- `"unknown"` (case-insensitive) → skipped
+- Response > 60 chars or contains hedge phrases ("I'm not sure", "I think",
+  "possibly") → unresolved (confidence failure)
+- Otherwise → write to name_cache, add to resolved
+
+API key: `PERPLEXITY_API_KEY` env var — same as comp search in `evaluate_deal`.
+
+#### OTel
+
+Single `resolve_names.run` span. Attributes:
+`unnamed_count`, `resolved_count`, `unresolved_count`, `skipped_count`,
+`max_lookups`, `cache_path`.
+
+#### report.md change
+
+Step 4 (currently: manual LLM web_search loop) becomes:
+```
+python3 scripts/resolve_names.py
+```
+No arguments needed. Agent posts the resolved/unresolved summary, then
+proceeds to the hand-off message.
+
+#### Tests
+
+Mock Perplexity HTTP calls (`responses` or `unittest.mock`). Cover:
+- Happy path: ref resolves, written to cache
+- `"unknown"` response → skipped, not written
+- Confidence failure (long response) → unresolved
+- API error → unresolved, continues to next ref
+- `max_lookups` cap: stops after N calls, remaining go to skipped
+- Idempotency: ref already in name_cache is not re-queried
+
+#### Gate
+
+Run against the actual unnamed list from cycle_2026-09. Spot-check 10
+resolved names for accuracy. Verify name_cache grows correctly and is
+idempotent on second run.
+
+#### Open questions before build
+
+1. Should `resolve_names.py` derive the unnamed list itself (read cache +
+   apply signal filter) or accept it as input? Lean toward auto-discovery
+   to keep report.md simple — but means the script must replicate the signal
+   filter logic or import `_SIGNALS_WORTH_RESOLVING` from `run_analysis`.
+   Decision needed at build time.
+2. Rate limiting: Perplexity free tier has rate limits. Add a small sleep
+   between calls (e.g. 0.5s) or batch if the API supports it.
+3. `max_lookups` default: 50 is a guess. Calibrate after first real run.
+
+---
+
 ### Track 3 — OTEL Instrumentation (SHIPPED — merged main `1b3536e`, 2026-05-06)
 
 **Tests**: 1475 passed / 71 skipped (at close)
