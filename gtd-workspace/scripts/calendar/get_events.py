@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from common import TZ, err, get_google_credentials, ok
+from common import DATA_ROOT, TZ, err, get_google_credentials, ok
 from otel_common import _is_transient_google, attach_parent_trace_context, get_tracer
 
 from googleapiclient.discovery import build
@@ -58,15 +58,13 @@ def _seven_days_iso() -> str:
 def _resolve_tz(user_id: str | None) -> str:
     """Read timezone from user profile; fall back to TZ env var."""
     if user_id:
-        storage_root = os.environ.get("GTD_STORAGE_ROOT", "")
-        if storage_root:
-            import pathlib
-            profile_path = pathlib.Path(storage_root) / "gtd-agent" / "users" / user_id / "profile.json"
-            if profile_path.exists():
-                try:
-                    return json.loads(profile_path.read_text(encoding="utf-8")).get("timezone", TZ)
-                except (json.JSONDecodeError, OSError):
-                    pass
+        from pathlib import Path
+        profile_path = Path(DATA_ROOT) / "gtd-agent" / "users" / user_id / "profile.json"
+        if profile_path.exists():
+            try:
+                return json.loads(profile_path.read_text(encoding="utf-8")).get("timezone", TZ)
+            except (json.JSONDecodeError, OSError):
+                pass
     return TZ
 
 
