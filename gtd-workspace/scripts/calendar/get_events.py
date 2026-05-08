@@ -40,9 +40,10 @@ _CONTEXT_ENV = {
 
 
 class _Input(BaseModel):
+    user_id:     str | None = None
     calendar_id: str = "primary"
-    time_min: str | None = None
-    time_max: str | None = None
+    time_min:    str | None = None
+    time_max:    str | None = None
     max_results: int = 25
 
 
@@ -54,27 +55,42 @@ def _seven_days_iso() -> str:
     return (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
 
 
-def _to_local(dt_field: dict | None) -> dict | None:
+def _resolve_tz(user_id: str | None) -> str:
+    """Read timezone from user profile; fall back to TZ env var."""
+    if user_id:
+        storage_root = os.environ.get("GTD_STORAGE_ROOT", "")
+        if storage_root:
+            import pathlib
+            profile_path = pathlib.Path(storage_root) / "gtd-agent" / "users" / user_id / "profile.json"
+            if profile_path.exists():
+                try:
+                    return json.loads(profile_path.read_text(encoding="utf-8")).get("timezone", TZ)
+                except (json.JSONDecodeError, OSError):
+                    pass
+    return TZ
+
+
+def _to_local(dt_field: dict | None, tz: str) -> dict | None:
     """Normalize a Google Calendar dateTime dict to the user's local timezone.
 
     Externally-created events carry the organizer's UTC offset, causing the LLM
-    to display the wrong local time. This converts every timed event to TZ so
+    to display the wrong local time. This converts every timed event to tz so
     the string the LLM sees already reflects local time.
     All-day events (date-only) are returned unchanged.
     """
     if dt_field is None or "dateTime" not in dt_field:
         return dt_field
     dt = datetime.fromisoformat(dt_field["dateTime"])
-    local = dt.astimezone(ZoneInfo(TZ))
-    return {"dateTime": local.isoformat(), "timeZone": TZ}
+    local = dt.astimezone(ZoneInfo(tz))
+    return {"dateTime": local.isoformat(), "timeZone": tz}
 
 
-def _map_event(e: dict) -> dict:
+def _map_event(e: dict, tz: str) -> dict:
     return {
         "id": e.get("id"),
         "summary": e.get("summary"),
-        "start": _to_local(e.get("start")),
-        "end": _to_local(e.get("end")),
+        "start": _to_local(e.get("start"), tz),
+        "end": _to_local(e.get("end"), tz),
         "attendees": e.get("attendees", []),
         "location": e.get("location"),
         "description": e.get("description"),
@@ -87,9 +103,11 @@ def run_list_events(
     time_min: str | None = None,
     time_max: str | None = None,
     max_results: int = 25,
+    user_id: str | None = None,
 ) -> dict:
     resolved_min = time_min or _now_iso()
     resolved_max = time_max or _seven_days_iso()
+    tz = _resolve_tz(user_id)
 
     tracer = get_tracer("gtd.calendar")
     with tracer.start_as_current_span(_SPAN_NAME) as span:
@@ -99,6 +117,7 @@ def run_list_events(
         span.set_attribute("time_min", resolved_min)
         span.set_attribute("time_max", resolved_max)
         span.set_attribute("max_results", max_results)
+        span.set_attribute("calendar.tz", tz)
         for attr, env_var in _CONTEXT_ENV.items():
             val = os.environ.get(env_var)
             if val:
@@ -121,7 +140,7 @@ def run_list_events(
                         singleEvents=True,
                         orderBy="startTime",
                     ).execute()
-                    events = [_map_event(e) for e in result.get("items", [])]
+                    events = [_map_event(e, tz) for e in result.get("items", [])]
                     span.set_attribute("calendar.event_count", len(events))
                     return {"events": events}
                 except Exception as exc:
@@ -160,6 +179,7 @@ def main() -> None:
             time_min=inp.time_min,
             time_max=inp.time_max,
             max_results=inp.max_results,
+            user_id=inp.user_id,
         )
         except Exception as exc:
             err(str(exc))

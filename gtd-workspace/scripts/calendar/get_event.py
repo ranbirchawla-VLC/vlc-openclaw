@@ -39,26 +39,42 @@ _CONTEXT_ENV = {
 }
 
 
-def _to_local(dt_field: dict | None) -> dict | None:
+def _resolve_tz(user_id: str | None) -> str:
+    """Read timezone from user profile; fall back to TZ env var."""
+    if user_id:
+        storage_root = os.environ.get("GTD_STORAGE_ROOT", "")
+        if storage_root:
+            import pathlib
+            profile_path = pathlib.Path(storage_root) / "gtd-agent" / "users" / user_id / "profile.json"
+            if profile_path.exists():
+                try:
+                    return json.loads(profile_path.read_text(encoding="utf-8")).get("timezone", TZ)
+                except (json.JSONDecodeError, OSError):
+                    pass
+    return TZ
+
+
+def _to_local(dt_field: dict | None, tz: str) -> dict | None:
     if dt_field is None or "dateTime" not in dt_field:
         return dt_field
     dt = datetime.fromisoformat(dt_field["dateTime"])
-    local = dt.astimezone(ZoneInfo(TZ))
-    return {"dateTime": local.isoformat(), "timeZone": TZ}
+    local = dt.astimezone(ZoneInfo(tz))
+    return {"dateTime": local.isoformat(), "timeZone": tz}
 
 
-def _normalize_event(event: dict) -> dict:
-    event["start"] = _to_local(event.get("start"))
-    event["end"] = _to_local(event.get("end"))
+def _normalize_event(event: dict, tz: str) -> dict:
+    event["start"] = _to_local(event.get("start"), tz)
+    event["end"] = _to_local(event.get("end"), tz)
     return event
 
 
 class _Input(BaseModel):
-    event_id: str
+    event_id:    str
     calendar_id: str = "primary"
+    user_id:     str | None = None
 
 
-def run_get_event(event_id: str, calendar_id: str = "primary") -> dict:
+def run_get_event(event_id: str, calendar_id: str = "primary", user_id: str | None = None) -> dict:
     tracer = get_tracer("gtd.calendar")
     with tracer.start_as_current_span(_SPAN_NAME) as span:
         span.set_attribute("agent.id", "gtd")
@@ -69,6 +85,9 @@ def run_get_event(event_id: str, calendar_id: str = "primary") -> dict:
             val = os.environ.get(env_var)
             if val:
                 span.set_attribute(attr, val)
+
+        tz = _resolve_tz(user_id)
+        span.set_attribute("calendar.tz", tz)
 
         try:
             creds = get_google_credentials(_SCOPES)
@@ -83,7 +102,7 @@ def run_get_event(event_id: str, calendar_id: str = "primary") -> dict:
                         calendarId=calendar_id,
                         eventId=event_id,
                     ).execute()
-                    return {"event": _normalize_event(event)}
+                    return {"event": _normalize_event(event, tz)}
                 except Exception as exc:
                     if _is_transient_google(exc):
                         last_exc = exc
@@ -115,7 +134,7 @@ def main() -> None:
         return
     with attach_parent_trace_context():
         try:
-            result = run_get_event(event_id=inp.event_id, calendar_id=inp.calendar_id)
+            result = run_get_event(event_id=inp.event_id, calendar_id=inp.calendar_id, user_id=inp.user_id)
         except Exception as exc:
             err(str(exc))
             return

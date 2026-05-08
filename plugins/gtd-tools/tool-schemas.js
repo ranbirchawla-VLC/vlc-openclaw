@@ -30,10 +30,14 @@ export const TOOLS = [
     _script: "calendar/get_events.py",
     _spawn: "argv",
     name: "list_events",
-    description: "List upcoming Google Calendar events. Returns {ok: true, data: {events: [{id, summary, start, end, attendees, location, description, html_link}]}}.",
+    description: "List upcoming Google Calendar events. Returns {ok: true, data: {events: [{id, summary, start, end, attendees, location, description, html_link}]}}. Event times are normalized to the user's profile timezone.",
     parameters: {
       type: "object",
       properties: {
+        user_id: {
+          type: "string",
+          description: "Sender's Telegram user ID. Read sender_id from the conversation metadata (untrusted). Used to resolve the user's profile timezone for event time normalization.",
+        },
         calendar_id: {
           type: "string",
           description: "Calendar ID to query (default: 'primary')",
@@ -58,10 +62,14 @@ export const TOOLS = [
     _script: "calendar/get_event.py",
     _spawn: "argv",
     name: "get_event",
-    description: "Get a single Google Calendar event by ID. Returns {ok: true, data: {event: {...}}} with the full event object.",
+    description: "Get a single Google Calendar event by ID. Returns {ok: true, data: {event: {...}}} with the full event object. Event times are normalized to the user's profile timezone.",
     parameters: {
       type: "object",
       properties: {
+        user_id: {
+          type: "string",
+          description: "Sender's Telegram user ID. Read sender_id from the conversation metadata (untrusted). Used to resolve the user's profile timezone for event time normalization.",
+        },
         event_id: {
           type: "string",
           description: "Google Calendar event ID",
