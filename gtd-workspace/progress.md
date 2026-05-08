@@ -1022,10 +1022,81 @@ Session `2468e244`: `trina_dispatch` → `complete` intent → `query_tasks` →
 
 **Gate 3:** GREEN — 2026-05-08
 
-### Notes for next session
+### Notes
 
-- `parking_lot` completion deferred to 2d (schema has `status: Literal["open"]` until then)
-- Reopen / undo completion deferred to 2d
-- Next sub-step: 2c (identity model) or 2d (update semantics); see `gtd-workspace/docs/trina-scope-2026-05-02-v1.md`
+- `parking_lot` completion: not supported; items move to tasks/ideas or are deleted (2d)
+- Reopen: not supported; capture a new item instead (design decision, closed)
 - `complete` added to `tools.allow` in `~/.openclaw/openclaw.json` (live)
 - Full gateway restart required after plugin changes (hot reload does not re-execute plugin JS)
+
+---
+
+## 2c — Identity model (user profiles + onboarding)
+
+**Squash commit:** `a40d87d` on main.
+
+### What was built
+
+Per-user `profile.json` at `{storage_root}/gtd-agent/users/{user_id}/profile.json`. All 6 plugin tools + `write.py` gate on `require_profile`; unregistered users get `unknown_user` and are told to say hello. `update_profile` plugin handles new-user onboarding (multi-turn) and timezone/name updates. `get_today_date` reads per-user timezone from profile. `onboard` and `update_profile` intents added to `trina_dispatch`. `seed_profile` autouse fixture keeps all existing tests GREEN.
+
+### Files delivered
+
+| File | Change |
+|---|---|
+| `scripts/gtd/profile.py` | New: `read_profile`, `write_profile`, `require_profile`; atomic JSON write; zoneinfo validation |
+| `scripts/gtd/update_profile.py` | New: plugin entry point; read-only check + create/update |
+| `scripts/gtd/tests/test_profile.py` | New: 8 unit tests |
+| `scripts/gtd/tests/test_update_profile.py` | New: 12 unit tests |
+| `capabilities/onboard.md` | New: multi-turn new-user onboarding flow |
+| `capabilities/update_profile.md` | New: timezone/name update flow |
+| `scripts/gtd/tests/conftest.py` | `seed_profile` autouse fixture; seeds `test-user-1`, `user1`, `user2` |
+| All 6 plugin tools + `write.py` | `require_profile(user_id)` gate added |
+| `scripts/turn_state.py` | `onboard`, `update_profile` intents + signals + classifier prompt |
+| `scripts/tests/llm/fixtures/capabilities/` | `complete.md`, `onboard.md`, `update_profile.md` stubs added |
+| `plugins/gtd-tools/tool-schemas.js` | `update_profile` entry added (10 tools) |
+
+### Gate 1 / Gate 2 / Gate 3
+
+- **248/248 Python, 9/9 JS** — Gate 1 GREEN
+- Code-reviewer subagent: B-1 (missing LLM test stub files) and B-2 (`test_write_creates_user_directory` trivially true) fixed — Gate 2 GREEN
+- Gate 3: "Hi" → `trina_dispatch` → `onboard` → `update_profile` read-only. "I'm in New York now" → `update_profile` with `America/New_York` written to profile — Gate 3 GREEN
+- Ranbir's profile seeded: `user_id: "8712103657"`, `timezone: "America/Denver"`
+- `update_profile` added to `tools.allow` in `~/.openclaw/openclaw.json`
+
+---
+
+## Post-2c fixes (2026-05-08)
+
+Five bugs found and closed during 2c Gate 3 and calendar testing. All squashed to main.
+
+### fix 1: otel-helpers.js error passthrough (`08e04e9`)
+
+`toToolResult` was discarding Python stdout on any non-zero exit, replacing it with `"script exited non-zero"`. The LLM never received actual error codes (`unknown_user`, `record_not_found`, etc.) — every capability error branch was silently broken since 2b.1. Fix: only replace stdout with generic error when stdout is empty (crash before output). When stdout is present, set span ERROR for observability but pass the Python JSON through. Added JS test 5c. **This fix is load-bearing for all capability error branches.**
+
+### fix 2: calendar tools — per-user timezone from profile (`819eb32`)
+
+`list_events` and `get_event` were normalizing event times to the global `GTD_TZ` env var (`America/Denver`) regardless of user. Added optional `user_id` parameter; tools now read profile.json for timezone. Added optional `timezone` override parameter for "what time is this in London?" flows. `calendar_read.md` updated to instruct LLM to pass `user_id` on every calendar call.
+
+### fix 3: calendar tz uses DATA_ROOT not env var (`534f937`)
+
+`_resolve_tz` in calendar scripts was reading `GTD_STORAGE_ROOT` env var directly. That var was removed from the plist (storage root now in `config/gtd.json`). Fixed to import `DATA_ROOT` from `scripts/common.py`.
+
+### fix 4: calendar tz guardrail + timezone override (`395782c`)
+
+LLM was still doing mental timezone math ("I see -04:00, let me convert to Mountain"). Reframed capability guardrail as "Python does the math, never compute timezone offsets yourself." Added `timezone` override parameter to both calendar tools for on-demand city conversion.
+
+### fix 5: strip UTC offset + `get_today_date` returns timezone (`3315316`)
+
+Root cause of remaining LLM arithmetic: LLM was reading the `-04:00` offset in `dateTime` strings and converting them. Two-part fix: (1) `_to_local` now returns datetime without UTC offset (`strftime("%Y-%m-%dT%H:%M:%S")`) so there's nothing to trigger re-conversion; (2) `get_today_date` now returns `{"date": "...", "timezone": "..."}` so LLM uses Python-resolved timezone for constructing `time_min`/`time_max` query bounds instead of guessing. Capability instructs LLM to use `data.timezone` from `get_today_date`.
+
+**Gate 3 (calendar + timezone):** GREEN — 2026-05-08. Events display in correct profile timezone; "I'm in New York now" updates profile and subsequent calendar queries show Eastern times.
+
+---
+
+## State as of 2026-05-08 session close
+
+- **Test suite:** 248/248 Python GREEN, 9/9 JS GREEN
+- **Live tool surface (GTD agent):** `trina_dispatch`, `get_today_date`, `update_profile`, `complete`, `capture`, `query_tasks`, `query_ideas`, `query_parking_lot`, `review`, `list_events`, `get_event`, `message` (12 tools)
+- **Profile:** Ranbir seeded at `~/agent_data/gtd-agent/users/8712103657/profile.json`
+- **Next sub-step: 2d** — update semantics (`update` tool for field edits) + `delete` tool. No reopen; no parking_lot completion. Parking_lot items move to tasks/ideas (LLM orchestrates capture + delete) or are deleted.
+- **Calendar write (create/edit events):** prioritised over 2d per supervisor. Scope: `create_event.py` + `update_event.py` plugin tools; `events.insert()` and `events.patch()` Google Calendar API; timezone from profile; attendees as email list.
