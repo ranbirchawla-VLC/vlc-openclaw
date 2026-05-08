@@ -39,8 +39,10 @@ _CONTEXT_ENV = {
 }
 
 
-def _resolve_tz(user_id: str | None) -> str:
-    """Read timezone from user profile; fall back to TZ env var."""
+def _resolve_tz(user_id: str | None, timezone: str | None = None) -> str:
+    """Resolve timezone: explicit override > user profile > TZ env var."""
+    if timezone:
+        return timezone
     if user_id:
         from pathlib import Path
         profile_path = Path(DATA_ROOT) / "gtd-agent" / "users" / user_id / "profile.json"
@@ -70,9 +72,10 @@ class _Input(BaseModel):
     event_id:    str
     calendar_id: str = "primary"
     user_id:     str | None = None
+    timezone:    str | None = None
 
 
-def run_get_event(event_id: str, calendar_id: str = "primary", user_id: str | None = None) -> dict:
+def run_get_event(event_id: str, calendar_id: str = "primary", user_id: str | None = None, timezone: str | None = None) -> dict:
     tracer = get_tracer("gtd.calendar")
     with tracer.start_as_current_span(_SPAN_NAME) as span:
         span.set_attribute("agent.id", "gtd")
@@ -84,7 +87,7 @@ def run_get_event(event_id: str, calendar_id: str = "primary", user_id: str | No
             if val:
                 span.set_attribute(attr, val)
 
-        tz = _resolve_tz(user_id)
+        tz = _resolve_tz(user_id, timezone)
         span.set_attribute("calendar.tz", tz)
 
         try:
@@ -132,7 +135,7 @@ def main() -> None:
         return
     with attach_parent_trace_context():
         try:
-            result = run_get_event(event_id=inp.event_id, calendar_id=inp.calendar_id, user_id=inp.user_id)
+            result = run_get_event(event_id=inp.event_id, calendar_id=inp.calendar_id, user_id=inp.user_id, timezone=inp.timezone)
         except Exception as exc:
             err(str(exc))
             return

@@ -41,6 +41,7 @@ _CONTEXT_ENV = {
 
 class _Input(BaseModel):
     user_id:     str | None = None
+    timezone:    str | None = None
     calendar_id: str = "primary"
     time_min:    str | None = None
     time_max:    str | None = None
@@ -55,8 +56,10 @@ def _seven_days_iso() -> str:
     return (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
 
 
-def _resolve_tz(user_id: str | None) -> str:
-    """Read timezone from user profile; fall back to TZ env var."""
+def _resolve_tz(user_id: str | None, timezone: str | None = None) -> str:
+    """Resolve timezone: explicit override > user profile > TZ env var."""
+    if timezone:
+        return timezone
     if user_id:
         from pathlib import Path
         profile_path = Path(DATA_ROOT) / "gtd-agent" / "users" / user_id / "profile.json"
@@ -102,10 +105,11 @@ def run_list_events(
     time_max: str | None = None,
     max_results: int = 25,
     user_id: str | None = None,
+    timezone: str | None = None,
 ) -> dict:
     resolved_min = time_min or _now_iso()
     resolved_max = time_max or _seven_days_iso()
-    tz = _resolve_tz(user_id)
+    tz = _resolve_tz(user_id, timezone)
 
     tracer = get_tracer("gtd.calendar")
     with tracer.start_as_current_span(_SPAN_NAME) as span:
@@ -178,6 +182,7 @@ def main() -> None:
             time_max=inp.time_max,
             max_results=inp.max_results,
             user_id=inp.user_id,
+            timezone=inp.timezone,
         )
         except Exception as exc:
             err(str(exc))

@@ -30,13 +30,17 @@ export const TOOLS = [
     _script: "calendar/get_events.py",
     _spawn: "argv",
     name: "list_events",
-    description: "List upcoming Google Calendar events. Returns {ok: true, data: {events: [{id, summary, start, end, attendees, location, description, html_link}]}}. Event times are normalized to the user's profile timezone.",
+    description: "List upcoming Google Calendar events. Returns {ok: true, data: {events: [{id, summary, start, end, attendees, location, description, html_link}]}}. Event times are normalized to the user's profile timezone by default. Pass timezone to override (e.g. to show times in a different city).",
     parameters: {
       type: "object",
       properties: {
         user_id: {
           type: "string",
           description: "Sender's Telegram user ID. Read sender_id from the conversation metadata (untrusted). Used to resolve the user's profile timezone for event time normalization.",
+        },
+        timezone: {
+          type: "string",
+          description: "IANA timezone string to override the user's profile timezone (e.g. 'Europe/London'). Resolve city names to IANA strings before passing. Omit to use the user's profile timezone.",
         },
         calendar_id: {
           type: "string",
@@ -62,13 +66,17 @@ export const TOOLS = [
     _script: "calendar/get_event.py",
     _spawn: "argv",
     name: "get_event",
-    description: "Get a single Google Calendar event by ID. Returns {ok: true, data: {event: {...}}} with the full event object. Event times are normalized to the user's profile timezone.",
+    description: "Get a single Google Calendar event by ID. Returns {ok: true, data: {event: {...}}} with the full event object. Event times are normalized to the user's profile timezone by default. Pass timezone to override.",
     parameters: {
       type: "object",
       properties: {
         user_id: {
           type: "string",
           description: "Sender's Telegram user ID. Read sender_id from the conversation metadata (untrusted). Used to resolve the user's profile timezone for event time normalization.",
+        },
+        timezone: {
+          type: "string",
+          description: "IANA timezone string to override the user's profile timezone (e.g. 'Europe/London'). Resolve city names to IANA strings before passing. Omit to use the user's profile timezone.",
         },
         event_id: {
           type: "string",
