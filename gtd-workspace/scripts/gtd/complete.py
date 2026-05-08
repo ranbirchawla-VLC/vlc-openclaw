@@ -25,6 +25,7 @@ from common import GTDError, err, ok
 from otel_common import attach_parent_trace_context, get_tracer
 from opentelemetry.trace import Status, StatusCode
 from _tools_common import read_jsonl, user_path
+from profile import require_profile
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +131,8 @@ def complete(
         try:
             if not requesting_user_id:
                 raise GTDError("internal_error", "requesting_user_id is empty")
+
+            require_profile(requesting_user_id)
 
             if record_type not in _COMPLETABLE:
                 raise GTDError(

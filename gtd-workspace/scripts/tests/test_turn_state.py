@@ -494,13 +494,34 @@ def test_main_stdout_contract(tmp_path, monkeypatch):
 # Tests 21-23: complete signal patterns
 # ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize("message,expected_intent", [
+    ("change my timezone to Eastern", "update_profile"),
+    ("I'm in New York now",           "update_profile"),
+    ("hello",                         "onboard"),
+    ("set up my profile",             "onboard"),
+])
+def test_onboard_and_update_profile_signal_patterns(message, expected_intent, tmp_path, monkeypatch):
+    """Tests 21-24: onboard and update_profile signal patterns route correctly.
+
+    Production failure: "hello" from new user routes to unknown; onboard flow
+    never triggered; user told to say hello but nothing happens.
+    Fails RED without onboard/update_profile in _VALID_INTENTS and _SIGNALS.
+    Model/temperature: N/A -- deterministic signal path.
+    """
+    (tmp_path / f"{expected_intent}.md").write_text(f"# stub: {expected_intent}")
+    monkeypatch.setenv("GTD_CAPABILITIES_DIR", str(tmp_path))
+    import turn_state as ts
+    result = ts.compute_turn_state(message)
+    assert result["intent"] == expected_intent
+
+
 @pytest.mark.parametrize("message", [
     "mark the Chris call done",
     "done with the broker task",
     "cross that one off",
 ])
 def test_complete_signal_patterns(message, tmp_path, monkeypatch):
-    """Tests 21-23: canonical complete trigger phrases route to complete intent.
+    """Tests 25-27: canonical complete trigger phrases route to complete intent.
 
     Production failure: wrong dispatch; Trina captures a new task instead of
     closing one; user sees duplicate records.

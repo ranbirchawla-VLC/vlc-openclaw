@@ -22,6 +22,7 @@ from otel_common import get_tracer
 from opentelemetry.trace import Status, StatusCode
 from validate import validate_storage
 from _tools_common import user_path
+from profile import require_profile
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +90,8 @@ def write(
         try:
             if not requesting_user_id:
                 raise GTDError("internal_error", "OPENCLAW_USER_ID not set")
+
+            require_profile(requesting_user_id)
 
             filename = _FILE_MAP.get(record_type)
             if filename is None:

@@ -25,9 +25,25 @@ def _args_json(user_id: str, content: str) -> str:
     return json.dumps({"record": {"record_type": "parking_lot", "content": content}, "user_id": user_id})
 
 
+def _seed_profile(storage_root: Path, user_id: str) -> None:
+    """Write a minimal profile.json so require_profile passes for this user."""
+    profile_dir = storage_root / "gtd-agent" / "users" / user_id
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "profile.json").write_text(
+        json.dumps({
+            "user_id": user_id, "name": user_id,
+            "timezone": "America/Denver",
+            "registered_at": "2026-05-08T00:00:00+00:00",
+            "updated_at": "2026-05-08T00:00:00+00:00",
+        }),
+        encoding="utf-8",
+    )
+
+
 def _invoke(
     user_id: str, chat_id: str, content: str, storage_root: Path
 ) -> subprocess.CompletedProcess:
+    _seed_profile(storage_root, user_id)
     env = {
         **os.environ,
         "GTD_STORAGE_ROOT": str(storage_root),

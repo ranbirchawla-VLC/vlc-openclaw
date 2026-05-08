@@ -31,3 +31,36 @@ def storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Redirect GTD_STORAGE_ROOT to a tmp directory for write-path isolation."""
     monkeypatch.setenv("GTD_STORAGE_ROOT", str(tmp_path))
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def seed_profile(storage: Path, request) -> None:
+    """Write profile.json for all known test user IDs when the storage fixture is active.
+
+    Required after the require_profile registration gate was added: all plugin
+    tool tests use storage-isolated paths; without a seeded profile every tool
+    call would return unknown_user instead of exercising the tool's own logic.
+
+    Tests that intentionally test the unknown_user path must delete the profile
+    file for their specific user_id in the test body before calling the tool.
+    """
+    import json as _json
+
+    _TEST_USERS = [
+        ("test-user-1", "Test User"),
+        ("user1",       "User One"),
+        ("user2",       "User Two"),
+    ]
+    for uid, name in _TEST_USERS:
+        profile_dir = storage / "gtd-agent" / "users" / uid
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        (profile_dir / "profile.json").write_text(
+            _json.dumps({
+                "user_id":       uid,
+                "name":          name,
+                "timezone":      "America/Denver",
+                "registered_at": "2026-05-08T00:00:00+00:00",
+                "updated_at":    "2026-05-08T00:00:00+00:00",
+            }),
+            encoding="utf-8",
+        )

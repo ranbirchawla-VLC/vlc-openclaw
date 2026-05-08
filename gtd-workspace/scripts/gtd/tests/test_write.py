@@ -99,9 +99,24 @@ def test_write_generates_id_and_timestamps(storage: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_write_creates_user_directory(storage: Path) -> None:
-    new_user = "brand-new-user"
-    write(_task(), new_user, _SOURCE, _CHAT_ID)
-    assert (storage / "gtd-agent" / "users" / new_user).is_dir()
+    """write() persists data to the correct per-user directory via user_path().
+
+    Uses a fresh user id outside _TEST_USERS so no JSONL exists before write().
+    Profile is seeded so require_profile passes. After write(), the JSONL file
+    must exist inside the user's directory, proving user_path() routed correctly.
+    """
+    import json as _json
+    fresh_user = "write-dir-test-user"
+    profile_dir = storage / "gtd-agent" / "users" / fresh_user
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "profile.json").write_text(
+        _json.dumps({"user_id": fresh_user, "name": "Dir Test", "timezone": "America/Denver",
+                     "registered_at": "2026-05-08T00:00:00+00:00", "updated_at": "2026-05-08T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
+    assert not (profile_dir / "tasks.jsonl").exists()
+    write(_task(), fresh_user, _SOURCE, _CHAT_ID)
+    assert (profile_dir / "tasks.jsonl").exists()
 
 
 # ---------------------------------------------------------------------------

@@ -42,10 +42,12 @@ _MAX_RETRIES = 3
 _VALID_INTENTS: frozenset[str] = frozenset({
     "capture",
     "complete",
+    "onboard",
     "query_tasks",
     "query_ideas",
     "query_parking_lot",
     "review",
+    "update_profile",
     "calendar_read",
     "unknown",
 })
@@ -119,6 +121,20 @@ _SIGNALS: list[tuple[str, list[re.Pattern[str]]]] = [
         re.compile(r"\bwhat\b.{0,20}\bon.{0,10}\btoday\b", re.I),
         re.compile(r"\bevents?\b", re.I),
     ]),
+    ("update_profile", [
+        re.compile(r"\bchange\b.{0,15}\btime.?zone\b", re.I),
+        re.compile(r"\bupdate\b.{0,15}\btime.?zone\b", re.I),
+        re.compile(r"\bmy\b.{0,10}\btime.?zone\b.{0,10}\bis\b", re.I),
+        re.compile(r"\bi'?m\b.{0,10}\bin\b.{0,20}\bnow\b", re.I),
+        re.compile(r"\bchange\b.{0,15}\bmy name\b", re.I),
+        re.compile(r"\bupdate\b.{0,15}\bmy name\b", re.I),
+    ]),
+    ("onboard", [
+        re.compile(r"^(hello|hi|hey)\s*[!?.]?\s*$", re.I),
+        re.compile(r"\bset up my profile\b", re.I),
+        re.compile(r"\bregister\b.{0,15}\bme\b", re.I),
+        re.compile(r"\bnew user\b", re.I),
+    ]),
 ]
 
 
@@ -155,15 +171,17 @@ def _load_api_key() -> str:
 
 _CLASSIFIER_PROMPT = """You are an intent classifier for Trina, a GTD assistant. Your only task is intent classification.
 
-The only valid output values are exactly these eight:
+The only valid output values are exactly these ten:
 - capture: user wants to record a task, idea, or parking-lot item
 - complete: user wants to mark a task or idea as done (e.g. "mark X done", "done with X", "cross that off")
+- onboard: user is new and wants to set up their profile (e.g. "hello", "hi", "set up my profile")
+- update_profile: user wants to change their timezone or name (e.g. "I'm in New York now", "change my timezone")
 - query_tasks: user wants to see their task list or next actions
 - query_ideas: user wants to see their ideas
 - query_parking_lot: user wants to see their parking lot
 - review: user wants to run a GTD review pass
 - calendar_read: user wants to read calendar events or schedule
-- unknown: anything else -- greetings, out-of-scope, ambiguous
+- unknown: anything else -- out-of-scope, ambiguous
 
 Return exactly: {"intent": "<value>"}
 No prose. No explanation. No additional fields.
@@ -171,6 +189,9 @@ No prose. No explanation. No additional fields.
 Correct examples:
 "add a task to call the dentist" -> {"intent": "capture"}
 "mark the call with Chris as done" -> {"intent": "complete"}
+"hello" -> {"intent": "onboard"}
+"I'm in New York now" -> {"intent": "update_profile"}
+"change my timezone to Eastern" -> {"intent": "update_profile"}
 "what tasks do I have this week?" -> {"intent": "query_tasks"}
 "any ideas on the list?" -> {"intent": "query_ideas"}
 "show me the parking lot" -> {"intent": "query_parking_lot"}

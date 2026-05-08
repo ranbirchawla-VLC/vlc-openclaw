@@ -20,6 +20,7 @@ from common import GTDError, err, get_gtd_config, ok
 from otel_common import attach_parent_trace_context, get_tracer
 from opentelemetry.trace import Status, StatusCode
 from _tools_common import read_jsonl, user_path
+from profile import require_profile
 
 _PARKLOT_KEYS = frozenset({
     "id", "content", "reason", "status",
@@ -75,6 +76,8 @@ def query_parking_lot(limit: int | None = None, requesting_user_id: str = "") ->
         try:
             if not requesting_user_id:
                 raise GTDError("internal_error", "OPENCLAW_USER_ID not set")
+
+            require_profile(requesting_user_id)
 
             path = user_path(requesting_user_id) / "parking-lot.jsonl"
             records = read_jsonl(path)

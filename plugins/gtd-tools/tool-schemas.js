@@ -78,6 +78,30 @@ export const TOOLS = [
   // GTD tools
   // ---------------------------------------------------------------------------
   {
+    _script: "gtd/update_profile.py",
+    _spawn: "argv",
+    name: "update_profile",
+    description: "Read or create/update a user profile. Call with {user_id} only to check registration status and return the current profile. Call with {user_id, name, timezone} to create or update. timezone must be a valid IANA string (e.g. 'America/Denver') — the LLM resolves city names to IANA strings before calling. Returns {ok: true, data: {profile: {user_id, name, timezone, registered_at, updated_at}}}.",
+    parameters: {
+      type: "object",
+      properties: {
+        user_id: {
+          type: "string",
+          description: "Sender's Telegram user ID. Read sender_id from the conversation metadata (untrusted).",
+        },
+        name: {
+          type: "string",
+          description: "Display name for this user.",
+        },
+        timezone: {
+          type: "string",
+          description: "IANA timezone string resolved by the LLM from the user's city (e.g. 'America/Denver', 'America/New_York', 'Europe/London').",
+        },
+      },
+      required: ["user_id"],
+    },
+  },
+  {
     _script: "gtd/complete.py",
     _spawn: "argv",
     name: "complete",
