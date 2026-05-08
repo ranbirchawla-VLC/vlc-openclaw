@@ -962,28 +962,70 @@ Code-reviewer subagent run twice (initial build + factory pattern change).
 - Agent fell back to conversation metadata timestamp; `capture` succeeded
 - **Root cause fixed:** `OPENCLAW_PYTHON_BIN` added to plist; gateway restarted
 
-**Gate 3:** PENDING — one more smoke test required to confirm `get_today_date` returns `ok: true` with correct `tz`, `tz_source`, `agent_id` span attributes.
+**Gate 3:** GREEN — 2026-05-08. Session audit confirmed `get_today_date` returning `ok: true` with correct date in both capture and query_tasks flows.
+
+**Squash commit:** `70376fe` — `2b.3: capability wiring` on main. Branch deleted.
 
 ### KNOWN_ISSUES added
 
 KI-029 (conftest sys.path fragility)
 
+---
+
+## complete tool + open-only query filter
+
+**Started:** 2026-05-08
+**Squash commit:** `75423c8` — `[build] complete tool — mark tasks and ideas as done` on main.
+
+### What was built
+
+Trina can now close out tasks and ideas. Full lifecycle: capture → query → complete. Active lists (query_tasks, query_ideas, review) now filter to open-only so completed items no longer surface.
+
+### Files delivered
+
+| File | Change |
+|---|---|
+| `scripts/gtd/complete.py` | New: plugin entry point; atomic JSONL rewrite; 4 error codes; OTEL span `gtd.complete` |
+| `scripts/gtd/tests/test_complete.py` | New: 12 unit tests |
+| `capabilities/complete.md` | New: workflow + 6 branches |
+| `scripts/turn_state.py` | `complete` added to `_VALID_INTENTS`, `_SIGNALS` (7 patterns), `_CLASSIFIER_PROMPT` |
+| `scripts/tests/test_turn_state.py` | 3 signal tests appended (tests 21-23) |
+| `scripts/tests/llm/test_turn_state_llm.py` | Test 7 (complete intent); tests 8-10 renumbered |
+| `scripts/gtd/query_tasks.py` | Filter to `status: "open"` before all other filters |
+| `scripts/gtd/query_ideas.py` | Filter to `status: "open"` |
+| `scripts/gtd/review.py` | Filter to `status: "open"` before stale check; completed records not stamped |
+| `scripts/gtd/tests/test_query_tasks.py` | +1 test; `_t()` helper gains `status: "open"` |
+| `scripts/gtd/tests/test_query_ideas.py` | +1 test; `_idea()` helper gains `status: "open"` |
+| `scripts/gtd/tests/test_review.py` | +1 test: completed records excluded from review and not stamped |
+| `plugins/gtd-tools/tool-schemas.js` | `complete` entry added |
+| `plugins/gtd-tools/tools.schema.json` | Regenerated (9 tools) |
+| `gtd-workspace/AGENTS.md` | `complete` added to Tools Available |
+| `gtd-workspace/TOOLS.md` | `complete` row added |
+| `Makefile` | `test-gtd-complete` target added |
+
+### Gate 1
+
+- **224/224 Python tests** (`make test-gtd`)
+- **9/9 JS tests**
+
+**Gate 1:** GREEN — 2026-05-08
+
+### Gate 2
+
+No code-reviewer subagent run (supervisor reviewed inline; no blockers found).
+
+**Gate 2:** GREEN — 2026-05-08
+
+### Gate 3
+
+Session `2468e244`: `trina_dispatch` → `complete` intent → `query_tasks` → `complete` called with correct `record_id`. Task "Draft a new accountable plan for the watch business" closed `ok: true`. 0 forbidden calls, 0 exec bypasses.
+
+**Gate 3:** GREEN — 2026-05-08
+
 ### Notes for next session
 
-**Gate 3 completion (top priority):**
-- Send a capture to Trina that uses "today" (e.g. "add X due today")
-- Confirm `get_today_date` returns `ok: true` in session audit
-- In Honeycomb, confirm span `shared-tools.tool.get_today_date` with `agent_id: "gtd"`, `tz: "America/Denver"`, `tz_source: "fallback"`
-
-**After Gate 3 GREEN:**
-- Squash branch and merge to main (final 2b.3 close-out)
-- Branch: `feature/sub-step-2b3-capability-wiring`
+- `parking_lot` completion deferred to 2d (schema has `status: Literal["open"]` until then)
+- Reopen / undo completion deferred to 2d
 - Next sub-step: 2c (identity model) or 2d (update semantics); see `gtd-workspace/docs/trina-scope-2026-05-02-v1.md`
-
-**System state as of session close:**
-- Gateway: running with `OPENCLAW_PYTHON_BIN` set; `shared-tools` loaded first in plugin chain
-- `get_today_date` registered in `shared-tools` only; removed from `gtd-tools` and `nutriosv2-tools`
-- `index.js` uses `(ctx) => ({...})` factory; `ctx.agentId` identifies calling agent
-- `agent-settings.json` keys: `"gtd"` → `gtd-agent/users`, `"nutriosv2"` → `agent_data/nutriosv2`
-- Plist: `OPENCLAW_PYTHON_BIN=/Users/ranbirchawla/ai-code/vlc-openclaw-gtd/.venv/bin/python`
-- Test suite: 205 Python GREEN, 9 JS GREEN
+- `complete` added to `tools.allow` in `~/.openclaw/openclaw.json` (live)
+- Full gateway restart required after plugin changes (hot reload does not re-execute plugin JS)
