@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Surface ideas without overwhelm. Call `query_ideas`; render records verbatim in inward voice.
+Surface open ideas without overwhelm. Call `query_ideas`; render records verbatim in inward voice. Only open (not completed) ideas are returned.
 
 ## Voice Register
 

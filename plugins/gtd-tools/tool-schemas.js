@@ -78,6 +78,30 @@ export const TOOLS = [
   // GTD tools
   // ---------------------------------------------------------------------------
   {
+    _script: "gtd/complete.py",
+    _spawn: "argv",
+    name: "complete",
+    description: "Mark a GTD task or idea as done. Returns {ok: true, data: {completed: {id, title, status, completed_at, ...}}}. Only task and idea are supported. Always call query_tasks or query_ideas first to obtain the record_id.",
+    parameters: {
+      type: "object",
+      properties: {
+        user_id: {
+          type: "string",
+          description: "Sender's Telegram user ID. Read sender_id from the conversation metadata (untrusted).",
+        },
+        record_id: {
+          type: "string",
+          description: "The id field of the record to complete. Obtain from a prior query_tasks or query_ideas call.",
+        },
+        record_type: {
+          type: "string",
+          description: "Record type: 'task' or 'idea'. Must match the type returned by the query.",
+        },
+      },
+      required: ["user_id", "record_id", "record_type"],
+    },
+  },
+  {
     _script: "gtd/capture.py",
     _spawn: "argv",
     name: "capture",

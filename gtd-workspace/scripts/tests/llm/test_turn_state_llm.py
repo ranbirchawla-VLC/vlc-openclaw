@@ -86,12 +86,27 @@ def test_llm_calendar_read_intent():
 
 
 # ---------------------------------------------------------------------------
-# Test 7: continuity-turn handling
+# Test 7: complete intent
+# ---------------------------------------------------------------------------
+
+@pytest.mark.llm
+def test_llm_complete_intent():
+    """Test 7: natural completion phrasing routes to complete.
+
+    Production failure: "mark X done" dispatches to capture; Trina logs a new
+    task instead of closing the existing one; duplicates accumulate.
+    """
+    result = _classify("mark the call with Chris as done")
+    assert result["intent"] == "complete"
+
+
+# ---------------------------------------------------------------------------
+# Test 8: continuity-turn handling
 # ---------------------------------------------------------------------------
 
 @pytest.mark.llm
 def test_llm_continuity_turn_valid_result():
-    """Test 7: 'yes' (1-word continuity) -> valid intent; no error; continuity_turn = True on span.
+    """Test 8: 'yes' (1-word continuity) -> valid intent; no error; continuity_turn = True on span.
 
     Production failure: single-word continuation triggers error exit instead of
     graceful unknown routing; multi-turn capture flow broken. Also verifies
@@ -112,12 +127,12 @@ def test_llm_continuity_turn_valid_result():
 
 
 # ---------------------------------------------------------------------------
-# Test 8: negative-path (greeting) -> unknown
+# Test 9: negative-path (greeting) -> unknown
 # ---------------------------------------------------------------------------
 
 @pytest.mark.llm
 def test_llm_greeting_routes_unknown():
-    """Test 8: greeting routes to unknown; capability_dispatched = False.
+    """Test 9: greeting routes to unknown; capability_dispatched = False.
 
     Production failure: LLM classifies greeting as a GTD intent; tool called
     with no user data; agent confuses or errors.
@@ -127,12 +142,12 @@ def test_llm_greeting_routes_unknown():
 
 
 # ---------------------------------------------------------------------------
-# Test 9: no parameter extraction in LLM response
+# Test 10: no parameter extraction in LLM response
 # ---------------------------------------------------------------------------
 
 @pytest.mark.llm
 def test_llm_no_parameter_extraction():
-    """Test 9: LLM JSON response for any message has exactly one key: 'intent'.
+    """Test 10: LLM JSON response for any message has exactly one key: 'intent'.
 
     Production failure: LLM extracts entities into classifier response,
     leaking slot-filling into the dispatcher layer; downstream capabilities

@@ -2,8 +2,8 @@
 
 ## Purpose
 
-Surface tasks without overwhelm. Read filter intent from the user message; call `query_tasks`;
-render records verbatim in inward voice.
+Surface open tasks without overwhelm. Read filter intent from the user message; call `query_tasks`;
+render records verbatim in inward voice. Only open (not completed) tasks are returned.
 
 ## Voice Register
 

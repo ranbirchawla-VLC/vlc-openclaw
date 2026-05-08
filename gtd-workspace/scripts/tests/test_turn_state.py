@@ -488,3 +488,27 @@ def test_main_stdout_contract(tmp_path, monkeypatch):
     assert output["ok"] is True
     assert output["data"]["intent"] in ts._VALID_INTENTS
     assert output["data"]["capability_prompt"] != ""
+
+
+# ---------------------------------------------------------------------------
+# Tests 21-23: complete signal patterns
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("message", [
+    "mark the Chris call done",
+    "done with the broker task",
+    "cross that one off",
+])
+def test_complete_signal_patterns(message, tmp_path, monkeypatch):
+    """Tests 21-23: canonical complete trigger phrases route to complete intent.
+
+    Production failure: wrong dispatch; Trina captures a new task instead of
+    closing one; user sees duplicate records.
+    Fails RED without 'complete' in _VALID_INTENTS and _SIGNALS.
+    Model/temperature: N/A -- deterministic signal path.
+    """
+    (tmp_path / "complete.md").write_text("# stub: complete")
+    monkeypatch.setenv("GTD_CAPABILITIES_DIR", str(tmp_path))
+    import turn_state as ts
+    result = ts.compute_turn_state(message)
+    assert result["intent"] == "complete"

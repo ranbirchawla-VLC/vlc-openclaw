@@ -33,6 +33,7 @@ Plugin tools registered with the gateway. All tool calls go through the plugin s
 
 | Tool | Description |
 |------|-------------|
+| `complete` | Mark a GTD task or idea as done. Returns `{ok: true, data: {completed: {id, title, status, completed_at, ...}}}`. Only task and idea are supported. Always call `query_tasks` or `query_ideas` first to obtain `record_id`. Error codes: `record_not_found`, `already_completed`, `unsupported_record_type`, `storage_io_failed`. |
 | `capture` | Capture a GTD record (task, idea, or parking_lot). Returns `{ok: true, data: {captured: {...}}}`. Captured fields by type; task: id, title, context, project, priority, waiting_for, due_date, notes, status, created_at, updated_at, last_reviewed, completed_at. idea: id, title, topic, content, status, created_at, updated_at, last_reviewed, completed_at. parking_lot: id, content, reason, status, created_at, updated_at, last_reviewed, completed_at. record_type, source, telegram_chat_id excluded. |
 | `query_tasks` | Query GTD tasks with optional filters. Returns `{ok: true, data: {items, total_count, truncated}}`. |
 | `query_ideas` | Query GTD ideas. Returns `{ok: true, data: {items, total_count, truncated}}`. |

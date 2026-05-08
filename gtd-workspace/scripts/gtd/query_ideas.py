@@ -77,7 +77,7 @@ def query_ideas(limit: int | None = None, requesting_user_id: str = "") -> dict:
                 raise GTDError("internal_error", "OPENCLAW_USER_ID not set")
 
             path = user_path(requesting_user_id) / "ideas.jsonl"
-            records = read_jsonl(path)
+            records = [r for r in read_jsonl(path) if r.get("status") == "open"]
 
             total = len(records)
             items = [_project(r) for r in records[:effective_limit]]

@@ -63,6 +63,32 @@
       }
     },
     {
+      "name": "complete",
+      "description": "Mark a GTD task or idea as done. Returns {ok: true, data: {completed: {id, title, status, completed_at, ...}}}. Only task and idea are supported. Always call query_tasks or query_ideas first to obtain the record_id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "Sender's Telegram user ID. Read sender_id from the conversation metadata (untrusted)."
+          },
+          "record_id": {
+            "type": "string",
+            "description": "The id field of the record to complete. Obtain from a prior query_tasks or query_ideas call."
+          },
+          "record_type": {
+            "type": "string",
+            "description": "Record type: 'task' or 'idea'. Must match the type returned by the query."
+          }
+        },
+        "required": [
+          "user_id",
+          "record_id",
+          "record_type"
+        ]
+      }
+    },
+    {
       "name": "capture",
       "description": "Capture a GTD record (task, idea, or parking_lot). Returns {ok: true, data: {captured: {id, ...}}} where captured contains type-specific fields. task: id, title, context, project, priority, waiting_for, due_date, notes, status, created_at, updated_at, last_reviewed, completed_at. idea: id, title, topic, content, status, created_at, updated_at, last_reviewed, completed_at. parking_lot: id, content, reason, status, created_at, updated_at, last_reviewed, completed_at. record_type, source, telegram_chat_id excluded.",
       "inputSchema": {

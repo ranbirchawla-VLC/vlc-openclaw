@@ -27,6 +27,7 @@ def _idea(title: str) -> dict:
         "id": f"i-{title[:4]}",
         "record_type": "idea",
         "title": title,
+        "status": "open",
         "created_at": "2026-04-01T00:00:00+00:00",
     }
 
@@ -151,3 +152,35 @@ def test_read_projection_omits_channel_idea(storage: Path) -> None:
     assert "source" not in item
     assert "telegram_chat_id" not in item
     assert "record_type" not in item
+
+
+# ---------------------------------------------------------------------------
+# Status filter: completed ideas excluded from default query
+# ---------------------------------------------------------------------------
+
+def test_query_ideas_excludes_completed(storage: Path) -> None:
+    """Completed ideas must not appear in query_ideas results.
+
+    Production failure: after closing an idea, it still shows in the ideas list.
+    """
+    _write_ideas(storage, "user1", [
+        {
+            "id": "i-open", "record_type": "idea", "title": "Open idea",
+            "topic": None, "content": "Still relevant", "status": "open",
+            "created_at": "2026-05-01T00:00:00+00:00",
+            "updated_at": "2026-05-01T00:00:00+00:00",
+            "last_reviewed": None, "completed_at": None,
+            "source": "telegram", "telegram_chat_id": "u1",
+        },
+        {
+            "id": "i-done", "record_type": "idea", "title": "Done idea",
+            "topic": None, "content": "Already acted on", "status": "completed",
+            "created_at": "2026-05-01T00:00:00+00:00",
+            "updated_at": "2026-05-08T10:00:00+00:00",
+            "last_reviewed": None, "completed_at": "2026-05-08T10:00:00+00:00",
+            "source": "telegram", "telegram_chat_id": "u1",
+        },
+    ])
+    result = query_ideas(requesting_user_id="user1")
+    assert result["total_count"] == 1
+    assert result["items"][0]["id"] == "i-open"

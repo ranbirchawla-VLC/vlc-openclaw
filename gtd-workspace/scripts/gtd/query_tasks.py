@@ -102,7 +102,7 @@ def query_tasks(
             path = user_path(requesting_user_id) / "tasks.jsonl"
             records = read_jsonl(path)
 
-            filtered = records
+            filtered = [r for r in records if r.get("status") == "open"]
             if context is not None:
                 filtered = [r for r in filtered if r.get("context") == context]
             if due_date_before is not None:

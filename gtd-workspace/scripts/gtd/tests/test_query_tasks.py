@@ -25,7 +25,7 @@ def _write_tasks(storage: Path, user_id: str, records: list[dict]) -> None:
 def _t(title: str, context: str = "@work", due_date: str | None = None,
         waiting_for: str | None = None) -> dict:
     r = {"id": f"t-{title[:4]}", "record_type": "task", "title": title,
-         "context": context, "created_at": "2026-04-01T00:00:00+00:00"}
+         "context": context, "status": "open", "created_at": "2026-04-01T00:00:00+00:00"}
     if due_date is not None:
         r["due_date"] = due_date
     if waiting_for is not None:
@@ -276,3 +276,37 @@ def test_read_projection_omits_channel_task(storage: Path) -> None:
     assert "source" not in item
     assert "telegram_chat_id" not in item
     assert "record_type" not in item
+
+
+# ---------------------------------------------------------------------------
+# Status filter: completed tasks excluded from default query
+# ---------------------------------------------------------------------------
+
+def test_query_tasks_excludes_completed(storage: Path) -> None:
+    """Completed tasks must not appear in query_tasks results.
+
+    Production failure: after marking a task done, it still appears in the
+    active list; user sees stale items they already closed.
+    """
+    _write_tasks(storage, "user1", [
+        {
+            "id": "t-open", "record_type": "task", "title": "Open task",
+            "context": "@work", "project": None, "priority": None,
+            "waiting_for": None, "due_date": None, "notes": None,
+            "status": "open", "created_at": "2026-05-01T00:00:00+00:00",
+            "updated_at": "2026-05-01T00:00:00+00:00", "last_reviewed": None,
+            "completed_at": None, "source": "telegram", "telegram_chat_id": "u1",
+        },
+        {
+            "id": "t-done", "record_type": "task", "title": "Done task",
+            "context": "@work", "project": None, "priority": None,
+            "waiting_for": None, "due_date": None, "notes": None,
+            "status": "completed", "created_at": "2026-05-01T00:00:00+00:00",
+            "updated_at": "2026-05-08T10:00:00+00:00", "last_reviewed": None,
+            "completed_at": "2026-05-08T10:00:00+00:00",
+            "source": "telegram", "telegram_chat_id": "u1",
+        },
+    ])
+    result = query_tasks(requesting_user_id="user1")
+    assert result["total_count"] == 1
+    assert result["items"][0]["id"] == "t-open"

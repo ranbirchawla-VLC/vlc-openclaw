@@ -240,6 +240,36 @@ def test_review_empty_user_id_raises(storage: Path) -> None:
 # OTEL span
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Status filter: completed records excluded from review
+# ---------------------------------------------------------------------------
+
+def test_review_excludes_completed_records(storage: Path) -> None:
+    """Completed tasks must not appear in review results or receive a stamp.
+
+    Production failure: review stamps completed tasks as recently reviewed,
+    polluting last_reviewed timestamps and surfacing done work in the review UI.
+    """
+    tasks_path = storage / "gtd-agent" / "users" / "user1" / "tasks.jsonl"
+    open_task = _task("Open task")
+    completed_task = {**_task("Done task"), "status": "completed",
+                      "completed_at": "2026-05-08T10:00:00+00:00"}
+    _write(tasks_path, [open_task, completed_task])
+
+    result = review(requesting_user_id="user1")
+    tasks_result = result["by_type"]["tasks"]
+
+    # Only the open task surfaces in review results
+    returned_ids = {item["id"] for item in tasks_result["items"]}
+    assert open_task["id"] in returned_ids
+    assert completed_task["id"] not in returned_ids
+
+    # Completed task on disk must not have its last_reviewed stamped
+    on_disk = _read(tasks_path)
+    done_on_disk = next(r for r in on_disk if r["id"] == completed_task["id"])
+    assert done_on_disk["last_reviewed"] is None
+
+
 def test_review_emits_otel_span(storage: Path) -> None:
     import otel_common
 

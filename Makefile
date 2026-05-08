@@ -20,7 +20,7 @@
 PYTHON = .venv/bin/python
 PYTEST = $(PYTHON) -m pytest
 
-.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-eval-report-pipeline test-grailzee-eval-ingest-sales-plugin test-grailzee-eval-turn-state test-grailzee-cowork test-grailzee-ledger test-grailzee-ledger-schema test-grailzee-ledger-transform test-grailzee-ledger-lock test-grailzee-ledger-merge test-grailzee-ledger-prune test-grailzee-ledger-archive test-grailzee-ledger-read test-grailzee-ledger-orchestrator test-grailzee-ledger-integration test-gtd test-gtd-storage test-gtd-helpers test-gtd-common test-gtd-otel test-gtd-calendar test-gtd-internal test-gtd-capture test-gtd-queries test-gtd-delegation test-gtd-review test-gtd-migration test-gtd-turn-state test-gtd-shared-get-today-date test-gtd-llm
+.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-eval-report-pipeline test-grailzee-eval-ingest-sales-plugin test-grailzee-eval-turn-state test-grailzee-cowork test-grailzee-ledger test-grailzee-ledger-schema test-grailzee-ledger-transform test-grailzee-ledger-lock test-grailzee-ledger-merge test-grailzee-ledger-prune test-grailzee-ledger-archive test-grailzee-ledger-read test-grailzee-ledger-orchestrator test-grailzee-ledger-integration test-gtd test-gtd-storage test-gtd-helpers test-gtd-common test-gtd-otel test-gtd-calendar test-gtd-internal test-gtd-capture test-gtd-complete test-gtd-queries test-gtd-delegation test-gtd-review test-gtd-migration test-gtd-turn-state test-gtd-shared-get-today-date test-gtd-llm
 
 help:
 	@echo "Available targets:"
@@ -67,6 +67,7 @@ help:
 	@echo "  make test-gtd-calendar           - run calendar tool tests only"
 	@echo "  make test-gtd-internal           - run gtd internal modules (validate, write, common, migration)"
 	@echo "  make test-gtd-capture            - run capture entry point tests"
+	@echo "  make test-gtd-complete           - run complete entry point tests"
 	@echo "  make test-gtd-queries            - run query_tasks, query_ideas, query_parking_lot tests"
 	@echo "  make test-gtd-delegation         - run delegation entry point tests"
 	@echo "  make test-gtd-review             - run review entry point tests"
@@ -215,6 +216,9 @@ test-gtd-calendar:
 
 test-gtd-capture:
 	$(PYTEST) gtd-workspace/scripts/gtd/tests/test_capture.py
+
+test-gtd-complete:
+	$(PYTEST) gtd-workspace/scripts/gtd/tests/test_complete.py
 
 test-gtd-queries:
 	$(PYTEST) gtd-workspace/scripts/gtd/tests/test_query_tasks.py gtd-workspace/scripts/gtd/tests/test_query_ideas.py gtd-workspace/scripts/gtd/tests/test_query_parking_lot.py

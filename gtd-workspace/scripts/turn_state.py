@@ -41,6 +41,7 @@ _MAX_RETRIES = 3
 
 _VALID_INTENTS: frozenset[str] = frozenset({
     "capture",
+    "complete",
     "query_tasks",
     "query_ideas",
     "query_parking_lot",
@@ -57,6 +58,15 @@ _TOOL_INTENTS: frozenset[str] = _VALID_INTENTS - {"unknown"}
 # ---------------------------------------------------------------------------
 
 _SIGNALS: list[tuple[str, list[re.Pattern[str]]]] = [
+    ("complete", [
+        re.compile(r"\bmark\b.{0,30}\bdone\b", re.I),
+        re.compile(r"\bdone with\b", re.I),
+        re.compile(r"\bcross\b.{0,10}\boff\b", re.I),
+        re.compile(r"\bclose\b.{0,10}\bout\b", re.I),
+        re.compile(r"\bcompleted?\b.{0,30}\btask\b", re.I),
+        re.compile(r"\bfinished\b.{0,30}\btask\b", re.I),
+        re.compile(r"\bfinished\b.{0,30}\bidea\b", re.I),
+    ]),
     ("capture", [
         re.compile(r"\bremind me\b", re.I),
         re.compile(r"\badd\b.{0,20}\btask\b", re.I),
@@ -145,8 +155,9 @@ def _load_api_key() -> str:
 
 _CLASSIFIER_PROMPT = """You are an intent classifier for Trina, a GTD assistant. Your only task is intent classification.
 
-The only valid output values are exactly these seven:
+The only valid output values are exactly these eight:
 - capture: user wants to record a task, idea, or parking-lot item
+- complete: user wants to mark a task or idea as done (e.g. "mark X done", "done with X", "cross that off")
 - query_tasks: user wants to see their task list or next actions
 - query_ideas: user wants to see their ideas
 - query_parking_lot: user wants to see their parking lot
@@ -159,6 +170,7 @@ No prose. No explanation. No additional fields.
 
 Correct examples:
 "add a task to call the dentist" -> {"intent": "capture"}
+"mark the call with Chris as done" -> {"intent": "complete"}
 "what tasks do I have this week?" -> {"intent": "query_tasks"}
 "any ideas on the list?" -> {"intent": "query_ideas"}
 "show me the parking lot" -> {"intent": "query_parking_lot"}

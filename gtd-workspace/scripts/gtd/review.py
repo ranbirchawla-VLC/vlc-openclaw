@@ -179,7 +179,8 @@ def review(
                 path = base / filename
                 all_records = read_jsonl(path)
 
-                # Read-filter pass: validate_storage on each record (first child span)
+                # Read-filter pass: validate_storage, then open-only.
+                # Completed records are excluded from review; they don't need stamps.
                 valid_records: list[dict] = []
                 for rec in all_records:
                     vr = validate_storage(record_type, rec)
@@ -188,7 +189,8 @@ def review(
                     else:
                         invalid_count += 1
 
-                stale = [r for r in valid_records if _is_stale(r, cutoff_iso)]
+                open_records = [r for r in valid_records if r.get("status") == "open"]
+                stale = [r for r in open_records if _is_stale(r, cutoff_iso)]
                 total = len(stale)
                 page = stale[:effective_limit]
                 truncated = total > effective_limit
