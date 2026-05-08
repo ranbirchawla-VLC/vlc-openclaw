@@ -31,7 +31,10 @@ Render it. Do not compute the offset yourself.
 
 1. Read user message; extract date intent (default: today; also this week, specific date, named
    date range).
-2. Call `get_today_date` with `{user_id}` for "today" and relative-date references.
+2. Call `get_today_date` with `{user_id}` for "today" and relative-date references. The
+   response includes `data.timezone` — the user's IANA timezone string. Use this to construct
+   all datetime bounds (e.g. `time_min`, `time_max`) for the subsequent tool call. Do not
+   infer or guess the user's timezone from any other source.
 3. Decide tool: `list_events` for ranges and day views; `get_event` for a specific named event.
 4. Call the chosen tool with `user_id` plus any parsed parameters. `user_id` is required for
    correct timezone normalization of event times.

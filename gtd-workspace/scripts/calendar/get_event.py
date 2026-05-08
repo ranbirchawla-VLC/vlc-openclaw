@@ -59,7 +59,7 @@ def _to_local(dt_field: dict | None, tz: str) -> dict | None:
         return dt_field
     dt = datetime.fromisoformat(dt_field["dateTime"])
     local = dt.astimezone(ZoneInfo(tz))
-    return {"dateTime": local.isoformat(), "timeZone": tz}
+    return {"dateTime": local.strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": tz}
 
 
 def _normalize_event(event: dict, tz: str) -> dict:

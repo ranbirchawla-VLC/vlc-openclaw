@@ -32,6 +32,7 @@ def test_profile_tz_used_when_gtd_tz_set(monkeypatch) -> None:
     result = mod.run_get_today_date()
     expected = _datetime.now(_zoneinfo.ZoneInfo("Europe/London")).strftime("%Y-%m-%d")
     assert result["date"] == expected
+    assert result["timezone"] == "Europe/London"
 
 
 def test_default_tz_used_when_gtd_tz_unset(monkeypatch) -> None:
@@ -41,6 +42,7 @@ def test_default_tz_used_when_gtd_tz_unset(monkeypatch) -> None:
     result = mod.run_get_today_date()
     expected = _datetime.now(_zoneinfo.ZoneInfo("America/Denver")).strftime("%Y-%m-%d")
     assert result["date"] == expected
+    assert result["timezone"] == "America/Denver"
 
 
 def test_main_span_has_tz_attribute(monkeypatch, capsys) -> None:

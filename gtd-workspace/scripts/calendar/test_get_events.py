@@ -80,8 +80,8 @@ def test_happy_path_returns_events(capsys: pytest.CaptureFixture) -> None:
     assert result["events"][0] == {
         "id": "evt1",
         "summary": "Team standup",
-        "start": {"dateTime": "2026-05-05T10:00:00-06:00", "timeZone": "America/Denver"},
-        "end": {"dateTime": "2026-05-05T10:30:00-06:00", "timeZone": "America/Denver"},
+        "start": {"dateTime": "2026-05-05T10:00:00", "timeZone": "America/Denver"},
+        "end": {"dateTime": "2026-05-05T10:30:00", "timeZone": "America/Denver"},
         "attendees": [{"email": "a@b.com"}],
         "location": "Room 1",
         "description": "Sync",
@@ -300,9 +300,9 @@ def test_external_timezone_normalized_to_local() -> None:
 
     start = result["events"][0]["start"]
     assert start["timeZone"] == "America/Denver"
-    # 5:30pm EDT = 3:30pm MDT
+    # 5:30pm EDT = 3:30pm MDT; offset stripped (19 chars, no trailing +/-HH:MM)
     assert "15:30:00" in start["dateTime"]
-    assert "-06:00" in start["dateTime"]
+    assert len(start["dateTime"]) == 19
 
 
 # ---------------------------------------------------------------------------
