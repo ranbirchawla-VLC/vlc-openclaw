@@ -153,10 +153,31 @@ test("5b: subprocess_nonzero_exit sets span status ERROR and correct attributes"
 });
 
 // ---------------------------------------------------------------------------
-// Test 5c: output_parse_failure
+// Test 5c: non-zero exit with JSON stdout passes Python output through
 // ---------------------------------------------------------------------------
 
-test("5c: output_parse_failure sets span status ERROR and correct attributes", () => {
+test("5c: non-zero exit with JSON stdout passes Python error payload to LLM", () => {
+  const exp = freshSpans();
+  const tracer = trace.getTracer(PLUGIN_TRACER);
+  const pythonError = { ok: false, error: { code: "unknown_user", message: "No profile found." } };
+  const mockSpawn = () => ({
+    status: 1, stdout: JSON.stringify(pythonError), stderr: "", error: undefined,
+  });
+
+  const result = executeWithSpan(tracer, "update_profile", mockSpawn, {});
+
+  // Span must be ERROR for observability
+  const span = exp.getFinishedSpans()[0];
+  assert.equal(span.status.code, SpanStatusCode.ERROR);
+  assert.equal(span.attributes["error.code"], "subprocess_nonzero_exit");
+
+  // LLM must receive the actual Python JSON, not the generic gateway error
+  const returned = JSON.parse(result.content[0].text);
+  assert.equal(returned.ok, false);
+  assert.equal(returned.error.code, "unknown_user");
+});
+
+test("5d: output_parse_failure sets span status ERROR and correct attributes", () => {
   const exp = freshSpans();
   const tracer = trace.getTracer(PLUGIN_TRACER);
   const mockSpawn = () => ({

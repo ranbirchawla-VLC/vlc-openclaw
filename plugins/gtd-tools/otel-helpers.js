@@ -64,7 +64,9 @@ export function toToolResult(result, span, toolName) {
   }
 
   const stdout = (result.stdout ?? "").trim();
-  if (result.status !== 0 || !stdout) {
+
+  // Non-zero exit with no stdout = crash before any output; return generic error.
+  if (!stdout) {
     const stderr = (result.stderr ?? "").trim();
     span.setStatus({ code: SpanStatusCode.ERROR, message: stderr || "script exited non-zero" });
     span.setAttributes({
@@ -76,6 +78,20 @@ export function toToolResult(result, span, toolName) {
     return {
       content: [{ type: "text", text: JSON.stringify({ ok: false, error: stderr || "script exited non-zero", status: result.status }) }],
     };
+  }
+
+  // Non-zero exit with stdout present: script ran and returned a structured error.
+  // Set span ERROR status for observability, but pass the Python JSON through so
+  // the LLM receives the actual error code (e.g. unknown_user, record_not_found).
+  if (result.status !== 0) {
+    const stderr = (result.stderr ?? "").trim();
+    span.setStatus({ code: SpanStatusCode.ERROR, message: stderr || "script exited non-zero" });
+    span.setAttributes({
+      "error.type": "subprocess_nonzero_exit",
+      "error.code": "subprocess_nonzero_exit",
+      "error.location": toolName,
+      "error.context": `status=${result.status}`,
+    });
   }
 
   let parsed;
