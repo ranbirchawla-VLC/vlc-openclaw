@@ -1122,7 +1122,7 @@ Five new plugin tools: `create_event`, `update_event`, `cancel_event`, `search_c
 
 **O-2: Zoom Server-to-Server OAuth** — GREEN 2026-05-10. `zoom_api.py` built; `create_event` and `update_event` wired. Zoom credentials at `~/.openclaw/credentials/zoom-creds.json`. Live test confirmed join URL in calendar event location field. 283/283 Python, 10/10 JS green.
 
-**O-3: Continuity turn routing breaks mid-flow** — When `contact_not_found` fires and Trina asks for an email, the user's reply ("her email is X@y.com") gets routed to `contacts` intent by `trina_dispatch` instead of continuing the `calendar_write` flow. Event eventually creates correctly (LLM recovers) but requires extra turns. Fix: continuity-turn detection in `turn_state.py` needs to handle mid-flow replies, or `calendar_write.md` needs stronger instruction to bypass re-dispatch on continuation.
+**O-3: Continuity turn routing** — GREEN 2026-05-10. `calendar_write.md` Branch B updated: explicit instruction to call `create_event` directly on follow-up reply, never re-dispatch via `trina_dispatch`. Guardrail 6 added. Live test confirmed.
 
 ### Infrastructure fix: Python 3.11 → 3.13 via uv
 
@@ -1134,19 +1134,36 @@ Homebrew removed Python 3.11 (project's original Python), breaking the venv. Fix
 
 Gateway `OPENCLAW_PYTHON_BIN` points to `.venv/bin/python` which now resolves to uv's CPython 3.13 at `~/.local/share/uv/python/cpython-3.13-macos-aarch64-none/bin/python3.13`.
 
-### Next session: Zoom Server-to-Server OAuth
-
-Setup (one-time operator steps, not code):
-1. Go to marketplace.zoom.us → Develop → Build App → Server-to-Server OAuth
-2. Add scopes: `meeting:write`, `meeting:read`, `user:read`
-3. Copy `account_id`, `client_id`, `client_secret` — store in `~/.openclaw/credentials/zoom-creds.json`
-
-Build scope:
-- `scripts/calendar/zoom_api.py` — internal module: `get_zoom_token()`, `create_zoom_meeting(topic, start_time, duration_minutes, tz)`; returns `{join_url, meeting_id, password}`
-- Modify `create_event.py` and `update_event.py`: when `add_zoom=true`, call `create_zoom_meeting()` first, embed join URL in event `location` field (or as `conferenceData` with pre-populated Zoom data)
-- Remove the broken `conferenceData.createRequest` with `type: "addOn"`
-- Add `~/.openclaw/credentials/zoom-creds.json` path to env vars / plist
-
 ### Live tool surface as of 2026-05-10
 
 `trina_dispatch`, `get_today_date`, `update_profile`, `complete`, `capture`, `create_event`, `update_event`, `cancel_event`, `search_contacts`, `create_contact`, `query_tasks`, `query_ideas`, `query_parking_lot`, `review`, `list_events`, `get_event`, `message` (17 tools)
+
+---
+
+## Zoom OAuth + create_contact expansion + O-3 fix (2026-05-10)
+
+**Squash commit on main:** `986fb4c` — `[build] Zoom OAuth, create_contact expansion, calendar_write O-3 fix`
+
+**289/289 Python, 10/10 JS green.**
+
+### What was built
+
+**`zoom_api.py`** — internal module: `get_zoom_token()` (Server-to-Server OAuth) + `create_zoom_meeting(topic, start_time, duration_minutes, tz)`. Credentials at `~/.openclaw/credentials/zoom-creds.json`. 6 unit tests.
+
+**`create_event` + `update_event`** — broken `conferenceData.createRequest` (`type: "addOn"`) replaced with Zoom API call. Join URL embedded in event `location` field. `update_event` pre-fetches existing event when `start`/`summary` not in patch. Zoom meeting creation requires scope `meeting:write:meeting` on Zoom Server-to-Server OAuth app.
+
+**`create_contact` full field expansion** — new optional fields: `first_name`, `last_name`, `company`, `title`, `notes`, `phone_type` (mobile/work/home), `email_type` (work/home/other). `contacts_api._fmt_contact` updated to surface `company` and `title` in search results. `_PERSON_FIELDS` expanded to include `organizations,biographies`. 5 new tests (tests 9–13). Schema regenerated (15 tools).
+
+**`contacts.md`** — Branch E (missing email — ask before calling tool); Branch C exact render format; LLM Responsibilities updated for all new fields; LLM test 12 added (contacts intent via LLM fallback).
+
+**`calendar_write.md`** — Branch B: explicit `do NOT call trina_dispatch` rule on `contact_not_found` follow-up reply; Guardrail 6 added.
+
+### Infrastructure fix: git signing identity
+
+Global `~/.gitconfig` `user.signingkey` was pointing to `ansible-managed-key` (`rchawla@ritchiebros.com`). Corrected to `id_ed25519` (`ranbir.chawla@rnvillc.com`). `~/.config/git/allowed_signers` updated to match.
+
+### State as of 2026-05-10 session close
+
+- All three calendar write open issues closed: O-1 (People API), O-2 (Zoom OAuth), O-3 (continuity routing)
+- No known open issues
+- **Next:** 2d — `update` tool (field edits on existing tasks/ideas) + `delete` tool
