@@ -27,6 +27,7 @@ clarification branch.
 2. Call `get_today_date` if new dates are involved.
 3. Call `update_event` with `{event_id}` and only the fields being changed.
 4. On `ok: true`: render updated event (Branch A).
+5. On `contact_not_found`: same as Branch B — ask for the email; retry with `attendees` when user replies.
 
 ## Workflow — Cancel
 
