@@ -78,10 +78,8 @@ help:
 	@echo "  make test-gtd-llm               - run GTD LLM tests (3x require-all-pass)""
 
 setup:
-	test -d .venv || python3.11 -m venv .venv
-	$(PYTHON) -m pip install --upgrade pip
-	$(PYTHON) -m pip install -e "./skills/nutriosv2[dev]"
-	$(PYTHON) -m pip install -e "./gtd-workspace[dev]"
+	test -d .venv || python3 -m venv .venv
+	uv pip install -e "./gtd-workspace[dev]" --python $(PYTHON)
 
 test:
 	$(PYTEST)
