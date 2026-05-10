@@ -1100,3 +1100,53 @@ Root cause of remaining LLM arithmetic: LLM was reading the `-04:00` offset in `
 - **Profile:** Ranbir seeded at `~/agent_data/gtd-agent/users/8712103657/profile.json`
 - **Next sub-step: 2d** — update semantics (`update` tool for field edits) + `delete` tool. No reopen; no parking_lot completion. Parking_lot items move to tasks/ideas (LLM orchestrates capture + delete) or are deleted.
 - **Calendar write (create/edit events):** prioritised over 2d per supervisor. Scope: `create_event.py` + `update_event.py` plugin tools; `events.insert()` and `events.patch()` Google Calendar API; timezone from profile; attendees as email list.
+
+---
+
+## Calendar write + Contacts (2026-05-10)
+
+**Squash commits on main:**
+- `cc2ac56` — `[build] calendar write + contacts`
+- `f38cbdc` — `fix: calendar_write.md contact_not_found branch (Gate 2 B-2)`
+- `a01b333` — `chore: Makefile setup — python3 + uv`
+
+### What was built
+
+Five new plugin tools: `create_event`, `update_event`, `cancel_event`, `search_contacts`, `create_contact`. `create_event` resolves `attendee_names` to emails via Google Contacts API (People API) before creating; returns `contact_not_found` for unresolved names. Zoom meeting attached via Google Workspace add-on (`conferenceData.createRequest`, `conferenceSolutionKey.type: "addOn"`). New `calendar_write` and `contacts` intents in `trina_dispatch`. Internal module `scripts/contacts/contacts_api.py` shared by calendar and contacts tools.
+
+**276/276 Python tests, 9/9 JS tests. Gate 2 cleared by code-reviewer subagent.**
+
+### Open issues found in Gate 3
+
+**O-1: Google People API not enabled** — `create_event` with `attendee_names` fails with `contacts_api_error` (403). Operator step: Google Cloud Console → APIs & Services → Enable "People API" on the project linked to `trina-google-creds.json`.
+
+**O-2: `add_zoom` returns 400 "Invalid conference type value"** — The Calendar API `createRequest` does not support `type: "addOn"` for programmatic Zoom meeting creation. The Workspace add-on creates Zoom meetings server-side (UI only). To create Zoom meetings programmatically, the Zoom API is required. Resolution: implement Zoom Server-to-Server OAuth (no browser flow; store `account_id`, `client_id`, `client_secret`). **This is the next build task.**
+
+**O-3: Continuity turn routing breaks mid-flow** — When `contact_not_found` fires and Trina asks for an email, the user's reply ("her email is X@y.com") gets routed to `contacts` intent by `trina_dispatch` instead of continuing the `calendar_write` flow. Event eventually creates correctly (LLM recovers) but requires extra turns. Fix: continuity-turn detection in `turn_state.py` needs to handle mid-flow replies, or `calendar_write.md` needs stronger instruction to bypass re-dispatch on continuation.
+
+### Infrastructure fix: Python 3.11 → 3.13 via uv
+
+Homebrew removed Python 3.11 (project's original Python), breaking the venv. Fixed by:
+1. Installing `uv` (already present at `0.11.12`)
+2. `uv venv .venv --python python3.13 --clear` — uv uses its own bundled CPython that doesn't link against macOS system libexpat
+3. `uv pip install -e "./gtd-workspace[dev]"` — 51 packages installed
+4. Makefile updated: `python3.11 -m venv` → `python3 -m venv` + `uv pip install`
+
+Gateway `OPENCLAW_PYTHON_BIN` points to `.venv/bin/python` which now resolves to uv's CPython 3.13 at `~/.local/share/uv/python/cpython-3.13-macos-aarch64-none/bin/python3.13`.
+
+### Next session: Zoom Server-to-Server OAuth
+
+Setup (one-time operator steps, not code):
+1. Go to marketplace.zoom.us → Develop → Build App → Server-to-Server OAuth
+2. Add scopes: `meeting:write`, `meeting:read`, `user:read`
+3. Copy `account_id`, `client_id`, `client_secret` — store in `~/.openclaw/credentials/zoom-creds.json`
+
+Build scope:
+- `scripts/calendar/zoom_api.py` — internal module: `get_zoom_token()`, `create_zoom_meeting(topic, start_time, duration_minutes, tz)`; returns `{join_url, meeting_id, password}`
+- Modify `create_event.py` and `update_event.py`: when `add_zoom=true`, call `create_zoom_meeting()` first, embed join URL in event `location` field (or as `conferenceData` with pre-populated Zoom data)
+- Remove the broken `conferenceData.createRequest` with `type: "addOn"`
+- Add `~/.openclaw/credentials/zoom-creds.json` path to env vars / plist
+
+### Live tool surface as of 2026-05-10
+
+`trina_dispatch`, `get_today_date`, `update_profile`, `complete`, `capture`, `create_event`, `update_event`, `cancel_event`, `search_contacts`, `create_contact`, `query_tasks`, `query_ideas`, `query_parking_lot`, `review`, `list_events`, `get_event`, `message` (17 tools)
