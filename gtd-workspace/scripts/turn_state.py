@@ -41,14 +41,16 @@ _MAX_RETRIES = 3
 
 _VALID_INTENTS: frozenset[str] = frozenset({
     "capture",
+    "calendar_read",
+    "calendar_write",
     "complete",
+    "contacts",
     "onboard",
     "query_tasks",
     "query_ideas",
     "query_parking_lot",
     "review",
     "update_profile",
-    "calendar_read",
     "unknown",
 })
 
@@ -114,6 +116,29 @@ _SIGNALS: list[tuple[str, list[re.Pattern[str]]]] = [
         re.compile(r"\bdo\b.{0,20}\breview\b", re.I),
         re.compile(r"\bmy review\b", re.I),
     ]),
+    # calendar_write before calendar_read: more specific patterns must win first
+    ("calendar_write", [
+        re.compile(r"\bschedule\b.{0,30}\bmeeting\b", re.I),
+        re.compile(r"\bschedule\b.{0,30}\bcall\b", re.I),
+        re.compile(r"\bcreate\b.{0,20}\bevent\b", re.I),
+        re.compile(r"\badd\b.{0,20}\bcalendar\b", re.I),
+        re.compile(r"\bset\s+up\b.{0,20}\bmeeting\b", re.I),
+        re.compile(r"\bset\s+up\b.{0,20}\bcall\b", re.I),
+        re.compile(r"\bbook\b.{0,20}\bmeeting\b", re.I),
+        re.compile(r"\breschedule\b", re.I),
+        re.compile(r"\bmove\b.{0,20}\bmeeting\b", re.I),
+        re.compile(r"\bcancel\b.{0,20}\b(meeting|event|call|standup|appointment)\b", re.I),
+        re.compile(r"\bdelete\b.{0,20}\bevent\b", re.I),
+    ]),
+    ("contacts", [
+        re.compile(r"\bfind\b.{0,20}\bcontacts?\b", re.I),
+        re.compile(r"\bsearch\b.{0,20}\bcontacts?\b", re.I),
+        re.compile(r"\badd\b.{0,20}\bcontacts?\b", re.I),
+        re.compile(r"\bcreate\b.{0,20}\bcontacts?\b", re.I),
+        re.compile(r"\bfind\b.{0,30}\bemail\b", re.I),
+        re.compile(r"\bwhat'?s\b.{0,20}\bemail\b", re.I),
+        re.compile(r"\bwhat'?s\b.{0,20}\bphone\b", re.I),
+    ]),
     ("calendar_read", [
         re.compile(r"\bcalendar\b", re.I),
         re.compile(r"\bschedule\b", re.I),
@@ -171,16 +196,18 @@ def _load_api_key() -> str:
 
 _CLASSIFIER_PROMPT = """You are an intent classifier for Trina, a GTD assistant. Your only task is intent classification.
 
-The only valid output values are exactly these ten:
+The only valid output values are exactly these twelve:
 - capture: user wants to record a task, idea, or parking-lot item
+- calendar_read: user wants to read calendar events or schedule
+- calendar_write: user wants to create, update, reschedule, or cancel a calendar event or meeting
 - complete: user wants to mark a task or idea as done (e.g. "mark X done", "done with X", "cross that off")
+- contacts: user wants to find, look up, or add a contact
 - onboard: user is new and wants to set up their profile (e.g. "hello", "hi", "set up my profile")
-- update_profile: user wants to change their timezone or name (e.g. "I'm in New York now", "change my timezone")
 - query_tasks: user wants to see their task list or next actions
 - query_ideas: user wants to see their ideas
 - query_parking_lot: user wants to see their parking lot
 - review: user wants to run a GTD review pass
-- calendar_read: user wants to read calendar events or schedule
+- update_profile: user wants to change their timezone or name (e.g. "I'm in New York now", "change my timezone")
 - unknown: anything else -- out-of-scope, ambiguous
 
 Return exactly: {"intent": "<value>"}
@@ -188,6 +215,11 @@ No prose. No explanation. No additional fields.
 
 Correct examples:
 "add a task to call the dentist" -> {"intent": "capture"}
+"schedule a meeting with Heather" -> {"intent": "calendar_write"}
+"cancel the Monday standup" -> {"intent": "calendar_write"}
+"reschedule my 3pm call" -> {"intent": "calendar_write"}
+"find Heather's email" -> {"intent": "contacts"}
+"add Marcus to my contacts" -> {"intent": "contacts"}
 "mark the call with Chris as done" -> {"intent": "complete"}
 "hello" -> {"intent": "onboard"}
 "I'm in New York now" -> {"intent": "update_profile"}

@@ -27,6 +27,98 @@ export const TOOLS = [
   // Calendar tools
   // ---------------------------------------------------------------------------
   {
+    _script: "calendar/create_event.py",
+    _spawn: "argv",
+    name: "create_event",
+    description: "Create a Google Calendar event. Accepts attendee_names (display names resolved to emails via Google Contacts) and/or attendees (email addresses). Set add_zoom=true to attach a Zoom meeting via the Google Workspace add-on. Returns {ok: true, data: {event: {id, summary, start, end, html_link, attendees, zoom_url}}}. Error codes: contact_not_found (unresolved_names list included), calendar_api_error.",
+    parameters: {
+      type: "object",
+      properties: {
+        user_id:        { type: "string",  description: "sender_id from conversation metadata. Used to resolve profile timezone." },
+        summary:        { type: "string",  description: "Event title." },
+        start:          { type: "string",  description: "Start datetime, ISO 8601 without UTC offset (e.g. '2026-05-12T14:00:00'). Use the timezone from get_today_date." },
+        end:            { type: "string",  description: "End datetime, ISO 8601 without UTC offset." },
+        timezone:       { type: "string",  description: "IANA timezone string. Omit to use the user's profile timezone." },
+        description:    { type: "string",  description: "Event description or agenda." },
+        location:       { type: "string",  description: "Physical location or video URL." },
+        attendees:      { type: "array",   items: { type: "string" }, description: "List of attendee email addresses." },
+        attendee_names: { type: "array",   items: { type: "string" }, description: "List of attendee display names. Python resolves each to an email via Google Contacts. Returns contact_not_found if any name cannot be resolved." },
+        add_zoom:       { type: "boolean", description: "If true, attach a Zoom meeting via the Google Workspace add-on. Join URL returned in zoom_url." },
+      },
+      required: ["summary", "start", "end"],
+    },
+  },
+  {
+    _script: "calendar/update_event.py",
+    _spawn: "argv",
+    name: "update_event",
+    description: "Update fields on an existing Google Calendar event using PATCH (only provided fields are changed). Supports attendee_names resolution via Google Contacts. Returns {ok: true, data: {event: {id, summary, start, end, html_link, attendees, zoom_url}}}.",
+    parameters: {
+      type: "object",
+      properties: {
+        user_id:        { type: "string",  description: "sender_id from conversation metadata." },
+        event_id:       { type: "string",  description: "Google Calendar event ID. Obtain from list_events." },
+        calendar_id:    { type: "string",  description: "Calendar ID (default: 'primary')." },
+        summary:        { type: "string",  description: "New event title." },
+        start:          { type: "string",  description: "New start datetime, ISO 8601 without UTC offset." },
+        end:            { type: "string",  description: "New end datetime, ISO 8601 without UTC offset." },
+        timezone:       { type: "string",  description: "IANA timezone string for start/end interpretation." },
+        description:    { type: "string",  description: "New event description." },
+        location:       { type: "string",  description: "New location." },
+        attendees:      { type: "array",   items: { type: "string" }, description: "Replace attendee list with these email addresses." },
+        attendee_names: { type: "array",   items: { type: "string" }, description: "Replace attendee list with these display names (resolved via Google Contacts)." },
+        add_zoom:       { type: "boolean", description: "If true, add a Zoom meeting to this event." },
+      },
+      required: ["event_id"],
+    },
+  },
+  {
+    _script: "calendar/cancel_event.py",
+    _spawn: "argv",
+    name: "cancel_event",
+    description: "Cancel (delete) a Google Calendar event. Sends cancellation notifications to attendees by default. Returns {ok: true, data: {cancelled: true, event_id: '...'}}.",
+    parameters: {
+      type: "object",
+      properties: {
+        event_id:     { type: "string", description: "Google Calendar event ID. Obtain from list_events." },
+        calendar_id:  { type: "string", description: "Calendar ID (default: 'primary')." },
+        send_updates: { type: "string", description: "'all' (default), 'externalOnly', or 'none'. Controls whether attendees are notified." },
+      },
+      required: ["event_id"],
+    },
+  },
+  // ---------------------------------------------------------------------------
+  // Contacts tools
+  // ---------------------------------------------------------------------------
+  {
+    _script: "contacts/search_contacts.py",
+    _spawn: "argv",
+    name: "search_contacts",
+    description: "Search Google Contacts by name or email. Returns {ok: true, data: {contacts: [{resource_name, name, email, phone, all_emails}], total_count}}.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Name or email to search for." },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    _script: "contacts/create_contact.py",
+    _spawn: "argv",
+    name: "create_contact",
+    description: "Create a new Google Contact. Returns {ok: true, data: {contact: {resource_name, name, email, phone}}}.",
+    parameters: {
+      type: "object",
+      properties: {
+        name:  { type: "string", description: "Full display name." },
+        email: { type: "string", description: "Primary email address." },
+        phone: { type: "string", description: "Phone number (optional)." },
+      },
+      required: ["name", "email"],
+    },
+  },
+  {
     _script: "calendar/get_events.py",
     _spawn: "argv",
     name: "list_events",

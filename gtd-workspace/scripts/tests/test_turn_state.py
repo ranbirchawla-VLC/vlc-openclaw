@@ -495,6 +495,28 @@ def test_main_stdout_contract(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("message,expected_intent", [
+    ("schedule a meeting with Heather", "calendar_write"),
+    ("cancel the Monday standup",       "calendar_write"),
+    ("reschedule my 3pm call",          "calendar_write"),
+    ("find Heather's email",            "contacts"),
+    ("add Marcus to my contacts",       "contacts"),
+])
+def test_calendar_write_and_contacts_signal_patterns(message, expected_intent, tmp_path, monkeypatch):
+    """Tests 21-25: calendar_write and contacts signal patterns route correctly.
+
+    Production failure: "schedule a meeting" dispatches to capture; Trina logs
+    a task instead of creating a calendar event.
+    Fails RED without calendar_write/contacts in _VALID_INTENTS and _SIGNALS.
+    Model/temperature: N/A -- deterministic signal path.
+    """
+    (tmp_path / f"{expected_intent}.md").write_text(f"# stub: {expected_intent}")
+    monkeypatch.setenv("GTD_CAPABILITIES_DIR", str(tmp_path))
+    import turn_state as ts
+    result = ts.compute_turn_state(message)
+    assert result["intent"] == expected_intent
+
+
+@pytest.mark.parametrize("message,expected_intent", [
     ("change my timezone to Eastern", "update_profile"),
     ("I'm in New York now",           "update_profile"),
     ("hello",                         "onboard"),

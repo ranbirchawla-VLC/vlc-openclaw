@@ -27,6 +27,11 @@ You have exactly these tools. No others exist in this agent.
 - get_today_date - Return today's date as YYYY-MM-DD in the user's timezone (from shared-tools plugin). Call before any flow that requires the current date.
 - list_events - List upcoming Google Calendar events.
 - get_event - Get a single Google Calendar event by ID.
+- create_event - Create a calendar event; resolves attendee_names to emails via Google Contacts; add_zoom attaches a Zoom meeting.
+- update_event - Update fields on an existing calendar event (PATCH).
+- cancel_event - Cancel a calendar event; notifies attendees by default.
+- search_contacts - Search Google Contacts by name or email.
+- create_contact - Create a new Google Contact.
 - update_profile - Read or create/update a user profile (name, timezone). Call read-only to check registration; call with name+timezone to register or update.
 - complete - Mark a GTD task or idea as done. Always query first to obtain the record_id.
 - capture - Capture a GTD record (task, idea, or parking_lot).

@@ -20,7 +20,7 @@
 PYTHON = .venv/bin/python
 PYTEST = $(PYTHON) -m pytest
 
-.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-eval-report-pipeline test-grailzee-eval-ingest-sales-plugin test-grailzee-eval-turn-state test-grailzee-cowork test-grailzee-ledger test-grailzee-ledger-schema test-grailzee-ledger-transform test-grailzee-ledger-lock test-grailzee-ledger-merge test-grailzee-ledger-prune test-grailzee-ledger-archive test-grailzee-ledger-read test-grailzee-ledger-orchestrator test-grailzee-ledger-integration test-gtd test-gtd-storage test-gtd-helpers test-gtd-common test-gtd-otel test-gtd-calendar test-gtd-internal test-gtd-capture test-gtd-complete test-gtd-profile test-gtd-update-profile test-gtd-queries test-gtd-delegation test-gtd-review test-gtd-migration test-gtd-turn-state test-gtd-shared-get-today-date test-gtd-llm
+.PHONY: help setup test test-fast test-llm lint test-nutrios test-nutrios-time test-nutrios-store test-nutrios-engine test-nutrios-models test-nutrios-context test-nutriosv2 test-nutriosv2-foundation test-nutriosv2-models test-nutriosv2-mesocycle test-nutriosv2-intent test-nutriosv2-turn-state test-nutriosv2-llm test-nutriosv2-llm-3x test-grailzee-eval test-grailzee-eval-build-shortlist test-grailzee-eval-run-analysis test-grailzee-eval-evaluate-deal test-grailzee-eval-report-pipeline test-grailzee-eval-ingest-sales-plugin test-grailzee-eval-turn-state test-grailzee-cowork test-grailzee-ledger test-grailzee-ledger-schema test-grailzee-ledger-transform test-grailzee-ledger-lock test-grailzee-ledger-merge test-grailzee-ledger-prune test-grailzee-ledger-archive test-grailzee-ledger-read test-grailzee-ledger-orchestrator test-grailzee-ledger-integration test-gtd test-gtd-storage test-gtd-helpers test-gtd-common test-gtd-otel test-gtd-calendar test-gtd-calendar-write test-gtd-contacts test-gtd-internal test-gtd-capture test-gtd-complete test-gtd-profile test-gtd-update-profile test-gtd-queries test-gtd-delegation test-gtd-review test-gtd-migration test-gtd-turn-state test-gtd-shared-get-today-date test-gtd-llm
 
 help:
 	@echo "Available targets:"
@@ -215,6 +215,12 @@ test-gtd-otel:
 
 test-gtd-calendar:
 	$(PYTEST) gtd-workspace/scripts/calendar
+
+test-gtd-calendar-write:
+	$(PYTEST) gtd-workspace/scripts/calendar/test_create_event.py gtd-workspace/scripts/calendar/test_update_event.py gtd-workspace/scripts/calendar/test_cancel_event.py
+
+test-gtd-contacts:
+	$(PYTEST) gtd-workspace/scripts/contacts
 
 test-gtd-capture:
 	$(PYTEST) gtd-workspace/scripts/gtd/tests/test_capture.py

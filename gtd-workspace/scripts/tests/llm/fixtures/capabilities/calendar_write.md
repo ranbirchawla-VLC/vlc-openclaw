@@ -1,0 +1,1 @@
+# stub: calendar_write

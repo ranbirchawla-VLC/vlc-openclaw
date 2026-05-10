@@ -24,6 +24,11 @@ Plugin tools registered with the gateway. All tool calls go through the plugin s
 
 | Tool | Description |
 |------|-------------|
+| `create_event` | Create a calendar event. Pass `attendee_names` (display names) and/or `attendees` (emails); Python resolves names via Google Contacts. Set `add_zoom: true` to attach Zoom. Returns `{ok: true, data: {event: {id, summary, start, end, html_link, attendees, zoom_url}}}`. Error codes: `contact_not_found` (with `unresolved_names`), `calendar_api_error`. |
+| `update_event` | Update fields on an existing event (PATCH). Only provided fields are changed. Same attendee resolution as create_event. Requires `event_id` from `list_events`. |
+| `cancel_event` | Cancel a calendar event. Notifies attendees by default (`send_updates: "all"`). Returns `{cancelled: true, event_id}`. |
+| `search_contacts` | Search Google Contacts by name or email. Returns `{contacts: [{resource_name, name, email, phone, all_emails}], total_count}`. |
+| `create_contact` | Create a new Google Contact. Requires `name` and `email`; optional `phone`. |
 | `list_events` | List upcoming Google Calendar events. Returns `{ok: true, data: {events: [{id, summary, start, end, attendees, location, description, html_link}]}}`. |
 | `get_event` | Get a single Google Calendar event by ID. Returns `{ok: true, data: {event: {...}}}` with the full event object. |
 
