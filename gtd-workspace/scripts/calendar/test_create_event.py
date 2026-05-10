@@ -212,7 +212,7 @@ def test_create_event_retries_on_transient() -> None:
 # ---------------------------------------------------------------------------
 
 def test_create_event_span_attributes() -> None:
-    """Span 'gtd.calendar.create_event' emits tool.name and calendar.tz."""
+    """Span 'gtd.calendar.create_event' emits tool.name, request.type, calendar.tz, user.id."""
     from create_event import run_create_event
 
     exporter = InMemorySpanExporter()
@@ -226,13 +226,16 @@ def test_create_event_span_attributes() -> None:
             start="2026-05-12T14:00:00",
             end="2026-05-12T15:00:00",
             tz="America/Denver",
+            user_id="test-user-1",
         )
 
     spans = exporter.get_finished_spans()
     span = next(s for s in spans if s.name == "gtd.calendar.create_event")
     attrs = dict(span.attributes)
     assert attrs["tool.name"] == "create_event"
+    assert attrs["request.type"] == "create_event"
     assert attrs["calendar.tz"] == "America/Denver"
+    assert attrs["user.id"] == "test-user-1"
 
 
 # ---------------------------------------------------------------------------

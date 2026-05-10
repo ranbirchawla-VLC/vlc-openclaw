@@ -192,3 +192,57 @@ def test_create_zoom_meeting_span_attributes() -> None:
     assert attrs["zoom.duration_minutes"] == 45
     assert attrs["zoom.timezone"] == "America/Denver"
     assert attrs["zoom.meeting_id"] == "99887766"
+
+
+# ---------------------------------------------------------------------------
+# Test 7: get_zoom_token OTEL span attributes — success path
+# ---------------------------------------------------------------------------
+
+def test_get_zoom_token_span_attributes() -> None:
+    """Span 'gtd.zoom.get_token' emits agent.id and zoom.grant_type on success.
+
+    Production failure: auth step invisible in Honeycomb; latency and failures
+    cannot be attributed to token acquisition vs meeting creation.
+    """
+    from zoom_api import get_zoom_token
+
+    exporter = InMemorySpanExporter()
+    otel_common.configure_tracer_provider(exporter)
+
+    with patch("zoom_api.httpx.post", return_value=_mock_http_response(_TOKEN_RESP)):
+        get_zoom_token(creds=_TEST_CREDS)
+
+    spans = exporter.get_finished_spans()
+    span = next(s for s in spans if s.name == "gtd.zoom.get_token")
+    attrs = dict(span.attributes)
+    assert attrs["agent.id"] == "gtd"
+    assert attrs["zoom.grant_type"] == "account_credentials"
+
+
+# ---------------------------------------------------------------------------
+# Test 8: get_zoom_token OTEL span — error.type set on auth failure
+# ---------------------------------------------------------------------------
+
+def test_get_zoom_token_error_span_attributes() -> None:
+    """error.type span attribute is set on the get_token span on HTTP failure.
+
+    Production failure: auth errors appear in Honeycomb without error.type,
+    making them unfilterabale by exception class.
+    """
+    from zoom_api import get_zoom_token
+    from common import GTDError
+
+    exporter = InMemorySpanExporter()
+    otel_common.configure_tracer_provider(exporter)
+
+    mock_resp = MagicMock(spec=httpx.Response)
+    mock_resp.raise_for_status.side_effect = _http_status_error(401)
+
+    with patch("zoom_api.httpx.post", return_value=mock_resp):
+        with pytest.raises(GTDError):
+            get_zoom_token(creds=_TEST_CREDS)
+
+    spans = exporter.get_finished_spans()
+    span = next(s for s in spans if s.name == "gtd.zoom.get_token")
+    attrs = dict(span.attributes)
+    assert attrs["error.type"] == "HTTPStatusError"

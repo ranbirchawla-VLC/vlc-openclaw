@@ -8,6 +8,7 @@ Usage: python3 create_contact.py '<json_args>'
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -43,6 +44,7 @@ class _Input(BaseModel):
     notes:      str | None = None
     phone_type: str = "mobile"
     email_type: str = "work"
+    user_id:    str | None = None
 
 
 def create_contact_tool(
@@ -56,16 +58,19 @@ def create_contact_tool(
     notes: str | None = None,
     phone_type: str = "mobile",
     email_type: str = "work",
+    user_id: str | None = None,
 ) -> dict:
-    import os
     tracer = get_tracer("gtd.contacts")
     with tracer.start_as_current_span(_SPAN_NAME) as span:
         span.set_attribute("agent.id", "gtd")
         span.set_attribute("tool.name", _TOOL_NAME)
+        span.set_attribute("request.type", _TOOL_NAME)
         for attr, env_var in _CONTEXT_ENV.items():
             val = os.environ.get(env_var)
             if val:
                 span.set_attribute(attr, val)
+        if user_id:
+            span.set_attribute("user.id", user_id)
         try:
             contact = _create(
                 name, email, phone,
@@ -84,6 +89,7 @@ def create_contact_tool(
         except Exception as exc:
             span.record_exception(exc)
             span.set_status(Status(StatusCode.ERROR, str(exc)))
+            span.set_attribute("error.type", type(exc).__name__)
             raise GTDError("contacts_api_error", f"Create failed: {exc}",
                            error_type=type(exc).__name__) from exc
 
@@ -110,6 +116,7 @@ def main() -> None:
                 notes=inp.notes,
                 phone_type=inp.phone_type,
                 email_type=inp.email_type,
+                user_id=inp.user_id,
             )
             ok(result)
         except GTDError as exc:

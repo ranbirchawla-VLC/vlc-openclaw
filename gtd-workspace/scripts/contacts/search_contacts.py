@@ -8,6 +8,7 @@ Usage: python3 search_contacts.py '<json_args>'
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -33,19 +34,22 @@ _CONTEXT_ENV = {
 
 
 class _Input(BaseModel):
-    query: str
+    query:   str
+    user_id: str | None = None
 
 
-def search_contacts_tool(query: str) -> dict:
-    import os
+def search_contacts_tool(query: str, user_id: str | None = None) -> dict:
     tracer = get_tracer("gtd.contacts")
     with tracer.start_as_current_span(_SPAN_NAME) as span:
         span.set_attribute("agent.id", "gtd")
         span.set_attribute("tool.name", _TOOL_NAME)
+        span.set_attribute("request.type", _TOOL_NAME)
         for attr, env_var in _CONTEXT_ENV.items():
             val = os.environ.get(env_var)
             if val:
                 span.set_attribute(attr, val)
+        if user_id:
+            span.set_attribute("user.id", user_id)
         try:
             contacts = _search(query)
             span.set_attribute("contacts.result_count", len(contacts))
@@ -55,6 +59,7 @@ def search_contacts_tool(query: str) -> dict:
         except Exception as exc:
             span.record_exception(exc)
             span.set_status(Status(StatusCode.ERROR, str(exc)))
+            span.set_attribute("error.type", type(exc).__name__)
             raise GTDError("contacts_api_error", f"Search failed: {exc}",
                            error_type=type(exc).__name__) from exc
 
@@ -72,7 +77,7 @@ def main() -> None:
 
     with attach_parent_trace_context():
         try:
-            result = search_contacts_tool(inp.query)
+            result = search_contacts_tool(inp.query, user_id=inp.user_id)
             ok(result)
         except GTDError as exc:
             err(exc)

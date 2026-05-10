@@ -155,10 +155,7 @@ _SIGNALS: list[tuple[str, list[re.Pattern[str]]]] = [
         re.compile(r"\bupdate\b.{0,15}\bmy name\b", re.I),
     ]),
     ("onboard", [
-        re.compile(r"^(hello|hi|hey)\s*[!?.]?\s*$", re.I),
-        re.compile(r"\bset up my profile\b", re.I),
-        re.compile(r"\bregister\b.{0,15}\bme\b", re.I),
-        re.compile(r"\bnew user\b", re.I),
+        re.compile(r"^/onboard\b", re.I),
     ]),
 ]
 
@@ -202,7 +199,7 @@ The only valid output values are exactly these twelve:
 - calendar_write: user wants to create, update, reschedule, or cancel a calendar event or meeting
 - complete: user wants to mark a task or idea as done (e.g. "mark X done", "done with X", "cross that off")
 - contacts: user wants to find, look up, or add a contact
-- onboard: user is new and wants to set up their profile (e.g. "hello", "hi", "set up my profile")
+- onboard: user typed the /onboard command to set up or update their profile
 - query_tasks: user wants to see their task list or next actions
 - query_ideas: user wants to see their ideas
 - query_parking_lot: user wants to see their parking lot
@@ -221,7 +218,7 @@ Correct examples:
 "find Heather's email" -> {"intent": "contacts"}
 "add Marcus to my contacts" -> {"intent": "contacts"}
 "mark the call with Chris as done" -> {"intent": "complete"}
-"hello" -> {"intent": "onboard"}
+"/onboard" -> {"intent": "onboard"}
 "I'm in New York now" -> {"intent": "update_profile"}
 "change my timezone to Eastern" -> {"intent": "update_profile"}
 "what tasks do I have this week?" -> {"intent": "query_tasks"}

@@ -519,15 +519,15 @@ def test_calendar_write_and_contacts_signal_patterns(message, expected_intent, t
 @pytest.mark.parametrize("message,expected_intent", [
     ("change my timezone to Eastern", "update_profile"),
     ("I'm in New York now",           "update_profile"),
-    ("hello",                         "onboard"),
-    ("set up my profile",             "onboard"),
+    ("/onboard",                      "onboard"),
+    ("/onboard please set me up",     "onboard"),
 ])
 def test_onboard_and_update_profile_signal_patterns(message, expected_intent, tmp_path, monkeypatch):
     """Tests 21-24: onboard and update_profile signal patterns route correctly.
 
-    Production failure: "hello" from new user routes to unknown; onboard flow
-    never triggered; user told to say hello but nothing happens.
-    Fails RED without onboard/update_profile in _VALID_INTENTS and _SIGNALS.
+    Production failure: /onboard command routes to unknown; onboard flow
+    never triggered; user cannot explicitly request profile setup.
+    Fails RED without onboard in _VALID_INTENTS and _SIGNALS.
     Model/temperature: N/A -- deterministic signal path.
     """
     (tmp_path / f"{expected_intent}.md").write_text(f"# stub: {expected_intent}")

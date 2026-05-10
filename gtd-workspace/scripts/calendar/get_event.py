@@ -35,7 +35,6 @@ _CONTEXT_ENV = {
     "session.id":      "OPENCLAW_SESSION_ID",
     "channel.type":    "OPENCLAW_CHANNEL_TYPE",
     "channel.peer_id": "OPENCLAW_CHANNEL_PEER_ID",
-    "request.type":    "OPENCLAW_REQUEST_TYPE",
 }
 
 
@@ -80,12 +79,15 @@ def run_get_event(event_id: str, calendar_id: str = "primary", user_id: str | No
     with tracer.start_as_current_span(_SPAN_NAME) as span:
         span.set_attribute("agent.id", "gtd")
         span.set_attribute("tool.name", _TOOL_NAME)
+        span.set_attribute("request.type", _TOOL_NAME)
         span.set_attribute("calendar.id", calendar_id)
         span.set_attribute("calendar.event_id", event_id)
         for attr, env_var in _CONTEXT_ENV.items():
             val = os.environ.get(env_var)
             if val:
                 span.set_attribute(attr, val)
+        if user_id:
+            span.set_attribute("user.id", user_id)
 
         tz = _resolve_tz(user_id, timezone)
         span.set_attribute("calendar.tz", tz)

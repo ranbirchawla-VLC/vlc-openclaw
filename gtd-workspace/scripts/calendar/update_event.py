@@ -108,17 +108,21 @@ def run_update_event(
     attendees: list[str] | None = None,
     attendee_names: list[str] | None = None,
     add_zoom: bool = False,
+    user_id: str | None = None,
 ) -> dict:
     tracer = get_tracer("gtd.calendar")
     with tracer.start_as_current_span(_SPAN_NAME) as span:
         span.set_attribute("agent.id", "gtd")
         span.set_attribute("tool.name", _TOOL_NAME)
+        span.set_attribute("request.type", _TOOL_NAME)
         span.set_attribute("calendar.event_id", event_id)
         span.set_attribute("calendar.tz", tz)
         for attr, env_var in _CONTEXT_ENV.items():
             val = os.environ.get(env_var)
             if val:
                 span.set_attribute(attr, val)
+        if user_id:
+            span.set_attribute("user.id", user_id)
 
         try:
             creds_obj = get_google_credentials(_SCOPES)
@@ -206,6 +210,7 @@ def run_update_event(
         except Exception as exc:
             span.record_exception(exc)
             span.set_status(Status(StatusCode.ERROR, str(exc)))
+            span.set_attribute("error.type", type(exc).__name__)
             raise GTDError(
                 "calendar_api_error",
                 f"Failed to update event: {exc}",
@@ -240,6 +245,7 @@ def main() -> None:
                 attendees=inp.attendees,
                 attendee_names=inp.attendee_names,
                 add_zoom=inp.add_zoom,
+                user_id=inp.user_id,
             )
             ok(result)
         except GTDError as exc:

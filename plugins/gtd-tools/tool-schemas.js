@@ -80,6 +80,7 @@ export const TOOLS = [
     parameters: {
       type: "object",
       properties: {
+        user_id:      { type: "string", description: "Sender's Telegram user ID from conversation metadata. Used to tag the observability span." },
         event_id:     { type: "string", description: "Google Calendar event ID. Obtain from list_events." },
         calendar_id:  { type: "string", description: "Calendar ID (default: 'primary')." },
         send_updates: { type: "string", description: "'all' (default), 'externalOnly', or 'none'. Controls whether attendees are notified." },
@@ -98,7 +99,8 @@ export const TOOLS = [
     parameters: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Name or email to search for." },
+        user_id: { type: "string", description: "Sender's Telegram user ID from conversation metadata. Used to tag the observability span." },
+        query:   { type: "string", description: "Name or email to search for." },
       },
       required: ["query"],
     },
@@ -111,6 +113,7 @@ export const TOOLS = [
     parameters: {
       type: "object",
       properties: {
+        user_id:    { type: "string", description: "Sender's Telegram user ID from conversation metadata. Used to tag the observability span." },
         name:       { type: "string", description: "Full display name (required)." },
         email:      { type: "string", description: "Primary email address (required)." },
         phone:      { type: "string", description: "Phone number." },

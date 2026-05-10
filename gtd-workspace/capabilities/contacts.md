@@ -10,14 +10,14 @@ capability is for explicit contact operations ("find Heather's email",
 ## Workflow — Search
 
 1. Extract search query (name or email fragment) from user message.
-2. Call `search_contacts` with `{query}`.
+2. Call `search_contacts` with `{user_id, query}`.
 3. On `ok: true`: render contacts per Verbatim Render Rule (Branch A).
 4. On empty results (total_count: 0): Branch B.
 
 ## Workflow — Create
 
 1. Extract fields from user message. Required: `name`, `email`. Optional: `phone`, `first_name`, `last_name`, `company`, `title`, `notes`, `phone_type` (mobile/work/home), `email_type` (work/home/other).
-2. Call `create_contact` with all available fields.
+2. Call `create_contact` with `{user_id}` and all available fields.
 3. On `ok: true`: confirm creation (Branch C).
 4. On `ok: false`: route to Branch D.
 

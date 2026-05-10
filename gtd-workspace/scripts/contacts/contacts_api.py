@@ -106,6 +106,7 @@ def search_contacts(query: str) -> list[dict]:
         except Exception as exc:
             span.record_exception(exc)
             span.set_status(Status(StatusCode.ERROR, str(exc)))
+            span.set_attribute("error.type", type(exc).__name__)
             raise GTDError(
                 "contacts_api_error",
                 f"Contacts search failed: {exc}",
@@ -192,6 +193,7 @@ def create_contact(
         except Exception as exc:
             span.record_exception(exc)
             span.set_status(Status(StatusCode.ERROR, str(exc)))
+            span.set_attribute("error.type", type(exc).__name__)
             raise GTDError(
                 "contacts_api_error",
                 f"Contact creation failed: {exc}",

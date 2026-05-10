@@ -35,7 +35,6 @@ _CONTEXT_ENV = {
     "session.id":      "OPENCLAW_SESSION_ID",
     "channel.type":    "OPENCLAW_CHANNEL_TYPE",
     "channel.peer_id": "OPENCLAW_CHANNEL_PEER_ID",
-    "request.type":    "OPENCLAW_REQUEST_TYPE",
 }
 
 
@@ -115,6 +114,7 @@ def run_list_events(
     with tracer.start_as_current_span(_SPAN_NAME) as span:
         span.set_attribute("agent.id", "gtd")
         span.set_attribute("tool.name", _TOOL_NAME)
+        span.set_attribute("request.type", _TOOL_NAME)
         span.set_attribute("calendar.id", calendar_id)
         span.set_attribute("time_min", resolved_min)
         span.set_attribute("time_max", resolved_max)
@@ -124,6 +124,8 @@ def run_list_events(
             val = os.environ.get(env_var)
             if val:
                 span.set_attribute(attr, val)
+        if user_id:
+            span.set_attribute("user.id", user_id)
 
         try:
             creds = get_google_credentials(_SCOPES)

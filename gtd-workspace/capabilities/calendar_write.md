@@ -25,14 +25,14 @@ clarification branch.
 
 1. Call `list_events` to identify the event and get its `id`.
 2. Call `get_today_date` if new dates are involved.
-3. Call `update_event` with `{event_id}` and only the fields being changed.
+3. Call `update_event` with `{user_id, event_id}` and only the fields being changed.
 4. On `ok: true`: render updated event (Branch A).
 5. On `contact_not_found`: same as Branch B — ask for the email; retry with `attendees` when user replies.
 
 ## Workflow — Cancel
 
 1. Call `list_events` to identify the event and get its `id`.
-2. Call `cancel_event` with `{event_id}`.
+2. Call `cancel_event` with `{user_id, event_id}`.
 3. On `ok: true`: confirm cancellation (Branch D).
 
 ## Verbatim Render Rule

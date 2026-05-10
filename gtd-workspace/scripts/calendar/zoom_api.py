@@ -42,21 +42,28 @@ def get_zoom_token(creds: dict | None = None) -> str:
     """Return a Zoom Server-to-Server OAuth access token."""
     if creds is None:
         creds = _load_creds()
-    try:
-        resp = httpx.post(
-            _TOKEN_URL,
-            params={"grant_type": "account_credentials", "account_id": creds["account_id"]},
-            auth=(creds["client_id"], creds["client_secret"]),
-            timeout=_TIMEOUT,
-        )
-        resp.raise_for_status()
-        return resp.json()["access_token"]
-    except (httpx.HTTPError, KeyError) as exc:
-        raise GTDError(
-            "zoom_auth_error",
-            f"Failed to obtain Zoom token: {exc}",
-            error_type=type(exc).__name__,
-        ) from exc
+    tracer = get_tracer("gtd.zoom")
+    with tracer.start_as_current_span("gtd.zoom.get_token") as span:
+        span.set_attribute("agent.id", "gtd")
+        span.set_attribute("zoom.grant_type", "account_credentials")
+        try:
+            resp = httpx.post(
+                _TOKEN_URL,
+                params={"grant_type": "account_credentials", "account_id": creds["account_id"]},
+                auth=(creds["client_id"], creds["client_secret"]),
+                timeout=_TIMEOUT,
+            )
+            resp.raise_for_status()
+            return resp.json()["access_token"]
+        except (httpx.HTTPError, KeyError) as exc:
+            span.record_exception(exc)
+            span.set_status(Status(StatusCode.ERROR, str(exc)))
+            span.set_attribute("error.type", type(exc).__name__)
+            raise GTDError(
+                "zoom_auth_error",
+                f"Failed to obtain Zoom token: {exc}",
+                error_type=type(exc).__name__,
+            ) from exc
 
 
 def create_zoom_meeting(
