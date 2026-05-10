@@ -1,45 +1,13 @@
-# OAuth Scopes — Trina Expansion
+# Trina — Complete Google OAuth Credential Spec
 
-Scopes required to support calendar write, Zoom meeting creation (via Google Workspace
-add-on), Google Contacts management, and Gmail management. Prepared 2026-05-10.
+Single OAuth credential covering all Trina surfaces: Calendar, Contacts, Gmail.
+One token file at `~/.openclaw/credentials/gtd-google-token.json`.
+
+Updated 2026-05-10.
 
 ---
 
-## Google OAuth (single credential, all scopes in one token)
-
-### Already configured (no action needed)
-
-These are live in `~/.openclaw/credentials/gtd-google-token.json`:
-
-```
-https://www.googleapis.com/auth/calendar
-https://www.googleapis.com/auth/calendar.events
-```
-
-These cover: read events, create events, update events, cancel/delete events, and
-adding conferencing data (including Zoom via the Workspace add-on). No new calendar
-scopes required.
-
-### New scopes to add
-
-Re-authenticate with the existing credential adding these scopes:
-
-```
-https://www.googleapis.com/auth/contacts
-https://www.googleapis.com/auth/contacts.other.readonly
-https://www.googleapis.com/auth/directory.readonly
-https://mail.google.com/
-```
-
-**Contacts scopes:**
-- `contacts` — full access: list, get, create, update, delete contacts
-- `contacts.other.readonly` — read "other contacts" (suggested contacts from Gmail history); needed for autocomplete and search
-- `directory.readonly` — read Google Workspace directory entries (shared org contacts)
-
-**Gmail scope:**
-- `mail.google.com/` — full Gmail access: read, search, send, draft, label, trash, delete. Use the full scope once rather than stacking narrower scopes that each require a separate re-auth to add.
-
-### Full scope list for re-authentication (copy-paste)
+## Complete scope list (all scopes, one per line)
 
 ```
 https://www.googleapis.com/auth/calendar
@@ -52,36 +20,61 @@ https://mail.google.com/
 
 ---
 
-## Zoom — no separate OAuth needed
+## What each scope enables
 
-Zoom is integrated into Google Workspace as a conferencing add-on. Creating a Zoom
-meeting is handled entirely through the Google Calendar API `conferenceData` field
-when creating or updating an event:
+### Calendar
+
+| Scope | Operations covered |
+|---|---|
+| `auth/calendar` | Read calendars list; read, create, update, delete events; add Zoom conferencing via Workspace add-on |
+| `auth/calendar.events` | Read, create, update, delete individual events; required alongside `calendar` for event write operations |
+
+Both calendar scopes are already live. No change needed there.
+
+### Contacts
+
+| Scope | Operations covered |
+|---|---|
+| `auth/contacts` | List contacts; get contact; create contact; update name/email/phone/address/notes; add and remove contact group memberships (tags/labels); delete contact |
+| `auth/contacts.other.readonly` | Read "Other contacts" — people from Gmail/Calendar history not in main Contacts; required for autocomplete and "did you mean" search |
+| `auth/directory.readonly` | Read Google Workspace org directory; surfaces shared company contacts across the workspace |
+
+Contact groups (what Google Contacts calls labels/tags) are managed via the People API `contactGroups` endpoint. The `auth/contacts` scope covers all group operations: create group, rename group, add member, remove member, delete group.
+
+### Gmail
+
+| Scope | Operations covered |
+|---|---|
+| `mail.google.com/` | Read inbox; read message body and attachments; search by query; list threads; send new message; reply; forward; create and save drafts; add labels; remove labels; move to trash; permanently delete |
+
+`mail.google.com/` is the full-access Gmail scope. It covers every operation you named. Using the single full-access scope avoids the need to re-auth each time a new Gmail operation is added.
+
+---
+
+## Zoom
+
+No separate OAuth credential required. Zoom is integrated into Google Workspace as a conferencing add-on. To create a Zoom meeting, include `conferenceData` in the Calendar API create/update request:
 
 ```json
 "conferenceData": {
   "createRequest": {
-    "requestId": "<unique-per-request-id>",
+    "requestId": "<unique-string-per-request>",
     "conferenceSolutionKey": { "type": "addOn" }
   }
 }
 ```
 
-Pass `conferenceDataVersion=1` in the API query parameters. Google routes the request
-to the Zoom Workspace add-on, which generates the meeting and returns the join URL in
-the event response under `conferenceData.entryPoints`.
-
-No Zoom API credentials, no Zoom OAuth app, no separate Zoom scopes required.
+Pass `conferenceDataVersion=1` in the query parameters. Google routes the request to the Zoom add-on; the join URL comes back in `conferenceData.entryPoints` on the event response.
 
 ---
 
-## Re-authentication procedure
+## Re-authentication
 
-After adding scopes in Google Cloud Console (APIs & Services → Credentials → OAuth
-consent screen → Scopes):
+1. Open Google Cloud Console → APIs & Services → OAuth consent screen → Scopes
+2. Add all scopes from the list above that are not yet present
+3. Save the consent screen
+4. Delete `~/.openclaw/credentials/gtd-google-token.json`
+5. Trigger any script that calls `get_google_credentials()` — it will open a browser OAuth flow
+6. Sign in and accept all requested scopes; the token is written back to the same path
 
-1. Delete `~/.openclaw/credentials/gtd-google-token.json` to force re-auth
-2. The next time a calendar or Gmail script runs, it will prompt for browser OAuth
-3. Accept all requested scopes; the new token is written back to the same path
-
-Note: all Google surfaces (Calendar, Contacts, Gmail) share the single token file.
+All surfaces (Calendar, Contacts, Gmail) share this single token file.
