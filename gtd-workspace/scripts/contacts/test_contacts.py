@@ -34,15 +34,28 @@ def _people_service_mock(results: list | None = None, created: dict | None = Non
     return service
 
 
-def _person(name: str = "Heather VanHalen", email: str = "heather@example.com",
-            resource_name: str = "people/123") -> dict:
-    return {
+def _person(
+    name: str = "Heather VanHalen",
+    email: str = "heather@example.com",
+    resource_name: str = "people/123",
+    company: str | None = None,
+    title: str | None = None,
+) -> dict:
+    p: dict = {
         "resourceName": resource_name,
         "names": [{"displayName": name}],
         "emailAddresses": [{"value": email}],
         "phoneNumbers": [],
         "memberships": [],
     }
+    if company or title:
+        org: dict = {}
+        if company:
+            org["name"] = company
+        if title:
+            org["title"] = title
+        p["organizations"] = [org]
+    return p
 
 
 # ---------------------------------------------------------------------------
@@ -201,3 +214,152 @@ def test_create_contact_tool_main(capsys) -> None:
     output = json.loads(capsys.readouterr().out)
     assert output["ok"] is True
     assert output["data"]["contact"]["name"] == "Marcus Lee"
+
+
+# ---------------------------------------------------------------------------
+# Test 9: _fmt_contact surfaces company and title from organizations
+# ---------------------------------------------------------------------------
+
+def test_fmt_contact_surfaces_company_and_title() -> None:
+    """_fmt_contact returns company and title when organizations present.
+
+    Production failure: search results omit company/title; LLM cannot
+    distinguish contacts with the same name at different companies.
+    """
+    from contacts_api import _fmt_contact
+
+    person = _person(company="Acme Corp", title="VP Sales")
+    contact = _fmt_contact(person)
+
+    assert contact["company"] == "Acme Corp"
+    assert contact["title"] == "VP Sales"
+
+
+def test_fmt_contact_company_title_none_when_absent() -> None:
+    """_fmt_contact returns None for company/title when organizations absent."""
+    from contacts_api import _fmt_contact
+
+    person = _person()
+    contact = _fmt_contact(person)
+
+    assert contact["company"] is None
+    assert contact["title"] is None
+
+
+# ---------------------------------------------------------------------------
+# Test 10: create_contact passes company and title in API body
+# ---------------------------------------------------------------------------
+
+def test_create_contact_company_and_title_in_body() -> None:
+    """company and title written to organizations[0] in People API body.
+
+    Production failure: company/title silently dropped; contact created without org info.
+    """
+    from contacts_api import create_contact
+
+    created = _person(name="Dana Cole", email="dana@example.com",
+                      company="Riviera LLC", title="Director")
+    service = _people_service_mock(created=created)
+
+    with patch("contacts_api.build", return_value=service), \
+         patch("contacts_api.get_google_credentials", return_value=MagicMock()):
+        contact = create_contact(
+            "Dana Cole", "dana@example.com",
+            company="Riviera LLC", title="Director",
+        )
+
+    body = service.people.return_value.createContact.call_args.kwargs["body"]
+    assert body["organizations"][0]["name"] == "Riviera LLC"
+    assert body["organizations"][0]["title"] == "Director"
+    assert contact["company"] == "Riviera LLC"
+    assert contact["title"] == "Director"
+
+
+# ---------------------------------------------------------------------------
+# Test 11: phone_type and email_type respected
+# ---------------------------------------------------------------------------
+
+def test_create_contact_phone_and_email_type() -> None:
+    """phone_type and email_type are written to the API body correctly.
+
+    Production failure: all phones created as mobile, all emails as work
+    regardless of user specification.
+    """
+    from contacts_api import create_contact
+
+    created = _person(name="Test User", email="test@example.com")
+    service = _people_service_mock(created=created)
+
+    with patch("contacts_api.build", return_value=service), \
+         patch("contacts_api.get_google_credentials", return_value=MagicMock()):
+        create_contact(
+            "Test User", "test@example.com",
+            phone="555-1234",
+            phone_type="work",
+            email_type="home",
+        )
+
+    body = service.people.return_value.createContact.call_args.kwargs["body"]
+    assert body["phoneNumbers"][0]["type"] == "work"
+    assert body["emailAddresses"][0]["type"] == "home"
+
+
+# ---------------------------------------------------------------------------
+# Test 12: notes written as biographies
+# ---------------------------------------------------------------------------
+
+def test_create_contact_notes_written() -> None:
+    """notes written to biographies[0] with TEXT_PLAIN contentType.
+
+    Production failure: notes silently dropped; no way to attach context to a contact.
+    """
+    from contacts_api import create_contact
+
+    created = _person()
+    service = _people_service_mock(created=created)
+
+    with patch("contacts_api.build", return_value=service), \
+         patch("contacts_api.get_google_credentials", return_value=MagicMock()):
+        create_contact("Test", "test@example.com", notes="Met at trade show 2026.")
+
+    body = service.people.return_value.createContact.call_args.kwargs["body"]
+    assert body["biographies"][0]["value"] == "Met at trade show 2026."
+    assert body["biographies"][0]["contentType"] == "TEXT_PLAIN"
+
+
+# ---------------------------------------------------------------------------
+# Test 13: main() round-trip with all new fields
+# ---------------------------------------------------------------------------
+
+def test_create_contact_tool_main_full_fields(capsys) -> None:
+    """main() accepts all new fields and threads them through to the API."""
+    from create_contact import main
+
+    created = _person(name="Dana Cole", email="dana@example.com",
+                      company="Riviera LLC", title="Director")
+    service = _people_service_mock(created=created)
+    args = json.dumps({
+        "name": "Dana Cole",
+        "email": "dana@example.com",
+        "phone": "303-555-0101",
+        "first_name": "Dana",
+        "last_name": "Cole",
+        "company": "Riviera LLC",
+        "title": "Director",
+        "notes": "Met at Vegas summit.",
+        "phone_type": "work",
+        "email_type": "work",
+    })
+
+    with patch("contacts_api.build", return_value=service), \
+         patch("contacts_api.get_google_credentials", return_value=MagicMock()), \
+         patch.object(sys, "argv", ["create_contact.py", args]):
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+    assert exc_info.value.code == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["ok"] is True
+    contact = output["data"]["contact"]
+    assert contact["company"] == "Riviera LLC"
+    assert contact["title"] == "Director"

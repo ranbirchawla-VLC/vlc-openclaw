@@ -13,14 +13,14 @@ import json
 import os
 import sys
 import time
-import uuid
+from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from common import DATA_ROOT, TZ, GTDError, err, get_google_credentials, ok
 from otel_common import _is_transient_google, attach_parent_trace_context, get_tracer
+from zoom_api import create_zoom_meeting
 
 from googleapiclient.discovery import build
 from opentelemetry.trace import Status, StatusCode
@@ -56,6 +56,14 @@ class _Input(BaseModel):
     attendees:       list[str] = []         # email addresses
     attendee_names:  list[str] = []         # display names to resolve via Contacts
     add_zoom:        bool = False
+
+
+def _duration_minutes(start: str, end: str) -> int:
+    try:
+        delta = datetime.strptime(end, "%Y-%m-%dT%H:%M:%S") - datetime.strptime(start, "%Y-%m-%dT%H:%M:%S")
+        return max(1, int(delta.total_seconds() / 60))
+    except ValueError:
+        return 60
 
 
 def _resolve_tz(user_id: str | None, timezone_override: str | None = None) -> str:
@@ -136,41 +144,43 @@ def run_create_event(
                 "start": {"dateTime": start, "timeZone": tz},
                 "end":   {"dateTime": end,   "timeZone": tz},
             }
+            # Zoom meeting — created before the Calendar event so join_url is available
+            join_url: str | None = None
+            if add_zoom:
+                zoom = create_zoom_meeting(
+                    topic=summary,
+                    start_time=start,
+                    duration_minutes=_duration_minutes(start, end),
+                    tz=tz,
+                )
+                join_url = zoom["join_url"]
+
             if description:
                 event_body["description"] = description
-            if location:
+            # Physical location goes into description when Zoom URL takes the location field
+            if location and join_url:
+                existing_desc = event_body.get("description", "")
+                event_body["description"] = f"Location: {location}\n\n{existing_desc}".strip()
+            elif location:
                 event_body["location"] = location
+            if join_url:
+                event_body["location"] = join_url
             if resolved_emails:
                 event_body["attendees"] = [{"email": e} for e in resolved_emails]
-            if add_zoom:
-                event_body["conferenceData"] = {
-                    "createRequest": {
-                        "requestId": str(uuid.uuid4()),
-                        "conferenceSolutionKey": {"type": "addOn"},
-                    }
-                }
 
             creds = get_google_credentials(_SCOPES)
             service = build("calendar", "v3", credentials=creds)
-
-            kwargs = {"calendarId": "primary", "body": event_body, "sendUpdates": "all"}
-            if add_zoom:
-                kwargs["conferenceDataVersion"] = 1
 
             last_exc: Exception | None = None
             for attempt in range(_MAX_RETRIES + 1):
                 if attempt > 0:
                     time.sleep(1)
                 try:
-                    event = service.events().insert(**kwargs).execute()
+                    event = service.events().insert(
+                        calendarId="primary", body=event_body, sendUpdates="all"
+                    ).execute()
                     span.set_attribute("calendar.event_id", event.get("id", ""))
-                    join_url = None
-                    if add_zoom:
-                        for ep in event.get("conferenceData", {}).get("entryPoints", []):
-                            if ep.get("entryPointType") == "video":
-                                join_url = ep.get("uri")
-                                break
-                    result = {
+                    return {
                         "event": {
                             "id":          event.get("id"),
                             "summary":     event.get("summary"),
@@ -181,7 +191,6 @@ def run_create_event(
                             "zoom_url":    join_url,
                         }
                     }
-                    return result
                 except Exception as exc:
                     if _is_transient_google(exc):
                         last_exc = exc

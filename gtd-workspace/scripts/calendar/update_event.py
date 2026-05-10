@@ -12,13 +12,14 @@ import json
 import os
 import sys
 import time
-import uuid
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from common import DATA_ROOT, TZ, GTDError, err, get_google_credentials, ok
 from otel_common import _is_transient_google, attach_parent_trace_context, get_tracer
+from zoom_api import create_zoom_meeting
 
 from googleapiclient.discovery import build
 from opentelemetry.trace import Status, StatusCode
@@ -56,6 +57,14 @@ class _Input(BaseModel):
     attendees:       list[str] | None = None
     attendee_names:  list[str] | None = None
     add_zoom:        bool = False
+
+
+def _duration_minutes(start: str, end: str) -> int:
+    try:
+        delta = datetime.strptime(end, "%Y-%m-%dT%H:%M:%S") - datetime.strptime(start, "%Y-%m-%dT%H:%M:%S")
+        return max(1, int(delta.total_seconds() / 60))
+    except ValueError:
+        return 60
 
 
 def _resolve_tz(user_id: str | None, timezone_override: str | None = None) -> str:
@@ -112,6 +121,9 @@ def run_update_event(
                 span.set_attribute(attr, val)
 
         try:
+            creds_obj = get_google_credentials(_SCOPES)
+            service = build("calendar", "v3", credentials=creds_obj)
+
             patch: dict = {}
             if summary is not None:
                 patch["summary"] = summary
@@ -139,41 +151,38 @@ def run_update_event(
             if resolved_emails:
                 patch["attendees"] = [{"email": e} for e in resolved_emails]
 
+            # Zoom meeting — fetch existing event if start/summary not in this patch
+            join_url: str | None = None
             if add_zoom:
-                patch["conferenceData"] = {
-                    "createRequest": {
-                        "requestId": str(uuid.uuid4()),
-                        "conferenceSolutionKey": {"type": "addOn"},
-                    }
-                }
+                existing = service.events().get(
+                    calendarId=calendar_id, eventId=event_id
+                ).execute()
+                meeting_start = start or existing.get("start", {}).get("dateTime", "")[:19]
+                meeting_end = end or existing.get("end", {}).get("dateTime", "")[:19]
+                meeting_topic = summary or existing.get("summary", "Meeting")
+                zoom = create_zoom_meeting(
+                    topic=meeting_topic,
+                    start_time=meeting_start,
+                    duration_minutes=_duration_minutes(meeting_start, meeting_end),
+                    tz=tz,
+                )
+                join_url = zoom["join_url"]
+                patch["location"] = join_url
 
             if not patch:
                 raise GTDError("no_fields_to_update", "No fields provided to update")
-
-            creds = get_google_credentials(_SCOPES)
-            service = build("calendar", "v3", credentials=creds)
-
-            kwargs = {
-                "calendarId": calendar_id,
-                "eventId": event_id,
-                "body": patch,
-                "sendUpdates": "all",
-            }
-            if add_zoom:
-                kwargs["conferenceDataVersion"] = 1
 
             last_exc: Exception | None = None
             for attempt in range(_MAX_RETRIES + 1):
                 if attempt > 0:
                     time.sleep(1)
                 try:
-                    event = service.events().patch(**kwargs).execute()
-                    join_url = None
-                    if add_zoom:
-                        for ep in event.get("conferenceData", {}).get("entryPoints", []):
-                            if ep.get("entryPointType") == "video":
-                                join_url = ep.get("uri")
-                                break
+                    event = service.events().patch(
+                        calendarId=calendar_id,
+                        eventId=event_id,
+                        body=patch,
+                        sendUpdates="all",
+                    ).execute()
                     return {
                         "event": {
                             "id":        event.get("id"),

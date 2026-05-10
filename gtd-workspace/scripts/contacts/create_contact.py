@@ -33,12 +33,30 @@ _CONTEXT_ENV = {
 
 
 class _Input(BaseModel):
-    name:  str
-    email: str
-    phone: str | None = None
+    name:       str
+    email:      str
+    phone:      str | None = None
+    first_name: str | None = None
+    last_name:  str | None = None
+    company:    str | None = None
+    title:      str | None = None
+    notes:      str | None = None
+    phone_type: str = "mobile"
+    email_type: str = "work"
 
 
-def create_contact_tool(name: str, email: str, phone: str | None = None) -> dict:
+def create_contact_tool(
+    name: str,
+    email: str,
+    phone: str | None = None,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    company: str | None = None,
+    title: str | None = None,
+    notes: str | None = None,
+    phone_type: str = "mobile",
+    email_type: str = "work",
+) -> dict:
     import os
     tracer = get_tracer("gtd.contacts")
     with tracer.start_as_current_span(_SPAN_NAME) as span:
@@ -49,7 +67,16 @@ def create_contact_tool(name: str, email: str, phone: str | None = None) -> dict
             if val:
                 span.set_attribute(attr, val)
         try:
-            contact = _create(name, email, phone)
+            contact = _create(
+                name, email, phone,
+                first_name=first_name,
+                last_name=last_name,
+                company=company,
+                title=title,
+                notes=notes,
+                phone_type=phone_type,
+                email_type=email_type,
+            )
             span.set_attribute("contacts.resource_name", contact.get("resource_name", ""))
             return {"contact": contact}
         except GTDError:
@@ -74,7 +101,16 @@ def main() -> None:
 
     with attach_parent_trace_context():
         try:
-            result = create_contact_tool(inp.name, inp.email, inp.phone)
+            result = create_contact_tool(
+                inp.name, inp.email, inp.phone,
+                first_name=inp.first_name,
+                last_name=inp.last_name,
+                company=inp.company,
+                title=inp.title,
+                notes=inp.notes,
+                phone_type=inp.phone_type,
+                email_type=inp.email_type,
+            )
             ok(result)
         except GTDError as exc:
             err(exc)

@@ -1,6 +1,6 @@
 """LLM tests for turn_state.py.
 
-9 fixtures at temperature=0, claude-sonnet-4-6, 3x require-all-pass via run_llm_3x.py.
+12 fixtures at temperature=0, claude-sonnet-4-6, 3x require-all-pass via run_llm_3x.py.
 GTD_CAPABILITIES_DIR points at stub files (set by conftest autouse fixture).
 
 Gate report answers (per CLAUDE.md extension, answered for this file):
@@ -159,6 +159,17 @@ def test_llm_greeting_routes_unknown():
 # ---------------------------------------------------------------------------
 # Test 11: no parameter extraction in LLM response
 # ---------------------------------------------------------------------------
+
+@pytest.mark.llm
+def test_llm_contacts_intent():
+    """Test 12: contact lookup phrasing routes to contacts.
+
+    Production failure: "look up Heather's email" misses the signal layer
+    (no 'contacts' keyword) and LLM routes to unknown; contact never found.
+    """
+    result = _classify("can you look up Heather's email for me?")
+    assert result["intent"] == "contacts"
+
 
 @pytest.mark.llm
 def test_llm_no_parameter_extraction():

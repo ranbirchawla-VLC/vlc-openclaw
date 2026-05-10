@@ -30,7 +30,7 @@ _SCOPES = [
     "https://www.googleapis.com/auth/directory.readonly",
 ]
 _MAX_RETRIES = 3
-_PERSON_FIELDS = "names,emailAddresses,phoneNumbers,memberships"
+_PERSON_FIELDS = "names,emailAddresses,phoneNumbers,organizations,biographies,memberships"
 
 
 def _people_service():
@@ -59,11 +59,14 @@ def _fmt_contact(person: dict) -> dict:
     names = person.get("names", [])
     emails = person.get("emailAddresses", [])
     phones = person.get("phoneNumbers", [])
+    orgs = person.get("organizations", [])
     return {
         "resource_name": person.get("resourceName"),
-        "name":  names[0].get("displayName") if names else None,
-        "email": emails[0].get("value") if emails else None,
-        "phone": phones[0].get("value") if phones else None,
+        "name":    names[0].get("displayName") if names else None,
+        "email":   emails[0].get("value") if emails else None,
+        "phone":   phones[0].get("value") if phones else None,
+        "company": orgs[0].get("name") if orgs else None,
+        "title":   orgs[0].get("title") if orgs else None,
         "all_emails": [e.get("value") for e in emails],
     }
 
@@ -121,8 +124,19 @@ def get_primary_email(name: str) -> str | None:
     return results[0].get("email")
 
 
-def create_contact(name: str, email: str, phone: str | None = None) -> dict:
-    """Create a new Google Contact with name, email, and optional phone.
+def create_contact(
+    name: str,
+    email: str,
+    phone: str | None = None,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    company: str | None = None,
+    title: str | None = None,
+    notes: str | None = None,
+    phone_type: str = "mobile",
+    email_type: str = "work",
+) -> dict:
+    """Create a new Google Contact.
 
     Returns the created contact as a projected dict.
     Raises GTDError on API failure or invalid input.
@@ -137,12 +151,30 @@ def create_contact(name: str, email: str, phone: str | None = None) -> dict:
         span.set_attribute("agent.id", "gtd")
         try:
             service = _people_service()
+
+            name_entry: dict = {"displayName": name}
+            if first_name:
+                name_entry["givenName"] = first_name
+            if last_name:
+                name_entry["familyName"] = last_name
+            if not first_name and not last_name:
+                name_entry["givenName"] = name
+
             body: dict = {
-                "names": [{"displayName": name, "givenName": name}],
-                "emailAddresses": [{"value": email, "type": "work"}],
+                "names": [name_entry],
+                "emailAddresses": [{"value": email, "type": email_type}],
             }
             if phone:
-                body["phoneNumbers"] = [{"value": phone, "type": "mobile"}]
+                body["phoneNumbers"] = [{"value": phone, "type": phone_type}]
+            if company or title:
+                org: dict = {"type": "work"}
+                if company:
+                    org["name"] = company
+                if title:
+                    org["title"] = title
+                body["organizations"] = [org]
+            if notes:
+                body["biographies"] = [{"value": notes, "contentType": "TEXT_PLAIN"}]
 
             def _call():
                 return service.people().createContact(

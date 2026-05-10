@@ -83,19 +83,20 @@ def test_create_event_happy_path() -> None:
 # ---------------------------------------------------------------------------
 
 def test_create_event_with_zoom() -> None:
-    """add_zoom=True adds conferenceData to request and returns zoom_url.
+    """add_zoom=True calls Zoom API, sets location to join_url, returns zoom_url.
 
     Production failure: Zoom not wired; attendees must create meeting separately.
     """
     from create_event import run_create_event
 
-    zoom_url = "https://us06web.zoom.us/j/12345"
-    mock_event = _created_event(zoom_url=zoom_url)
-    service = MagicMock()
-    service.events.return_value.insert.return_value.execute.return_value = mock_event
+    zoom_join_url = "https://us06web.zoom.us/j/12345"
+    mock_event = _created_event()
 
-    with patch("create_event.build", return_value=service), \
-         patch("create_event.get_google_credentials", return_value=MagicMock()):
+    with patch("create_event.build", return_value=_make_service_mock(mock_event)), \
+         patch("create_event.get_google_credentials", return_value=MagicMock()), \
+         patch("create_event.create_zoom_meeting", return_value={
+             "join_url": zoom_join_url, "meeting_id": 12345, "password": "pw",
+         }) as mock_zoom:
         result = run_create_event(
             summary="Zoom call",
             start="2026-05-12T14:00:00",
@@ -104,12 +105,15 @@ def test_create_event_with_zoom() -> None:
             add_zoom=True,
         )
 
-    # Verify conferenceDataVersion=1 was passed in the insert call
-    insert_call_kwargs = service.events.return_value.insert.call_args.kwargs
-    assert insert_call_kwargs.get("conferenceDataVersion") == 1
-
-    # Verify zoom_url returned
-    assert result["event"]["zoom_url"] == zoom_url
+    # Zoom meeting created with correct args
+    mock_zoom.assert_called_once_with(
+        topic="Zoom call",
+        start_time="2026-05-12T14:00:00",
+        duration_minutes=60,
+        tz="America/Denver",
+    )
+    # join_url returned to caller
+    assert result["event"]["zoom_url"] == zoom_join_url
 
 
 # ---------------------------------------------------------------------------

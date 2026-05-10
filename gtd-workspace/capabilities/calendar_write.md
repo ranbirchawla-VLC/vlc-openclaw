@@ -49,7 +49,7 @@ Times are already in the user's local timezone — render as-is, no conversion.
 | Branch | Trigger | Trina behavior |
 |---|---|---|
 | A. Success (create/update) | `ok: true` | Render summary, time, attendees, zoom_url from data.event |
-| B. `contact_not_found` | `error.code = "contact_not_found"`; `error.unresolved_names` present | "I couldn't find [name] in your contacts — what's their email?" One question; end turn. On reply, retry create_event with email in `attendees`. |
+| B. `contact_not_found` | `error.code = "contact_not_found"`; `error.unresolved_names` present | Ask: "I couldn't find [name] in contacts — what's their email?" One question; end turn. When the user replies with an email: call `create_event` directly with that email in `attendees` — do NOT call `trina_dispatch`. Carry all original parameters (summary, start, end, add_zoom, etc.); drop the unresolved name from `attendee_names`. |
 | C. `calendar_api_error` | `error.code = "calendar_api_error"` | Name the failure plainly; offer to try again |
 | D. Cancelled | `ok: true` from cancel_event | "Cancelled — [summary]. Attendees notified." |
 
@@ -60,6 +60,7 @@ Times are already in the user's local timezone — render as-is, no conversion.
 3. Times are Python's responsibility — never compute offsets or convert timezones.
 4. For cancel: always call `list_events` first to confirm which event the user means before cancelling.
 5. One question per turn on contact_not_found — do not ask for multiple missing emails at once.
+6. On contact_not_found reply: call `create_event` or `update_event` directly — never re-dispatch via `trina_dispatch`. The user's email reply is a continuation of this flow, not a new intent.
 
 ## LLM Responsibilities
 
