@@ -537,15 +537,6 @@
       }
     },
     {
-      "name": "get_today_date",
-      "description": "Return today's date as YYYY-MM-DD in the America/Denver timezone. Call before any flow that requires the current date. Returns {ok: true, data: {date: \"YYYY-MM-DD\"}}.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "required": []
-      }
-    },
-    {
       "name": "build_macro_grid",
       "description": "Assemble the full 7-row macro grid from cycle intent. Returns {rows: [7 MacroRow objects in Sun-Sat order], weekly_kcal_target}. Each row: {weekday, calories, protein_g, fat_g, carbs_g, restrictions, protein_floor_g, fat_ceiling_g}. Per-day targets are sparse; absent fields use the baseline computation (TDEE minus normalized daily deficit). Per-day protein_floor_g or fat_ceiling_g in a target entry override the cycle baseline for that day only. Constraint violations return an error naming the day, the value, and resolution paths. Does not persist anything.",
       "inputSchema": {

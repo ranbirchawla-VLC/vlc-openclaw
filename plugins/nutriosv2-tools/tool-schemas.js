@@ -259,17 +259,6 @@ export const TOOLS = [
     },
   },
   {
-    _script: "get_today_date.py",
-    _spawn: "argv",
-    name: "get_today_date",
-    description: "Return today's date as YYYY-MM-DD in the America/Denver timezone. Call before any flow that requires the current date. Returns {ok: true, data: {date: \"YYYY-MM-DD\"}}.",
-    parameters: {
-      type: "object",
-      properties: {},
-      required: [],
-    },
-  },
-  {
     _script: "build_macro_grid.py",
     _spawn: "argv",
     name: "build_macro_grid",

@@ -1,0 +1,10 @@
+{
+  "gtd": {
+    "agent_data_path": "/Users/ranbirchawla/agent_data/gtd-agent/users",
+    "default_timezone": "America/Denver"
+  },
+  "nutriosv2": {
+    "agent_data_path": "/Users/ranbirchawla/agent_data/nutriosv2",
+    "default_timezone": "America/Denver"
+  }
+}

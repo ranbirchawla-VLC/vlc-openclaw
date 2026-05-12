@@ -1,0 +1,6 @@
+{
+  "id": "shared-tools",
+  "name": "Shared Tools",
+  "description": "Cross-agent utility tools: get_today_date with per-user timezone resolution.",
+  "configSchema": {}
+}

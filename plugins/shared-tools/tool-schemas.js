@@ -1,0 +1,21 @@
+// Tool schema definitions for the shared-tools plugin.
+// Each entry: { _script, _spawn, name, description, parameters }.
+// _script paths are relative to ~/.openclaw/workspace/scripts/shared/.
+export const TOOLS = [
+  {
+    _script: "get_today_date.py",
+    _spawn: "argv",
+    name: "get_today_date",
+    description: "Return today's date as YYYY-MM-DD in the user's timezone. Resolves timezone from user profile when user_id is provided; falls back to the agent's default_timezone. Call before any flow that requires the current date: due-date capture, overdue queries, review window, calendar default. Returns {ok: true, data: {date: \"YYYY-MM-DD\"}}.",
+    parameters: {
+      type: "object",
+      properties: {
+        user_id: {
+          type: "string",
+          description: "Sender's user ID; used to resolve per-user timezone from profile.json. Read sender_id from conversation metadata.",
+        },
+      },
+      required: [],
+    },
+  },
+];
