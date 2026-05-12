@@ -43,3 +43,7 @@ skills/nutrios/logs/
 # Environment
 .env
 .env.local
+.claude/*.lock
+
+# Node
+node_modules/
