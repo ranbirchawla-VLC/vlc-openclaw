@@ -1753,6 +1753,27 @@ Phase 2: `mesocycle_setup.md` rewrite per coach-shape ADR. Read in order:
 
 First section to draft: post-lock adjustment flow (what-if deficit/TDEE change → call tools, not arithmetic). This directly closes the Gate 3 behavioral gap.
 
+---
+
+### Session — 2026-05-02 (cont.)
+
+**AGENT_ARCHITECTURE.md — Date Sourcing Pattern addendum**
+- Commit: `9e7ea87` — `docs(architecture): add date sourcing pattern addendum [pre-review]`
+- Gate 2 (code-reviewer subagent): 0 blockers, 0 non-blockers, 3 observations
+  - O1: em-dashes in addendum mirror pre-existing section names in the file; not new habit; retroactive sweep is a separate cleanup task
+  - O2: failure-mode narrative density proportionate; no marketing language
+  - O3: all cross-references valid; test files confirmed on disk
+- No post-review commit (no blockers)
+- Doc-only change; no tests, no schemas, no openclaw.json changes
+
+**Step 5 — LLM test suite freeze (HALTED)**
+- Pre-flight failed: HEAD was `b6999fe` (Phase 1 Gate 3 close housekeeping), expected `2d1e8db`
+- One commit ahead of spec; no tests were run; no findings recorded
+- Step 5 is open. Supervisor must confirm whether to proceed against `b6999fe` or reset to `2d1e8db`
+
+**Next session — opening action:**
+Resolve Step 5 pre-flight (confirm HEAD) or proceed directly to Phase 2 `mesocycle_setup.md` rewrite.
+
 ### PE reminder
 
 Claude operates as Principal Engineer in this workspace: own build quality, push back when wrong, hold gate standards without being asked. Do not scaffold — deliver production-ready implementations. Surface spec-vs-precedent divergences before building, not after.

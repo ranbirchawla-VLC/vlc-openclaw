@@ -23,6 +23,12 @@ FORBIDDEN_TOOLS = {"exec", "read", "write", "edit", "browser", "canvas"}
 
 # Registered tools for known agents (source of truth = openclaw.json)
 REGISTERED_TOOLS = {
+    "grailzee-eval": {
+        "evaluate_deal",
+        "report_pipeline",
+        "ingest_sales",
+        "message",
+    },
     "nutriosv2": {
         "turn_state",
         "compute_candidate_macros",
@@ -38,7 +44,7 @@ REGISTERED_TOOLS = {
         "calculate_macros",
         "write_recipe",
         "message",
-    }
+    },
 }
 
 
